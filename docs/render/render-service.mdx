@@ -131,6 +131,10 @@ distributed locking. It exposes Prometheus metrics on port 8000.
 
 The service is configured using a configuration file (`config.py`). The configuration file contains the selected DCIM provider settings, NATS connection details (TLS, credentials), Redis connection for locking, Config Store client settings, and environment-specific aggregate management flags. External providers configure `dcim_change_stream` and `dcim_change_subject`; empty Helm values retain the historical Nautobot stream and subject.
 
+Set `global.defaultUserDomain` in Helm to supply the fallback domain used for
+Config Store attribution by the Render API, consumers, and template updater.
+The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
+
 ## Monitoring
 
 **Prometheus metrics**:

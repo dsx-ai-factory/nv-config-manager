@@ -19,8 +19,12 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from nv_config_manager.common.auth import auth_required, require_sso_or_device
-from nv_config_manager.common.client import ConfigStoreException, ConfigStoreFileNotFound
-from nv_config_manager.common.config import get_storage_client, temporal_client
+from nv_config_manager.common.client.config_store import (
+    ConfigStoreException,
+    ConfigStoreFileNotFound,
+)
+from nv_config_manager.common.client.factory import temporal_client
+from nv_config_manager.common.config.storage import get_storage_client
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMNotFoundError, dcim_client_session
 from nv_config_manager.ztp.api.schemas import ChecksumResponse

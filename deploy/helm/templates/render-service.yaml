@@ -70,6 +70,10 @@ spec:
           value: "render"
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         {{- include "nv-config-manager.fastApiMetricsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
@@ -209,6 +213,10 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
@@ -320,6 +328,10 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"
@@ -433,6 +445,10 @@ spec:
           value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
         - name: ENVIRONMENT
           value: {{ .Values.global.environment }}
+        {{- with .Values.global.defaultUserDomain }}
+        - name: NV_CONFIG_MANAGER_DOMAIN
+          value: {{ . | quote }}
+        {{- end }}
         {{- include "nv-config-manager.customLabelsEnv" . | nindent 8 }}
         - name: NV_CONFIG_MANAGER_DEV_SALT
           value: "W585uq6K"

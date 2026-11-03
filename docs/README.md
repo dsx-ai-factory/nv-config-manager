@@ -27,7 +27,7 @@ make docs-preview
 - OpenAPI specs are generated into `docs/api-specs/` with `make openapi`.
 - Installer TUI screenshots are generated into `docs/assets/images/installer/` with `make docs-screenshots`.
 - DSX Air sim TUI screenshots are generated into `docs/assets/images/air-sim/` with `make docs-air-sim-screenshots`.
-- Next.js UI screenshots are generated into `docs/assets/images/workflows/` and `docs/assets/images/dhcp/` with `make docs-ui-screenshots`.
+- Next.js UI screenshots are generated under `docs/assets/images/`, including `workflows/` and `dhcp/`, with `make docs-ui-screenshots`.
 
 ## Programmatic UI screenshots
 
@@ -36,6 +36,11 @@ docs-only specs in `ui/tests/docs-screenshots/`. The specs start the UI, serve
 mocked workflow API data, prepopulate workflow forms with stable URL
 parameters, capture workflow page states, and write PNGs to
 their matching directories under `docs/assets/images/`.
+
+`hyperreachReports.spec.ts` captures Connected Host Metadata results and the
+cable-validation report, including intended interface labels and observed LLDP port
+descriptions. Its sanitized fixtures cover matching metadata and differing naming
+conventions; the cable report fixture includes the formatter's Excel download.
 
 Live screenshots against `https://nvcm.air` are also possible when the browser
 is launched through the DSX Air SOCKS tunnel, but those are less reproducible

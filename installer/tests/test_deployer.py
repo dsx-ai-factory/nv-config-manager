@@ -1381,6 +1381,22 @@ class TestHelmInstall:
 
 
 class TestContentHashing:
+    @pytest.mark.parametrize("hash_directory", [False, True])
+    def test_hash_ignores_wall_clock(self, tmp_path: Path, hash_directory: bool):
+        """Unchanged files hash identically across clock ticks for either input type."""
+        job_dir = tmp_path / "my_job"
+        job_dir.mkdir()
+        job_file = job_dir / "main.py"
+        job_file.write_text("print('hello')")
+        source = job_dir if hash_directory else job_file
+
+        with patch("time.time", return_value=1_700_000_000):
+            h1 = _hash_content_dir([source])
+        with patch("time.time", return_value=1_700_000_002):
+            h2 = _hash_content_dir([source])
+
+        assert h1 == h2, "Wall-clock time should not affect the content hash"
+
     def test_deterministic_hash(self):
         with tempfile.TemporaryDirectory() as d:
             job_dir = Path(d) / "my_job"

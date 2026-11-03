@@ -13,9 +13,18 @@ FROM nv-config-manager-nautobot:${BASE_TAG} AS app
 
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36 AS test
 
+# Use the emSign remediation release instead of the base image's bundled uv.
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /usr/local/bin/
+
+COPY python-ca.py /tmp/python-ca.py
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && \
+    python /tmp/python-ca.py && \
+    uv pip install --system 'pip>=26.2.2' && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=app /opt/nautobot /opt/nautobot
 COPY --from=app /usr/lib/libpq.so* /usr/lib/

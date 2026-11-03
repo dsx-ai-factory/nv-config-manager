@@ -46,7 +46,7 @@ class JiraClientError(Exception):
 class JiraTicketingProvider(TicketingProvider):
     """Jira Data Center implementation of :class:`TicketingProvider`."""
 
-    max_attachment_size: int = 10 * 1024 * 1024
+    max_attachment_size: int | None = 10 * 1024 * 1024
 
     def __init__(self, base_url: str, api_token: str) -> None:
         """Initialize the provider with explicit credentials."""

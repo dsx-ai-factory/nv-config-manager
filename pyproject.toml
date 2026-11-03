@@ -8,6 +8,8 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.13"
 dependencies = [
+    # Remove compromised emSign CA trust (GHSA-6q48-6c7w-9gw2).
+    "certifi>=2026.10.19",
     # Core / Shared
     "click>=8.1.7",
     # Security: Fix idna vulnerability (GHSA-65pc-fj4g-8rjx)
@@ -175,7 +177,7 @@ dev = [
     "mock>=5.1.0",
 
     # Linting & Formatting
-    "ruff==0.16.3",
+    "ruff==0.17.3",
     "black>=24.10.0",
     "isort>=6.1.0",
     "mypy>=1.12.0",
@@ -213,6 +215,7 @@ docs = [
 ]
 
 [tool.uv]
+required-version = ">=0.13.5"
 package = true
 
 [tool.uv.workspace]
@@ -331,6 +334,7 @@ known-first-party = ["nv_config_manager", "nv_config_manager_workflows"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/tests/**/*.py" = ["B", "ANN"]
+"ci/tests/**/*.py" = ["B"]
 
 [tool.ruff.format]
 quote-style = "double"

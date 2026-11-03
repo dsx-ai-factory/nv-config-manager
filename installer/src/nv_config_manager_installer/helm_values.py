@@ -393,6 +393,8 @@ def _build_global(
     }
     if c.service_account_eks_role:
         section["serviceAccountEksRole"] = c.service_account_eks_role
+    if c.custom_labels:
+        section["customLabels"] = dict(c.custom_labels)
 
     if c.environment == "local":
         section["deploymentStrategy"] = {"type": "Recreate"}
@@ -1041,6 +1043,11 @@ def build_values(
         "client": temporal_client,
         "redfish": {"enabled": config.redfish.enabled},
     }
+    managed_temporal = svc.temporal and not external_temporal.address
+    if managed_temporal and config.temporal.history_replicas:
+        temporal_section["services"] = {"history": {"replicas": config.temporal.history_replicas}}
+    if managed_temporal and config.temporal.num_history_shards:
+        temporal_section["numHistoryShards"] = config.temporal.num_history_shards
     values["temporal"] = temporal_section
     values["rbac"] = _build_rbac(config)
     values["configStore"] = {"enabled": svc.config_store, "client": {"useInternalEndpoint": True}}

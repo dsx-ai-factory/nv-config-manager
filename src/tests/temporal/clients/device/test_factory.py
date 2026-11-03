@@ -38,6 +38,7 @@ from nv_config_manager.temporal.client.device import (
 )
 # isort: on
 
+from nv_config_manager.temporal.client.device.factory import from_device_data
 from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData, Platform
 from nv_config_manager_workflows.clients.device.arista import (
     AristaConnection as WorkflowAristaConnection,
@@ -180,37 +181,24 @@ def test_shared_compatibility_exports_are_canonical() -> None:
     assert service_device.NetworkDeviceData is NetworkDeviceData
 
 
-def test_base_factory_entry_point_delegates_to_service_factory() -> None:
-    config = _mock_config(mock=False)
-    expected = object()
-    with patch(
-        "nv_config_manager.temporal.client.device.factory.from_device_data",
-        return_value=expected,
-    ) as service_factory:
-        result = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
-
-    assert result is expected
-    service_factory.assert_called_once_with(_CUMULUS_DEVICE, config=config)
-
-
 def test_from_device_data_returns_mock_when_config_mock_true():
     """Config with [device] mock = true → from_device_data() returns MockNetworkConnection."""
     config = _mock_config(mock=True)
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
+    conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, MockNetworkConnection)
 
 
 def test_from_device_data_returns_cumulus_when_mock_false():
     """Config with [device] mock = false + cumulus-linux platform → returns CumulusConnection."""
     config = _mock_config(mock=False)
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
+    conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
 def test_from_device_data_returns_juniper_when_mock_false():
     """Config with mock = false + juniper-junos platform → JuniperConnection on the NETCONF port."""
     config = _mock_config(mock=False)
-    conn = NetworkConnection.from_device_data(_JUNIPER_DEVICE, config=config)
+    conn = from_device_data(_JUNIPER_DEVICE, config=config)
     assert isinstance(conn, JuniperConnection)
     assert conn._port == 830
 
@@ -218,7 +206,7 @@ def test_from_device_data_returns_juniper_when_mock_false():
 def test_from_device_data_selects_platform_when_mock_option_missing():
     """A [device] section without mock continues with normal platform selection."""
     config = _mock_config(mock=None)
-    conn = NetworkConnection.from_device_data(_CUMULUS_DEVICE, config=config)
+    conn = from_device_data(_CUMULUS_DEVICE, config=config)
     assert isinstance(conn, CumulusConnection)
 
 
@@ -239,7 +227,7 @@ def test_from_device_data_maps_every_workflow_selection_to_service_adapter(
     device = _CUMULUS_DEVICE.model_copy(update={"platform": platform})
 
     with patch.object(AristaConnection, "_connect"):
-        connection = NetworkConnection.from_device_data(
+        connection = from_device_data(
             device,
             config=_mock_config(mock=False),
         )
@@ -248,7 +236,7 @@ def test_from_device_data_maps_every_workflow_selection_to_service_adapter(
 
 
 def test_from_device_data_mock_mode_precedes_ufm_rejection() -> None:
-    connection = NetworkConnection.from_device_data(
+    connection = from_device_data(
         _UFM_DEVICE,
         config=_mock_config(mock=True),
     )
@@ -262,7 +250,7 @@ def test_from_device_data_loads_service_config_when_not_injected() -> None:
         "nv_config_manager.common.config.loader.load_config",
         return_value=config,
     ) as load_config:
-        connection = NetworkConnection.from_device_data(_CUMULUS_DEVICE)
+        connection = from_device_data(_CUMULUS_DEVICE)
 
     assert isinstance(connection, CumulusConnection)
     load_config.assert_called_once_with()
@@ -272,4 +260,4 @@ def test_from_device_data_rejects_ufm_platform():
     """UFM is inventoried as a platform but is not a NetworkConnection."""
     config = _mock_config(mock=False)
     with pytest.raises(NotImplementedError, match="use UFMClient"):
-        NetworkConnection.from_device_data(_UFM_DEVICE, config=config)
+        from_device_data(_UFM_DEVICE, config=config)

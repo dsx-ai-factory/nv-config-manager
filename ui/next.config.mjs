@@ -1,10 +1,19 @@
+import { PHASE_PRODUCTION_BUILD } from "next/constants.js";
+
 import { buildWorkflowRedirects } from "./src/config/workflow-redirects.mjs";
 import legacyWorkflowRedirects from "./src/config/legacy-workflow-redirects.json" with { type: "json" };
 import workflowFormIds from "./src/config/workflow-form-ids.json" with { type: "json" };
 
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+/**
+ * @param {string} phase
+ * @returns {import('next').NextConfig}
+ */
+const nextConfig = (phase) => ({
   output: 'standalone',
+  typescript: {
+    tsconfigPath:
+      phase === PHASE_PRODUCTION_BUILD ? "tsconfig.build.json" : "tsconfig.json",
+  },
   rewrites() {
     return [
       {
@@ -17,6 +26,6 @@ const nextConfig = {
   redirects() {
     return buildWorkflowRedirects(legacyWorkflowRedirects, workflowFormIds);
   },
-};
+});
 
 export default nextConfig;

@@ -46,7 +46,8 @@
 {% set _ = configured_parents.append(parent_name) %}
 {% endif %}
 {% endif %}
-{% set breakout = device_data|breakout_count(intf.name) if not is_sub and not intf.parent and not intf.primary_ipv4 and not intf.untagged_vlan else 0 %}
+{% set has_breakout_children = device_data|interfaces(prefix=intf.name ~ 's')|list|length > 0 %}
+{% set breakout = device_data|breakout_count(intf.name) if has_breakout_children and not is_sub and not intf.parent and not intf.primary_ipv4 and not intf.untagged_vlan else 0 %}
       {{ intf.name }}:
 {% if intf.description %}
         description: {{ intf.description }}

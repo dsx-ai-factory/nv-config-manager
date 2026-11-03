@@ -14,7 +14,8 @@
 # limitations under the License.
 """Server-side authentication and identity extraction for NVIDIA Config Manager services.
 
-All configuration is read from ``nv-config-manager.ini`` (via :func:`nv_config_manager.common.config.load_config`).
+All configuration is read from ``nv-config-manager.ini``
+(via :func:`nv_config_manager.common.config.loader.load_config`).
 
 INI sections::
 
@@ -883,7 +884,7 @@ def _install_openapi_auth_schema(
 
         return schema
 
-    app.openapi: Callable[[], dict[str, Any]] = openapi_with_auth  # type: ignore[misc,method-assign]
+    app.openapi = openapi_with_auth  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────
@@ -1001,7 +1002,7 @@ async def require_sso_or_device(request: Request) -> SSOIdentity | None:
 #
 # Installs a ``GET /whoami`` endpoint plus the ``normalize_auth_data``
 # middleware on a FastAPI app.  Shared across nv-config-manager FastAPI services so the
-# identity contract (request.state.user/roles/auth_source, /whoami response
+# identity contract (request.state.identity/user/roles/auth_source, /whoami response
 # shape) is guaranteed identical — regressions in one service can't diverge
 # from the others.  Used both by operational diagnostics ("who does X see me
 # as?") and by the SPIFFE client-injection integration tests.
@@ -1032,11 +1033,12 @@ def install_identity_probe(
       unless the path is in ``unauthenticated_paths``.  This keeps healthchecks
       as the explicit unauthenticated exception instead of requiring every route
       author to remember an auth dependency.
-    - Every request has ``request.state.user`` (str), ``request.state.roles``
-      (set[str]), and ``request.state.auth_source`` (str) populated from
-      :func:`extract_identity`, falling back to ``user="anonymous"`` and
-      ``auth_source="anonymous"`` when auth is disabled, or ``user="unknown"``
-      and ``auth_source="unknown"`` when auth is enabled but no identity can be derived.
+    - Every request has ``request.state.identity`` (``SSOIdentity | None``),
+      ``request.state.user`` (str), ``request.state.roles`` (set[str]), and
+      ``request.state.auth_source`` (str) populated from :func:`extract_identity`,
+      falling back to the anonymous identity when auth is disabled, or
+      ``identity=None``, ``user="unknown"``, and ``auth_source="unknown"`` when
+      auth is enabled but no identity can be derived.
     - ``GET /whoami`` returns the current caller's identity. By default this
       endpoint requires a trusted identity, matching the rest of the API
       surface; set ``require_auth=False`` only for local diagnostics.
@@ -1099,14 +1101,17 @@ def install_identity_probe(
         """
         identity = extract_identity(request, include_request_headers=accept_request_headers())
         if identity is not None:
+            request.state.identity = identity
             request.state.user = identity.user
             request.state.roles = identity.groups
             request.state.auth_source = identity.source
         elif not auth_required():
+            request.state.identity = ANONYMOUS_IDENTITY
             request.state.user = ANONYMOUS_IDENTITY.user
             request.state.roles = ANONYMOUS_IDENTITY.groups
             request.state.auth_source = ANONYMOUS_IDENTITY.source
         else:
+            request.state.identity = None
             request.state.user = "unknown"
             request.state.roles = {"all"}
             request.state.auth_source = "unknown"

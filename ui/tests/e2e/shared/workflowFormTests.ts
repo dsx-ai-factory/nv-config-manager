@@ -295,7 +295,9 @@ export const runWorkflowFormTests = (config: DeviceFormConfig) => {
             .includes(TENANT_LIST.tenant_a)
       );
       await choose(page, "Select Tenant (optional)...", TENANT_LIST.tenant_a);
-      await filtered;
+      const params = new URL((await filtered).url()).searchParams;
+      expect(params.getAll("site")).toEqual([site]);
+      expect(params.getAll("tenant")).toEqual([TENANT_LIST.tenant_a]);
     });
 
     test("disables the form while submitting", async ({ page }) => {

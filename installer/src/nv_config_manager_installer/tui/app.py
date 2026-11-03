@@ -264,7 +264,8 @@ class NVConfigManagerInstallerApp(App[None]):
             return
         outgoing = self._screens.get(self.active_section)
         if outgoing and self.active_section != "deploy" and hasattr(outgoing, "write_to_config"):
-            outgoing.write_to_config(self.config)
+            if not self._write_screen_config(self.active_section, outgoing):
+                return
         if outgoing:
             outgoing.display = False
         self.active_section = section_id
@@ -293,11 +294,23 @@ class NVConfigManagerInstallerApp(App[None]):
             else:
                 item.set_status("[ ]")
 
-    def collect_config(self) -> None:
+    def _write_screen_config(self, section_id: str, screen: Container) -> bool:
+        """Collect one screen, reporting user-input validation failures."""
+        try:
+            screen.write_to_config(self.config)  # type: ignore[attr-defined]
+        except ValueError as exc:
+            label = dict(self.section_labels()).get(section_id, section_id)
+            self.notify(f"{label} validation error: {exc}", severity="error", markup=False)
+            return False
+        return True
+
+    def collect_config(self) -> bool:
         """Collect current values from all screens into self.config."""
         for section_id, screen in self._screens.items():
             if section_id != "deploy" and hasattr(screen, "write_to_config"):
-                screen.write_to_config(self.config)
+                if not self._write_screen_config(section_id, screen):
+                    return False
+        return True
 
     def action_next_section(self) -> None:
         """Advance to the next sidebar section (Ctrl+N)."""
@@ -315,7 +328,8 @@ class NVConfigManagerInstallerApp(App[None]):
 
     def action_save(self) -> None:
         """Save current config to YAML (F2)."""
-        self.collect_config()
+        if not self.collect_config():
+            return
         self.config.to_yaml(self.config_path)
         self._update_all_statuses()
         self.notify(f"Saved to {self.config_path}")
@@ -330,7 +344,8 @@ class NVConfigManagerInstallerApp(App[None]):
 
     def action_save_and_exit(self) -> None:
         """Validate, save, and exit (F10)."""
-        self.collect_config()
+        if not self.collect_config():
+            return
         try:
             self.validate_config()
         except Exception as exc:
