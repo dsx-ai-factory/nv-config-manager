@@ -26,6 +26,9 @@ from nv_config_manager_clients.config_store import ConfigStoreException as Confi
 from nv_config_manager_clients.config_store import (
     ConfigStoreFileNotFound as ConfigStoreFileNotFound,
 )
+from nv_config_manager_clients.config_store import (
+    ConfigStoreUnavailableError as ConfigStoreUnavailableError,
+)
 
 from nv_config_manager.common.config.http import (
     get_internal_auth_headers,

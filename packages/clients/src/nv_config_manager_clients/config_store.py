@@ -44,6 +44,22 @@ class ConfigStoreFileNotFound(ConfigStoreException):
     """Desired file not found in Config Store."""
 
 
+class ConfigStoreUnavailableError(ConfigStoreException):
+    """Config Store could not be reached or could not serve the request."""
+
+
+def _is_unavailable(exc: BaseException) -> bool:
+    if isinstance(exc, aiohttp.ClientResponseError):
+        return exc.status == 429 or exc.status >= 500
+    return isinstance(exc, (aiohttp.ClientConnectionError, TimeoutError))
+
+
+def _config_store_error(message: str, exc: BaseException) -> ConfigStoreException:
+    if _is_unavailable(exc):
+        return ConfigStoreUnavailableError(message)
+    return ConfigStoreException(message)
+
+
 class ConfigFileMetadata(BaseModel):
     filename: str
     commit: str
@@ -160,7 +176,9 @@ class ConfigStoreClient(ServiceClient):
                 ),
             )
         except Exception as exc:
-            raise ConfigStoreException(f"Failed to list configs for {device_uuid}: {exc}") from exc
+            raise _config_store_error(
+                f"Failed to list configs for {device_uuid}: {exc}", exc
+            ) from exc
 
     async def get_config_file(
         self,
@@ -186,12 +204,12 @@ class ConfigStoreClient(ServiceClient):
                 raise ConfigStoreFileNotFound(
                     f"Did not locate {filename} for device {device_uuid}"
                 ) from exc
-            raise ConfigStoreException(
-                f"Failed to get config {device_uuid}/{filename}: {exc}"
+            raise _config_store_error(
+                f"Failed to get config {device_uuid}/{filename}: {exc}", exc
             ) from exc
         except Exception as exc:
-            raise ConfigStoreException(
-                f"Failed to get config {device_uuid}/{filename}: {exc}"
+            raise _config_store_error(
+                f"Failed to get config {device_uuid}/{filename}: {exc}", exc
             ) from exc
 
     async def get_config_versions(
@@ -214,8 +232,8 @@ class ConfigStoreClient(ServiceClient):
                 ),
             )
         except Exception as exc:
-            raise ConfigStoreException(
-                f"Failed to list versions for {device_uuid}/{filename}: {exc}"
+            raise _config_store_error(
+                f"Failed to list versions for {device_uuid}/{filename}: {exc}", exc
             ) from exc
 
     async def get_config_diff(
@@ -240,7 +258,9 @@ class ConfigStoreClient(ServiceClient):
                 ),
             )
         except Exception as exc:
-            raise ConfigStoreException(f"Failed to diff {device_uuid}/{filename}: {exc}") from exc
+            raise _config_store_error(
+                f"Failed to diff {device_uuid}/{filename}: {exc}", exc
+            ) from exc
 
     async def persist_files(
         self,
@@ -311,7 +331,7 @@ class ConfigStoreClient(ServiceClient):
                 for i, item in enumerate(created)
             ]
         except Exception as exc:
-            raise ConfigStoreException(f"Failed to persist files: {exc}") from exc
+            raise _config_store_error(f"Failed to persist files: {exc}", exc) from exc
 
     def _file_type_params(
         self, file_type: ConfigStoreType | str | None | object

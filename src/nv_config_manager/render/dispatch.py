@@ -37,7 +37,11 @@ from nv_config_manager.dcim import (
     get_dcim_provider,
 )
 from nv_config_manager.render.events.util import queue_render_batch
-from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
+from nv_config_manager.render.exceptions import (
+    RenderException,
+    RenderScopeMismatch,
+    is_transient_dependency_error,
+)
 from nv_config_manager.render.render import execute_render
 
 # Define custom bucket values for histograms (in seconds)
@@ -162,6 +166,7 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
                 event.actor,
                 event.timestamp,
                 dcim_client=dcim_client,
+                raise_transient_errors=True,
             )
             for failure in failures:
                 self.logger.info(
@@ -201,10 +206,12 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
                     await self._queue_requests(requests, event, dcim_client)
                 EVENT_PROCESSED_COUNTER.labels(model, self.instance, self.namespace).inc()
         except DCIMError as exc:
-            self.logger.exception("Error processing event: %s", event)
             EVENT_FAILED_COUNTER.labels(
                 model, self.instance, exc.__class__.__name__, self.namespace
             ).inc()
+            if is_transient_dependency_error(exc):
+                raise
+            self.logger.exception("Error processing event: %s", event)
 
     async def nautobot_change_dispatch(self, data: dict[str, Any]) -> None:
         """Invoke a device render for a nautobot change."""
@@ -228,7 +235,9 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
         except RenderScopeMismatch as exc:
             self.logger.info("Skipping render outside aggregate scope: %s", exc)
         except (RenderException, ConfigStoreException, DCIMError) as exc:
-            self.logger.exception("Error processing nautobot device change event: %s", data)
             NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
                 self.instance, exc.__class__.__name__, self.namespace
             ).inc()
+            if is_transient_dependency_error(exc):
+                raise
+            self.logger.exception("Error processing nautobot device change event: %s", data)

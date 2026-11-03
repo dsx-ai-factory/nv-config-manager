@@ -17,13 +17,20 @@
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from nv_config_manager_templates.models import DeviceRenderData, LocationRenderData, RenderData
 
 from nv_config_manager.common.client.config_store import ConfigFile, ConfigFileMetadata
 from nv_config_manager.common.client.render import FileCommit
-from nv_config_manager.dcim import IntendedConfigurationUpdate, RenderDeviceIdentity, RenderLocation
-from nv_config_manager.render.exceptions import RenderScopeMismatch
+from nv_config_manager.dcim import (
+    DCIMConnectivityError,
+    DCIMInvalidDataError,
+    IntendedConfigurationUpdate,
+    RenderDeviceIdentity,
+    RenderLocation,
+)
+from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
 from nv_config_manager.render.render import execute_render
 
 TEMPLATE_VERSION = "engine=nv-config-manager-templates:0.0.1;plugins=none"
@@ -195,6 +202,42 @@ async def test_execute_render_logs_post_render_failures_without_wrapping(caplog)
 
     assert caught.value is failure
     assert "Failed to persist or synchronize render for device-id" in caplog.text
+
+
+async def _render_with_data_failure(failure: Exception) -> None:
+    dcim_client = AsyncMock()
+    dcim_client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=False)
+    dcim_client.get_render_data.side_effect = failure
+
+    @asynccontextmanager
+    async def session():
+        yield dcim_client
+
+    renderer = MagicMock()
+    renderer.plugin_data_requirements = {}
+    with (
+        patch("nv_config_manager.render.render.dcim_client_session", session),
+        patch("nv_config_manager.render.render.Renderer", return_value=renderer),
+    ):
+        await execute_render("device-id", "message", "user")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure", [DCIMConnectivityError("unreachable"), aiohttp.ClientConnectionError("refused")]
+)
+async def test_execute_render_keeps_transient_data_failures_retryable(failure) -> None:
+    """An outage while loading render data is not reported as a render failure."""
+    with pytest.raises(type(failure)) as caught:
+        await _render_with_data_failure(failure)
+    assert caught.value is failure
+
+
+@pytest.mark.asyncio
+async def test_execute_render_wraps_render_data_errors() -> None:
+    """Bad render data still becomes a render failure, which is not retried."""
+    with pytest.raises(RenderException, match="Failed to render entrypoints for device-id"):
+        await _render_with_data_failure(DCIMInvalidDataError("no primary IP"))
 
 
 @pytest.mark.asyncio

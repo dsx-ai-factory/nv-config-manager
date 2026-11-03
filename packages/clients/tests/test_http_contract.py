@@ -18,8 +18,9 @@ import ssl
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from aiohttp import web
 from nv_config_manager_logging import LogCategory
@@ -28,6 +29,7 @@ from nv_config_manager_clients import (
     ConfigStoreClient,
     ConfigStoreException,
     ConfigStoreFileNotFound,
+    ConfigStoreUnavailableError,
     DHCPClient,
     DHCPClientException,
     RenderClient,
@@ -317,6 +319,37 @@ async def test_temporal_preserves_error_details(server: Server) -> None:
 
     assert "403" in str(error.value)
     assert detail in str(error.value)
+
+
+def _response_error(status: int) -> aiohttp.ClientResponseError:
+    return aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=status)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _response_error(503),
+        _response_error(429),
+        aiohttp.ClientConnectionError("refused"),
+        TimeoutError(),
+    ],
+)
+async def test_config_store_reports_unavailable_service(failure: Exception) -> None:
+    client = ConfigStoreClient("http://127.0.0.1:9", "intended", "http://127.0.0.1:9")
+    with patch.object(client, "_call", AsyncMock(side_effect=failure)):
+        with pytest.raises(ConfigStoreUnavailableError):
+            await client.get_config_file("device", "startup.yaml")
+        with pytest.raises(ConfigStoreUnavailableError):
+            await client.list_device_configs("device")
+
+
+@pytest.mark.parametrize("failure", [_response_error(403), ValueError("bad payload")])
+async def test_config_store_request_errors_are_not_unavailable(failure: Exception) -> None:
+    client = ConfigStoreClient("http://127.0.0.1:9", "intended", "http://127.0.0.1:9")
+    with patch.object(client, "_call", AsyncMock(side_effect=failure)):
+        with pytest.raises(ConfigStoreException) as caught:
+            await client.get_config_file("device", "startup.yaml")
+    assert not isinstance(caught.value, ConfigStoreUnavailableError)
 
 
 async def test_errors_non_json_and_cleanup(server: Server) -> None:
