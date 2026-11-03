@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for JetStream API prefix handling in the base NATS clients."""
 
+import asyncio
 from configparser import ConfigParser
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -428,7 +429,7 @@ async def test_consumer_binds_existing_durable_with_configured_api_prefix():
     kwargs = conn.jetstream.return_value.subscribe_bind.await_args.kwargs
     assert kwargs["stream"] == "nautobot"
     assert kwargs["consumer"] == "nv-config-manager-archive"
-    assert kwargs["cb"] is consumer.handler
+    assert kwargs["cb"] == consumer._dispatch
     config = kwargs["config"]
     assert config.durable_name == config.deliver_group == "nv-config-manager-archive"
     assert config.deliver_subject == "nv-config-manager.archive.delivery"
@@ -437,7 +438,7 @@ async def test_consumer_binds_existing_durable_with_configured_api_prefix():
     assert config.ack_wait == 360
     assert config.max_deliver == ARCHIVE_CONSUMER_MAX_DELIVER
     assert config.max_ack_pending == ARCHIVE_CONSUMER_MAX_ACK_PENDING
-    assert kwargs["manual_ack"] is False
+    assert kwargs["manual_ack"] is True
 
 
 @pytest.mark.parametrize(("durable_max_deliver", "expected"), [(5, 5), (-1, -1), (None, -1)])
@@ -524,8 +525,8 @@ async def test_consumer_creates_missing_durable_then_binds_it():
         stream="nv-config-manager",
         consumer="nv-config-manager-archive",
         config=created_info.config,
-        cb=consumer.handler,
-        manual_ack=False,
+        cb=consumer._dispatch,
+        manual_ack=True,
     )
 
 
@@ -591,30 +592,139 @@ def test_consumer_mismatch_reports_unbounded_ack_pending():
     assert mismatches == [f"max_ack_pending=1000 expected {ARCHIVE_CONSUMER_MAX_ACK_PENDING!r}"]
 
 
-@pytest.mark.asyncio
-async def test_consumer_binds_with_manual_ack_when_requested():
-    """A handler that settles its own messages is not wrapped in an auto-ack."""
-    consumer = NatsConsumer(
+def _dispatching_consumer(handler, manual_ack: bool = False) -> NatsConsumer:
+    return NatsConsumer(
         stream="nv-config-manager",
         subject="nv-config-manager.workflow.result",
         queue_suffix="archive",
-        handler=AsyncMock(),
+        handler=handler,
         server=TEST_SERVER,
         deliver_subject="nv-config-manager.archive.delivery",
-        manual_ack=True,
+        manual_ack=manual_ack,
     )
-    conn = MagicMock(is_closed=True)
+
+
+def _delivery() -> MagicMock:
+    msg = MagicMock(subject="nv-config-manager.workflow.result")
+    msg.ack = AsyncMock()
+    return msg
+
+
+@pytest.mark.asyncio
+async def test_consumer_handles_in_flight_deliveries_concurrently():
+    """A slow message does not hold the next one in the client while its ack wait runs."""
+    release = asyncio.Event()
+    started = []
+
+    async def handler(msg):
+        started.append(msg)
+        await release.wait()
+
+    consumer = _dispatching_consumer(handler)
+    first, second = _delivery(), _delivery()
+
+    await consumer._dispatch(first)
+    await consumer._dispatch(second)
+    await asyncio.sleep(0)
+
+    assert started == [first, second]
+    release.set()
+    await asyncio.gather(*consumer._handler_tasks)
+    first.ack.assert_awaited_once()
+    second.ack.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_consumer_leaves_failed_delivery_unacked():
+    """A handler that raises leaves the message for JetStream to redeliver."""
+    consumer = _dispatching_consumer(AsyncMock(side_effect=RuntimeError("boom")))
+    msg = _delivery()
+
+    await consumer._dispatch(msg)
+    await asyncio.gather(*consumer._handler_tasks)
+
+    msg.ack.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_consumer_does_not_ack_for_manual_ack_handlers():
+    """A handler that settles its own messages is not acked again."""
+    consumer = _dispatching_consumer(AsyncMock(), manual_ack=True)
+    msg = _delivery()
+
+    await consumer._dispatch(msg)
+    await asyncio.gather(*consumer._handler_tasks)
+
+    msg.ack.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_consumer_drains_in_flight_handlers_before_closing():
+    """On shutdown deliveries stop, and running handlers settle before the connection closes."""
+    events = []
+
+    async def handler(msg):
+        await asyncio.sleep(0.01)
+        events.append("handled")
+
+    consumer = _dispatching_consumer(handler)
+    conn = MagicMock(is_closed=False)
+    conn.close = AsyncMock(side_effect=lambda: events.append("closed"))
+    consumer._subscription = MagicMock()
+    consumer._subscription.unsubscribe = AsyncMock(side_effect=lambda: events.append("stopped"))
+
+    await consumer._dispatch(_delivery())
+    await consumer._drain_handlers(conn)
+    await consumer._close_connection(conn)
+
+    assert events == ["stopped", "handled", "closed"]
+
+
+@pytest.mark.asyncio
+async def test_consumer_cancels_handlers_that_outlast_the_drain():
+    """A handler still running after the drain window is cancelled and redelivered later."""
+
+    async def hang(_msg):
+        await asyncio.sleep(10)
+
+    consumer = _dispatching_consumer(hang)
+    msg = _delivery()
+
+    await consumer._dispatch(msg)
+    with patch("nv_config_manager_infrastructure.nats.consumer.HANDLER_DRAIN_SECONDS", 0.01):
+        await consumer._drain_handlers(MagicMock(is_closed=True))
+
+    assert not consumer._handler_tasks
+    msg.ack.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_clean_exit_stops_the_consumer_loop():
+    """A termination signal ends the loop so main drains handlers and closes the connection."""
+    consumer = _dispatching_consumer(AsyncMock())
+    conn = MagicMock(is_closed=False)
     conn.close = AsyncMock()
-    jetstream = conn.jetstream.return_value
-    jetstream.consumer_info = AsyncMock(
+    conn.jetstream.return_value.consumer_info = AsyncMock(
         return_value=MagicMock(config=consumer._expected_consumer_config())
     )
-    jetstream.subscribe_bind = AsyncMock()
+    subscription = MagicMock()
+    subscription.unsubscribe = AsyncMock()
+    conn.jetstream.return_value.subscribe_bind = AsyncMock(return_value=subscription)
 
-    with patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn):
+    async def stop_after_first_sleep(_seconds):
+        consumer._clean_exit()
+
+    with (
+        patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
+        patch(
+            "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep",
+            side_effect=stop_after_first_sleep,
+        ),
+    ):
         await consumer.main()
 
-    assert jetstream.subscribe_bind.await_args.kwargs["manual_ack"] is True
+    subscription.unsubscribe.assert_awaited_once()
+    conn.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -630,7 +740,7 @@ async def test_consumer_stays_alive_after_subscribing():
     )
     conn = MagicMock()
     conn.close = AsyncMock()
-    type(conn).is_closed = PropertyMock(side_effect=[False, True])
+    type(conn).is_closed = PropertyMock(side_effect=[False, True, True])
     conn.jetstream.return_value.consumer_info = AsyncMock(
         return_value=MagicMock(config=consumer._expected_consumer_config())
     )

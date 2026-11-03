@@ -21,6 +21,7 @@ import ssl
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
+from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy
@@ -36,6 +37,10 @@ from nv_config_manager_infrastructure.nats.admin import (
 from nv_config_manager_infrastructure.nats.client import NatsClient
 
 logger = get_logger(__name__, category=LogCategory.NATS)
+
+# Below the default pod termination grace period, so the connection still closes
+# cleanly; any handler still running is redelivered after its ack wait.
+HANDLER_DRAIN_SECONDS = 20
 
 
 class NatsConsumer(NatsClient):
@@ -54,8 +59,11 @@ class NatsConsumer(NatsClient):
     ) -> None:
         """Initialize the stream, subject, durable, and message handler.
 
-        With ``manual_ack`` the handler must ack, nak, or term every message itself;
-        otherwise each message is acked once the handler returns.
+        Each delivery runs as its own task, so up to the durable's
+        ``max_ack_pending`` messages are handled concurrently and none waits in
+        the client while its ack wait runs. With ``manual_ack`` the handler must
+        ack, nak, or term every message itself; otherwise each message is acked
+        once the handler returns.
         """
         super().__init__(**kwargs)
         self.stream = stream
@@ -68,6 +76,9 @@ class NatsConsumer(NatsClient):
         # The bound durable's limit, which is what JetStream enforces.
         self.max_deliver = ARCHIVE_CONSUMER_MAX_DELIVER
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop = asyncio.Event()
+        self._subscription: Any = None
+        self._handler_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def full_queue_name(self) -> str:
@@ -109,12 +120,13 @@ class NatsConsumer(NatsClient):
             elif isinstance(max_deliver, int):
                 self.max_deliver = max_deliver
 
-            await jetstream.subscribe_bind(
+            # The client's auto-ack would ack as soon as the dispatch returns.
+            self._subscription = await jetstream.subscribe_bind(
                 stream=self.stream,
                 consumer=durable,
                 config=consumer_info.config,
-                cb=self.handler,
-                manual_ack=self.manual_ack,
+                cb=self._dispatch,
+                manual_ack=True,
             )
             logger.info(
                 "Subscribed to subject %s on stream %s with queue %s",
@@ -123,10 +135,58 @@ class NatsConsumer(NatsClient):
                 self.full_queue_name,
             )
 
-            while not self.conn.is_closed:
+            while not self.conn.is_closed and not self._stop.is_set():
                 await asyncio.sleep(1)
         finally:
-            await self.conn.close()
+            await self._drain_handlers(self.conn)
+            await self._close_connection(self.conn)
+
+    async def _dispatch(self, msg: Msg) -> None:
+        """Start handling a delivery without holding up the next one."""
+        task = asyncio.create_task(self._handle(msg))
+        self._handler_tasks.add(task)
+        task.add_done_callback(self._handler_tasks.discard)
+
+    async def _handle(self, msg: Msg) -> None:
+        """Run the handler, acking afterwards unless it settles messages itself."""
+        try:
+            await self.handler(msg)
+            if not self.manual_ack:
+                await msg.ack()
+        except Exception:
+            logger.exception("Handler failed for message on subject %s", msg.subject)
+
+    async def _drain_handlers(self, conn: Client) -> None:
+        """Stop deliveries, then let in-flight handlers settle their messages."""
+        if self._subscription is not None and not conn.is_closed:
+            try:
+                await self._subscription.unsubscribe()
+            except Exception:
+                logger.warning("Could not unsubscribe before draining handlers", exc_info=True)
+        if not self._handler_tasks:
+            return
+        _, pending = await asyncio.wait(set(self._handler_tasks), timeout=HANDLER_DRAIN_SECONDS)
+        for task in pending:
+            task.cancel()
+        if pending:
+            logger.warning(
+                "Cancelled %d handlers still running after %ds; JetStream will redeliver them",
+                len(pending),
+                HANDLER_DRAIN_SECONDS,
+            )
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    async def _close_connection(self, conn: Client) -> None:
+        """Close the connection without reporting a TLS teardown race."""
+        asyncio_logger = logging.getLogger("asyncio")
+        old_loglevel = asyncio_logger.level
+        asyncio_logger.setLevel(logging.ERROR)
+        try:
+            await conn.close()
+        except ssl.SSLError:
+            pass
+        finally:
+            asyncio_logger.setLevel(old_loglevel)
 
     def _expected_consumer_config(self) -> ConsumerConfig:
         """Build the exact push-consumer configuration owned by this runtime."""
@@ -218,18 +278,5 @@ class NatsConsumer(NatsClient):
         await super()._error_cb(error)
 
     def _clean_exit(self) -> None:
-        """Schedule connection cleanup on the consumer event loop."""
-
-        async def close_connection() -> None:
-            asyncio_logger = logging.getLogger("asyncio")
-            old_loglevel = asyncio_logger.level
-            asyncio_logger.setLevel(logging.ERROR)
-            try:
-                if self.conn and not self.conn.is_closed:
-                    await self.conn.close()
-            except ssl.SSLError:
-                pass
-            asyncio_logger.setLevel(old_loglevel)
-
-        if self._loop:
-            self._loop.create_task(close_connection())
+        """Ask the consumer loop to drain its handlers and close the connection."""
+        self._stop.set()

@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for how the archive handler settles each JetStream message."""
 
+import asyncio
 import base64
 import gzip
 import json
@@ -22,11 +23,17 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from nv_config_manager_infrastructure.nats.admin import ARCHIVE_CONSUMER_MAX_DELIVER
+from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
+from elasticsearch import ApiError, BadRequestError
+from nv_config_manager_infrastructure.nats.admin import (
+    ARCHIVE_CONSUMER_MAX_DELIVER,
+    CONSUMER_ACK_WAIT_SECONDS,
+)
 
 from nv_config_manager.temporal.archive import main as archive_main
 from nv_config_manager.temporal.archive.main import (
     ARCHIVE_RETRY_DELAY_SECONDS,
+    ARCHIVE_TIMEOUT_SECONDS,
     ArchiveRejectedError,
     handle_archive_msg,
 )
@@ -135,6 +142,26 @@ async def test_rejected_record_is_discarded_without_retry() -> None:
     assert _settled(msg) == ["term"]
 
 
+def test_archive_deadline_is_inside_the_ack_wait() -> None:
+    """An abandoned archive is settled before JetStream would redeliver it."""
+    assert ARCHIVE_TIMEOUT_SECONDS < CONSUMER_ACK_WAIT_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_archive_past_its_deadline_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hung Temporal or backend call is abandoned and retried later."""
+    monkeypatch.setattr(archive_main, "ARCHIVE_TIMEOUT_SECONDS", 0.01)
+    msg = _msg()
+
+    async def hang(_data: dict) -> None:
+        await asyncio.sleep(10)
+
+    with patch.object(archive_main, "_archive_workflow", side_effect=hang):
+        await handle_archive_msg(msg)
+
+    msg.nak.assert_awaited_once_with(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+
+
 @pytest.mark.asyncio
 async def test_unreadable_message_is_discarded() -> None:
     """A payload that is not JSON is never handed to the archive backend."""
@@ -230,3 +257,113 @@ async def test_nvdataflow_other_failures_are_retryable(
 
     with pytest.raises(RuntimeError, match=str(status)):
         await archive_main._archive_nvdataflow(dict(WORKFLOW_DETAILS))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change", [{"start_time": None}, {"start_time": "yesterday"}, {"started_by": ...}]
+)
+async def test_nvdataflow_malformed_record_is_rejected(
+    nvdataflow_backend: MagicMock, change: dict
+) -> None:
+    """A workflow missing or mistyping a field never reaches NVDataflow and is not retried."""
+    nvdataflow_backend.post = AsyncMock(return_value=201)
+    details = {**WORKFLOW_DETAILS, **change}
+    details = {key: value for key, value in details.items() if value is not ...}
+
+    with pytest.raises(ArchiveRejectedError, match="malformed"):
+        await archive_main._archive_nvdataflow(details)
+    nvdataflow_backend.post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_elasticsearch_event_without_publish_time_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An event missing the field the Elasticsearch record needs is not retried."""
+    monkeypatch.setattr(archive_main, "ARCHIVE_BACKEND", "elasticsearch")
+    monkeypatch.setattr(archive_main, "get_client", AsyncMock(return_value=MagicMock()))
+    response = MagicMock()
+    response.model_dump.return_value = dict(WORKFLOW_DETAILS)
+    monkeypatch.setattr(
+        archive_main.WorkflowDetailResponse, "from_handle", AsyncMock(return_value=response)
+    )
+    write = MagicMock()
+    monkeypatch.setattr(archive_main, "_archive_elasticsearch", write)
+
+    with pytest.raises(ArchiveRejectedError, match="malformed"):
+        await archive_main._archive_workflow({"workflow_id": "wf-1"})
+    write.assert_not_called()
+
+
+def _api_error(cls: type[ApiError], status: int, error: str) -> ApiError:
+    meta = ApiResponseMeta(
+        status=status,
+        http_version="1.1",
+        headers=HttpHeaders(),
+        duration=0.0,
+        node=NodeConfig("https", "localhost", 9200),
+    )
+    return cls(error, meta=meta, body={"error": {"type": error}})
+
+
+@pytest.fixture
+def elasticsearch_client(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Run _archive_elasticsearch against a fake client with the index already present."""
+    config = ConfigParser()
+    config.read_string(
+        "[temporal]\napi_url = https://temporal.example\n"
+        "[temporal.elasticsearch]\nlocal = true\nserver = https://localhost:9200\n"
+        "user = archive\npassword = placeholder\n"
+    )
+    client = MagicMock()
+    client.indices.exists.return_value = True
+    monkeypatch.setattr(archive_main, "config", config)
+    monkeypatch.setattr(archive_main, "Elasticsearch", MagicMock(return_value=client))
+    return client
+
+
+@pytest.mark.parametrize("status", [400, 413])
+def test_elasticsearch_rejection_is_permanent(elasticsearch_client: MagicMock, status: int) -> None:
+    """A document Elasticsearch refuses, such as a mapping conflict, is not retried."""
+    elasticsearch_client.index.side_effect = _api_error(
+        ApiError, status, "mapper_parsing_exception"
+    )
+
+    with pytest.raises(ArchiveRejectedError, match=str(status)):
+        archive_main._archive_elasticsearch(dict(WORKFLOW_DETAILS))
+
+
+@pytest.mark.parametrize("status", [401, 429, 503])
+def test_elasticsearch_other_failures_are_retryable(
+    elasticsearch_client: MagicMock, status: int
+) -> None:
+    """Outages, throttling and auth problems raise an ordinary error so the message is retried."""
+    elasticsearch_client.index.side_effect = _api_error(ApiError, status, "unavailable")
+
+    with pytest.raises(ApiError):
+        archive_main._archive_elasticsearch(dict(WORKFLOW_DETAILS))
+
+
+def test_index_created_by_a_concurrent_archive_is_used(elasticsearch_client: MagicMock) -> None:
+    """Two in-flight archives of one workflow type can both find the index missing."""
+    elasticsearch_client.indices.exists.return_value = False
+    elasticsearch_client.indices.create.side_effect = _api_error(
+        BadRequestError, 400, "resource_already_exists_exception"
+    )
+
+    archive_main._archive_elasticsearch(dict(WORKFLOW_DETAILS))
+
+    elasticsearch_client.index.assert_called_once()
+
+
+def test_other_index_creation_failures_are_retryable(elasticsearch_client: MagicMock) -> None:
+    """A failure to create the index is not mistaken for a rejected record."""
+    elasticsearch_client.indices.exists.return_value = False
+    elasticsearch_client.indices.create.side_effect = _api_error(
+        BadRequestError, 400, "illegal_argument_exception"
+    )
+
+    with pytest.raises(BadRequestError):
+        archive_main._archive_elasticsearch(dict(WORKFLOW_DETAILS))
+    elasticsearch_client.index.assert_not_called()

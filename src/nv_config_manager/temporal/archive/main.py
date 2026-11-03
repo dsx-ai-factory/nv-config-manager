@@ -15,18 +15,24 @@
 """Temporal archive."""
 
 import argparse
+import asyncio
 import base64
 import gzip
 import json
 import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 import boto3
-from elasticsearch import Elasticsearch
+from elasticsearch import ApiError, BadRequestError, Elasticsearch
 from nats.aio.msg import Msg
-from nv_config_manager_infrastructure.nats.admin import ARCHIVE_CONSUMER_MAX_DELIVER
+from nv_config_manager_infrastructure.nats.admin import (
+    ARCHIVE_CONSUMER_MAX_DELIVER,
+    CONSUMER_ACK_WAIT_SECONDS,
+)
 from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
 
 from nv_config_manager.common.client.nvdataflow import NVDataflowClient
@@ -62,12 +68,24 @@ ELASTICSEARCH_INDEX_MAPPING = {
 
 
 ARCHIVE_RETRY_DELAY_SECONDS = 300
+# An archive still running at the ack wait would be redelivered while this
+# worker holds it, so it is abandoned and retried before then.
+ARCHIVE_TIMEOUT_SECONDS = CONSUMER_ACK_WAIT_SECONDS - 60
 NVDATAFLOW_SUCCESS_STATUSES = frozenset({201, 202})
 NVDATAFLOW_REJECTED_STATUSES = frozenset({400, 413})
 
 
 class ArchiveRejectedError(Exception):
-    """The archive backend refused the record itself, so retrying cannot help."""
+    """The record itself cannot be archived, so retrying cannot help."""
+
+
+@contextmanager
+def _rejecting_malformed_records() -> Iterator[None]:
+    """Treat a record with a missing or mistyped field as rejected."""
+    try:
+        yield
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ArchiveRejectedError(f"the workflow record is malformed: {exc!r}") from exc
 
 
 async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_DELIVER) -> None:
@@ -95,7 +113,8 @@ async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_D
 
     workflow_id = data["workflow_id"]
     try:
-        await _archive_workflow(data)
+        async with asyncio.timeout(ARCHIVE_TIMEOUT_SECONDS):
+            await _archive_workflow(data)
     except ArchiveRejectedError:
         logging.exception("Archive backend rejected workflow %s; discarding it", workflow_id)
         await msg.term()
@@ -133,8 +152,11 @@ async def _archive_workflow(data: dict[str, Any]) -> None:
     if ARCHIVE_BACKEND == "nvdataflow":
         await _archive_nvdataflow(workflow_details)
     else:
-        workflow_details["@timestamp"] = data["publish_time"]
-        _archive_elasticsearch(workflow_details)
+        with _rejecting_malformed_records():
+            workflow_details["@timestamp"] = data["publish_time"]
+        # The Elasticsearch client blocks, which would stall the other in-flight
+        # archive and keep the timeout from firing.
+        await asyncio.to_thread(_archive_elasticsearch, workflow_details)
 
 
 async def _archive_nvdataflow(workflow_details: Any) -> None:
@@ -142,26 +164,27 @@ async def _archive_nvdataflow(workflow_details: Any) -> None:
     compressed = gzip.compress(json.dumps(workflow_details).encode("utf-8"))
     encoded = base64.b64encode(compressed).decode("utf-8")
 
-    archive_data = {
-        "ts_created": int(datetime.now(UTC).timestamp() * 1000),
-        "ts_start_time": int(
-            datetime.fromisoformat(workflow_details["start_time"]).timestamp() * 1000
-        ),
-        "s_started_by": workflow_details["started_by"],
-        "s_status": workflow_details["status"],
-        "s_config_manager_temporal_server": config["temporal"]["api_url"],
-        "s_workflow_id": workflow_details["id"],
-        "s_workflow_type": workflow_details["workflow_type"],
-        "obj_search_attributes": workflow_details["search_attributes"],
-        "ni_body": encoded,
-    }
+    with _rejecting_malformed_records():
+        archive_data = {
+            "ts_created": int(datetime.now(UTC).timestamp() * 1000),
+            "ts_start_time": int(
+                datetime.fromisoformat(workflow_details["start_time"]).timestamp() * 1000
+            ),
+            "s_started_by": workflow_details["started_by"],
+            "s_status": workflow_details["status"],
+            "s_config_manager_temporal_server": config["temporal"]["api_url"],
+            "s_workflow_id": workflow_details["id"],
+            "s_workflow_type": workflow_details["workflow_type"],
+            "obj_search_attributes": workflow_details["search_attributes"],
+            "ni_body": encoded,
+        }
 
-    # Handle close_time (now a string if it exists)
-    close_time_str = workflow_details.get("close_time")
-    if close_time_str is not None:
-        archive_data["ts_close_time"] = int(
-            datetime.fromisoformat(close_time_str).timestamp() * 1000
-        )
+        # Handle close_time (now a string if it exists)
+        close_time_str = workflow_details.get("close_time")
+        if close_time_str is not None:
+            archive_data["ts_close_time"] = int(
+                datetime.fromisoformat(close_time_str).timestamp() * 1000
+            )
 
     nvdataflow_config = config["temporal.nvdataflow"]
     async with NVDataflowClient(
@@ -218,17 +241,30 @@ def _archive_elasticsearch(workflow_details: Any) -> None:
         )
 
     logging.debug("Connected to ElasticSearch: %s", elastic.info())
-    index = f"{ELASTICSEARCH_INDEX_PREFIX}_{workflow_details['workflow_type'].lower()}"
+    with _rejecting_malformed_records():
+        index = f"{ELASTICSEARCH_INDEX_PREFIX}_{workflow_details['workflow_type'].lower()}"
     if not elastic.indices.exists(index=index):
         logging.info("Creating ElasticSearch index: %s", index)
-        elastic.indices.create(
+        try:
+            elastic.indices.create(
+                index=index,
+                mappings=ELASTICSEARCH_INDEX_MAPPING,
+            )
+        except BadRequestError as exc:
+            # Another in-flight archive of the same workflow type created it first.
+            if exc.error != "resource_already_exists_exception":
+                raise
+    try:
+        elastic.index(
             index=index,
-            mappings=ELASTICSEARCH_INDEX_MAPPING,
+            document=workflow_details,
         )
-    elastic.index(
-        index=index,
-        document=workflow_details,
-    )
+    except ApiError as exc:
+        if exc.meta.status in (400, 413):
+            raise ArchiveRejectedError(
+                f"Elasticsearch rejected the record with status {exc.meta.status}"
+            ) from exc
+        raise
     logging.info("Results written to elasticsearch. Archive handler complete")
 
 

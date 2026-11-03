@@ -20,9 +20,8 @@ from nats.js.errors import APIError
 CONSUMER_ACK_WAIT_SECONDS = 360
 CONSUMER_MAX_DELIVER = -1
 
-# The archive handles one message at a time and a failing NVDataflow post can
-# take ~150s, so every in-flight message must finish inside the ack wait:
-# ARCHIVE_CONSUMER_MAX_ACK_PENDING * 150s < CONSUMER_ACK_WAIT_SECONDS.
+# The archive handles every in-flight message concurrently under its own
+# deadline below the ack wait, so this bounds concurrent backend writes.
 ARCHIVE_CONSUMER_MAX_ACK_PENDING = 2
 # A record that gives up is never archived, so with the archive's 5-minute
 # retry delay this rides out about a day of backend outage.
