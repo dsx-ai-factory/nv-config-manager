@@ -349,6 +349,30 @@ nv set system aaa user admin password $6$newpassword"""
         assert len(result.valid_lines) == 2
         assert len(result.invalid_lines) == 2
 
+    def test_iosxr_secret_changed_in_place_is_a_valid_rotation(self) -> None:
+        diff = "  username admin\n#   secret 10 $6$oldHash$aaaa\n#   secret 10 $6$newHash$bbbb\n"
+
+        result = _validate_iosxr_diff(diff, "admin")
+
+        assert result.is_valid is True
+        assert len(result.valid_lines) == 2
+
+    def test_iosxr_hash_marked_non_password_change_fails(self) -> None:
+        """A hostname changed in place must not ride along with a removed and added secret."""
+        diff = (
+            "  username admin\n"
+            "-   secret 10 $6$oldHash$aaaa\n"
+            "+   secret 10 $6$newHash$bbbb\n"
+            "# hostname OLD\n"
+            "# hostname NEW\n"
+        )
+
+        result = _validate_iosxr_diff(diff, "admin")
+
+        assert result.is_valid is False
+        assert len(result.invalid_lines) == 2
+        assert all("hostname" in line for line in result.invalid_lines)
+
     def test_iosxr_wrong_user_or_wrong_depth_fails(self) -> None:
         wrong_user = "  username operator\n-   secret 10 $6$a$b\n+   secret 10 $6$c$d\n"
         deeper = (

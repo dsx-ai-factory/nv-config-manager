@@ -34,6 +34,7 @@ from nv_config_manager_workflows.decorators import (
     run_nv_config_manager_workflow,
 )
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.stage import (
     StageInput,
     StageMixin,
@@ -267,7 +268,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             )
 
         # Move stage to approval state
-        markdown = f"Configuration Diff For Approval\n```\n{diff}\n```"
+        markdown = f"Configuration Diff For Approval\n```\n{redact_device_secrets(diff)}\n```"
         output = DeployWorkflow.PerformDiffStageOutput(approved=False, diff=diff, display=markdown)
         self.set_stage_output(stage_name, output)
         self.set_stage_state(stage_name, StateEnum.PENDING_APPROVAL)
@@ -285,7 +286,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             reviewers = [rejecter.user for rejecter in self.get_stage_by_name(stage_name).rejecters]
 
         reviewmd = ",".join(reviewers)
-        markdown = f"Configuration Diff {approval_state} by {reviewmd}:\n```\n{diff}\n```"
+        markdown = f"Configuration Diff {approval_state} by {reviewmd}:\n```\n{redact_device_secrets(diff)}\n```"
         return DeployWorkflow.PerformDiffStageOutput(approved=approved, diff=diff, display=markdown)
 
     class ApplyStageInput(StageInput):
@@ -714,7 +715,7 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
             )
 
         # Display diff without approval
-        markdown = f"Configuration Diff\n```\n{diff}\n```"
+        markdown = f"Configuration Diff\n```\n{redact_device_secrets(diff)}\n```"
         return TenantDeployWorkflow.PerformDiffStageOutput(diff=diff, display=markdown)
 
     class ValidateDiffStageInput(StageInput):
@@ -760,13 +761,13 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
         if result.message:
             display_message = (
                 f"Validation result: Valid. {result.message}\n\n"
-                f"**Validated Diff:**\n```\n{stage_input.diff}\n```"
+                f"**Validated Diff:**\n```\n{redact_device_secrets(stage_input.diff)}\n```"
             )
         else:
             display_message = (
                 "Validation result: Valid. The diff contains only allowed "
                 "tenant configuration commands.\n\n"
-                f"**Validated Diff:**\n```\n{stage_input.diff}\n```"
+                f"**Validated Diff:**\n```\n{redact_device_secrets(stage_input.diff)}\n```"
             )
 
         return TenantDeployWorkflow.ValidateDiffStageOutput(

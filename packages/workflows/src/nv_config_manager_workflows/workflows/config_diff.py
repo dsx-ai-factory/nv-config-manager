@@ -23,6 +23,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.ui import FormExcluded, device_field
 from nv_config_manager_workflows.workflow_references import (
     DEVICE_REFERENCE,
@@ -221,7 +222,7 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
                 ),
             )
 
-        markdown = f"Configuration Diff\n```\n{diff}\n```"
+        markdown = f"Configuration Diff\n```\n{redact_device_secrets(diff)}\n```"
         return ConfigDiffWorkflow.PerformDiffStageOutput(diff=diff, has_diff=True, display=markdown)
 
     @run_nv_config_manager_workflow

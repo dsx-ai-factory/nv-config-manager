@@ -41,13 +41,13 @@ _IOSXR_LEAD = r"[ \t]*[+#-]?[ \t]*"
 _IOSXR_TYPED_SECRET_RE = re.compile(
     rf"^(?P<lead>{_IOSXR_LEAD}(?:username[ \t]+\S+[ \t]+)?)"
     r"(?P<kw>secret|password|key-string(?:[ \t]+password)?|key|shared-secret(?:[ \t]+key)?)"
-    r"[ \t]+(?P<type>\d+|encrypted)[ \t]+\S+",
+    r"[ \t]+(?P<type>\d+|encrypted)(?P<enc>(?:[ \t]+enc-type[ \t]+\d+)?)[ \t]+\S+",
     re.MULTILINE,
 )
 # MD5 keys of NTP and routing protocols: ``ntp authentication-key 1 md5 encrypted <hash>``,
-# ``message-digest-key 1 md5 7 <hash>``.
+# ``message-digest-key 1 md5 7 <hash>``, ``md5 clear <key>`` or a bare ``md5 <key>``.
 _IOSXR_MD5_RE = re.compile(
-    rf"^(?P<lead>{_IOSXR_LEAD}\S[^\n]*?[ \t]md5)[ \t]+(?P<type>\d+|encrypted)[ \t]+\S+",
+    rf"^(?P<lead>{_IOSXR_LEAD}\S[^\n]*?[ \t]md5)[ \t]+(?P<type>(?:\d+|encrypted|clear)[ \t]+)?\S+",
     re.MULTILINE,
 )
 # Newer releases write the type attached to the keyword: ``key-string password7 <hash>``,
@@ -63,8 +63,8 @@ _IOSXR_COMMUNITY_RE = re.compile(
 
 def redact_iosxr_secrets(config_text: str) -> str:
     """Replace the values of IOS XR secret lines with a placeholder."""
-    redacted = _IOSXR_TYPED_SECRET_RE.sub(r"\g<lead>\g<kw> \g<type> <redacted>", config_text)
-    redacted = _IOSXR_MD5_RE.sub(r"\g<lead> \g<type> <redacted>", redacted)
+    redacted = _IOSXR_TYPED_SECRET_RE.sub(r"\g<lead>\g<kw> \g<type>\g<enc> <redacted>", config_text)
+    redacted = _IOSXR_MD5_RE.sub(r"\g<lead> \g<type><redacted>", redacted)
     redacted = _IOSXR_ATTACHED_TYPE_RE.sub(r"\g<lead>\g<kw> <redacted>", redacted)
     return _IOSXR_COMMUNITY_RE.sub(r"\g<lead>\g<kw> <redacted>", redacted)
 

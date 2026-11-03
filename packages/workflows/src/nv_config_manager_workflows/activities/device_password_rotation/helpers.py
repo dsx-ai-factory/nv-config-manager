@@ -34,7 +34,7 @@ _EOS_DIFF_FILE_HEADER_RE = re.compile(r"^(?:---|\+\+\+) ")
 _EOS_DIFF_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@")
 
 
-_IOSXR_CHANGE_RE = re.compile(r"^(?P<marker>[+-]) (?P<pad> *)(?P<text>\S.*)$")
+_IOSXR_CHANGE_RE = re.compile(r"^(?P<marker>[+#-]) (?P<pad> *)(?P<text>\S.*)$")
 _IOSXR_CONTEXT_RE = re.compile(r"^(?P<pad> *)(?P<text>\S.*)$")
 _IOSXR_SECRET_RE = re.compile(r"^(secret|password)\s+\d+\s+\S+$")
 
@@ -43,9 +43,11 @@ def _validate_iosxr_diff(diff: str, username: str) -> ValidatePasswordDiffOutput
     """Validate an IOS XR diff touches only the target user's secret.
 
     The XR client renders a hierarchical diff: unchanged parents are indented two
-    spaces per level, removed and added lines start with ``-`` or ``+``. A valid
-    password rotation changes only ``secret <type> <hash>`` directly under
-    ``username <name>``.
+    spaces per level, removed and added lines start with ``-`` or ``+``, and a line the
+    router changed in place appears as two ``#`` lines (old, then new). A valid password
+    rotation changes only ``secret <type> <hash>`` directly under ``username <name>``,
+    either as one ``-`` and one ``+`` line or as a ``#`` pair. A ``#`` line anywhere else
+    is a non-password change.
     """
     valid_lines: list[str] = []
     invalid_lines: list[str] = []
@@ -79,7 +81,11 @@ def _validate_iosxr_diff(diff: str, username: str) -> ValidatePasswordDiffOutput
 
     removed = [line for line in valid_lines if line.startswith("-")]
     added = [line for line in valid_lines if line.startswith("+")]
-    if not invalid_lines and len(removed) == 1 and len(added) == 1:
+    replaced = [line for line in valid_lines if line.startswith("#")]
+    is_replacement = (len(removed) == 1 and len(added) == 1 and not replaced) or (
+        len(replaced) == 2 and not removed and not added
+    )
+    if not invalid_lines and is_replacement:
         activity.logger.info(f"IOS XR password diff validation successful for user {username}")
         return ValidatePasswordDiffOutput(
             is_valid=True, invalid_lines=[], valid_lines=valid_lines, error_message=None
@@ -100,7 +106,7 @@ def _validate_iosxr_diff(diff: str, username: str) -> ValidatePasswordDiffOutput
             valid_lines=[],
             error_message=(
                 f"Diff for user '{username}' must replace the secret: "
-                "exactly one removed and one added secret line"
+                "exactly one removed and one added secret line, or one changed in place"
             ),
         )
     return ValidatePasswordDiffOutput(

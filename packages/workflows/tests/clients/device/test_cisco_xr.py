@@ -283,10 +283,27 @@ def test_lldp_and_link_states() -> None:
     data = connection.get_interface_connections()
 
     assert data.neighbors["HundredGigE0/0/0/0"].device_name == "xr-router-2"
-    assert data.neighbors["HundredGigE0/0/0/0"].name == "Hu0/0/0/1"
+    assert data.neighbors["HundredGigE0/0/0/0"].name == "HundredGigE0/0/0/1"
     assert data.neighbors["HundredGigE0/0/0/1"].name == "00-11-22-33-44-77"
     assert data.link_states == {"HundredGigE0/0/0/0": True, "HundredGigE0/0/0/1": False}
     assert connection.get_lldp_data("HundredGigE0/0/0/9") is None
+
+
+def test_lldp_expands_short_interface_names_and_keeps_other_port_ids() -> None:
+    xml = _lldp_xml(
+        _lldp_device("HundredGigE0/0/0/0", "Te0/0/0/5", "r2"),
+        _lldp_device("HundredGigE0/0/0/1", "BE12", "r3"),
+        _lldp_device("HundredGigE0/0/0/2", "HundredGigE0/0/0/7", "r4"),
+        _lldp_device("HundredGigE0/0/0/3", "swp1", "r5"),
+    )
+    connection, _ = _connection(FakeSession(gets={FILTER_LLDP: xml, FILTER_LINKS: LINKS_XML}))
+
+    neighbors = connection.get_interface_connections().neighbors
+
+    assert neighbors["HundredGigE0/0/0/0"].name == "TenGigE0/0/0/5"
+    assert neighbors["HundredGigE0/0/0/1"].name == "Bundle-Ether12"
+    assert neighbors["HundredGigE0/0/0/2"].name == "HundredGigE0/0/0/7"
+    assert neighbors["HundredGigE0/0/0/3"].name == "swp1"
 
 
 def test_duplicate_lldp_neighbors_on_one_interface_are_an_error() -> None:

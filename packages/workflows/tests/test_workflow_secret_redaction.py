@@ -204,3 +204,30 @@ def test_iosxr_secrets_on_diff_marker_lines_are_redacted() -> None:
     for leaked in ("aaaa", "bbbb", "cccc", "dddd", "1A2B3C4D5E6F", "topsecretstring"):
         assert leaked not in result
     assert result.count("<redacted>") == 6
+
+
+def test_iosxr_typed_secret_with_enc_type_redacts_the_value() -> None:
+    text = "username ops secret 0 enc-type 10 testpassword\n"
+
+    result = redact_iosxr_secrets(text)
+
+    assert "testpassword" not in result
+    assert result == "username ops secret 0 enc-type 10 <redacted>\n"
+
+
+def test_iosxr_clear_and_untyped_md5_keys_are_redacted() -> None:
+    text = (
+        " message-digest-key 1 md5 clear plainkey1\n"
+        " message-digest-key 2 md5 plainkey2\n"
+        "ntp authentication-key 3 md5 7 0822455D0A16\n"
+        "hostname r1\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    assert "plainkey1" not in result
+    assert "plainkey2" not in result
+    assert " message-digest-key 1 md5 clear <redacted>\n" in result
+    assert " message-digest-key 2 md5 <redacted>\n" in result
+    assert "ntp authentication-key 3 md5 7 <redacted>\n" in result
+    assert "hostname r1\n" in result

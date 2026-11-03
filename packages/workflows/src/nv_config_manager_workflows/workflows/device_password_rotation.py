@@ -24,6 +24,7 @@ from temporalio.common import RetryPolicy
 
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.stage import (
     StageInput,
     StageMixin,
@@ -296,7 +297,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
             )
 
         self.get_stage_by_name(stage_name).requires_approval = False
-        markdown = f"Password Rotation Configuration Diff (Auto-Approved password only changes for '{stage_input.username}'):\n```\n{diff}\n```"
+        markdown = f"Password Rotation Configuration Diff (Auto-Approved password only changes for '{stage_input.username}'):\n```\n{redact_device_secrets(diff)}\n```"
         return DevicePasswordRotationWorkflow.PerformDiffStageOutput(
             approved=True, diff=diff, display=markdown
         )

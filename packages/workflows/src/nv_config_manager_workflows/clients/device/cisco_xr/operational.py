@@ -22,6 +22,7 @@ tested without a router.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import netaddr
@@ -54,6 +55,22 @@ FILTER_ARP = (
 )
 _LINE_UP = "im-state-up"
 _ARP_UNRESOLVED_STATES = ("state-incomplete", "state-deleted")
+# A neighbor reports its port as the short name the router prints (``Hu0/0/0/1``), while the
+# inventory names the interface in full (``HundredGigE0/0/0/1``), so cable validation needs the
+# full form.
+_INTERFACE_PREFIXES = {
+    "gi": "GigabitEthernet",
+    "te": "TenGigE",
+    "tf": "TwentyFiveGigE",
+    "fo": "FortyGigE",
+    "fi": "FiftyGigE",
+    "hu": "HundredGigE",
+    "th": "TwoHundredGigE",
+    "fh": "FourHundredGigE",
+    "mg": "MgmtEth",
+    "be": "Bundle-Ether",
+}
+_SHORT_INTERFACE_RE = re.compile(r"^(?P<prefix>[A-Za-z]{2})(?P<rest>\d+(?:/\d+)*(?:\.\d+)?)$")
 
 
 def _xml_root(xml: str, what: str) -> Any:
@@ -81,6 +98,14 @@ def parse_uptime(xml: str) -> int:
     return int(text.strip())
 
 
+def _full_interface_name(port: str) -> str:
+    """Expand a short IOS XR interface name (``Hu0/0/0/1``); any other port id is returned as is."""
+    match = _SHORT_INTERFACE_RE.match(port)
+    if match and (full := _INTERFACE_PREFIXES.get(match.group("prefix").lower())):
+        return f"{full}{match.group('rest')}"
+    return port
+
+
 def parse_lldp(xml: str) -> dict[str, InterfaceNeighborData]:
     """Neighbors by local (physical) interface from the lldp-oper ``neighbors/devices`` container."""
     neighbors: dict[str, InterfaceNeighborData] = {}
@@ -97,7 +122,13 @@ def parse_lldp(xml: str) -> dict[str, InterfaceNeighborData]:
         ).strip()
         neighbors[local] = InterfaceNeighborData(
             device_name=system or None,
-            name=str(netaddr.EUI(port)) if port and is_mac_address(port) else port,
+            name=(
+                str(netaddr.EUI(port))
+                if port and is_mac_address(port)
+                else _full_interface_name(port)
+                if port
+                else None
+            ),
         )
     return neighbors
 

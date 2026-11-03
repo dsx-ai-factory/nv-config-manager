@@ -40,6 +40,7 @@ from nv_config_manager_workflows.search_attributes import (
     USER_SEARCH_ATTRIBUTE,
     upsert_missing_search_attributes,
 )
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.stage import (
     StageInput,
     StageMixin,
@@ -321,7 +322,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
 
         markdown += (
             f"**Devices in this batch:**\n{device_list}\n\n"
-            f"**Configuration Changes:**\n```\n{stage_input.diff_group.diff_content}\n```"
+            f"**Configuration Changes:**\n```\n{redact_device_secrets(stage_input.diff_group.diff_content)}\n```"
         )
 
         output = BatchDeployWorkflow.ReviewDiffStageOutput(approved=False, display=markdown)
@@ -352,7 +353,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
             markdown = f"**Shared Configuration Diff {approval_state} by {reviewmd}**\n\n"
         markdown += (
             f"**Devices in this batch ({stage_input.device_count}):**\n{device_list}\n\n"
-            f"**Configuration Changes:**\n```\n{stage_input.diff_group.diff_content}\n```"
+            f"**Configuration Changes:**\n```\n{redact_device_secrets(stage_input.diff_group.diff_content)}\n```"
         )
         return BatchDeployWorkflow.ReviewDiffStageOutput(approved=approved, display=markdown)
 
