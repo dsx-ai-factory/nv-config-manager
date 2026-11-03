@@ -212,6 +212,11 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
             if is_transient_dependency_error(exc):
                 raise
             self.logger.exception("Error processing event: %s", event)
+        except Exception as exc:
+            EVENT_FAILED_COUNTER.labels(
+                model, self.instance, exc.__class__.__name__, self.namespace
+            ).inc()
+            raise
 
     async def nautobot_change_dispatch(self, data: dict[str, Any]) -> None:
         """Invoke a device render for a nautobot change."""
@@ -241,3 +246,8 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
             if is_transient_dependency_error(exc):
                 raise
             self.logger.exception("Error processing nautobot device change event: %s", data)
+        except Exception as exc:
+            NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
+                self.instance, exc.__class__.__name__, self.namespace
+            ).inc()
+            raise

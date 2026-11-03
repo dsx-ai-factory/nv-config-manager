@@ -17,6 +17,7 @@
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 
 from nv_config_manager.common.client.config_store import (
@@ -29,7 +30,11 @@ from nv_config_manager.dcim import (
     DCIMInvalidDataError,
     RenderEventRequest,
 )
-from nv_config_manager.render.dispatch import EventDispatcher
+from nv_config_manager.render.dispatch import (
+    EVENT_FAILED_COUNTER,
+    NAUTOBOT_CHANGE_FAILED_COUNTER,
+    EventDispatcher,
+)
 from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
 
 
@@ -119,6 +124,27 @@ async def test_dcim_event_dispatch_reraises_transient_dcim_failure():
         with pytest.raises(DCIMConnectivityError):
             await dispatcher.dcim_event_dispatch(_synthetic_event())
     logger.exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_counts_failure_outside_dcim_errors():
+    """A raw timeout is retried by the consumer and still counted as a failure."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    failed = EVENT_FAILED_COUNTER.labels(
+        "synthetic.device", dispatcher.instance, "TimeoutError", dispatcher.namespace
+    )
+    before = failed._value.get()
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.queue_render_batch",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError(),
+        ),
+    ):
+        with pytest.raises(TimeoutError):
+            await dispatcher.dcim_event_dispatch(_synthetic_event())
+    assert failed._value.get() == before + 1
 
 
 @pytest.mark.asyncio
@@ -227,18 +253,28 @@ _RENDER_MESSAGE = {
 
 @pytest.mark.parametrize(
     "failure",
-    [DCIMConnectivityError("DCIM unreachable"), ConfigStoreUnavailableError("unavailable")],
+    [
+        DCIMConnectivityError("DCIM unreachable"),
+        ConfigStoreUnavailableError("unavailable"),
+        TimeoutError(),
+        aiohttp.ClientConnectionError("reset"),
+    ],
 )
 @patch("nv_config_manager.render.dispatch.execute_render", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_nautobot_change_dispatch_reraises_transient_failure(mock_render, failure):
-    """A dependency outage is left for the consumer to retry with backoff."""
+    """A dependency outage is counted and left for the consumer to retry with backoff."""
     dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     mock_render.side_effect = failure
+    failed = NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
+        dispatcher.instance, type(failure).__name__, dispatcher.namespace
+    )
+    before = failed._value.get()
     with patch.object(dispatcher, "logger") as logger:
         with pytest.raises(type(failure)):
             await dispatcher.nautobot_change_dispatch(dict(_RENDER_MESSAGE))
     logger.exception.assert_not_called()
+    assert failed._value.get() == before + 1
 
 
 @pytest.mark.parametrize(

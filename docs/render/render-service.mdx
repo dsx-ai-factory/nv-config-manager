@@ -153,7 +153,7 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 
 - `nv_config_manager_nautobot_change_messages_received`
 - `nv_config_manager_nautobot_change_messages_processed`
-- `nv_config_manager_nautobot_change_messages_failed`
+- `nv_config_manager_nautobot_change_messages_failed` - Failed render attempts by `exception_class`. Failures that may succeed later keep their own class, such as `DCIMConnectivityError`, `ConfigStoreUnavailableError`, or `TimeoutError`, and are counted on every delivery. Data errors are counted once, such as `RenderException` or `DCIMInvalidDataError`.
 - `nv_config_manager_nautobot_change_message_processing_time` - Render duration
 - `nv_config_manager_nautobot_change_message_end_to_end_time` - Nautobot publish to Config Store persist
 
