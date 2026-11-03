@@ -17,6 +17,8 @@
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import nats.errors
+import nats.js.errors
 import pytest
 
 from nv_config_manager.dcim import DCIMConnectivityError, RenderDeviceStatus
@@ -296,17 +298,20 @@ async def test_enqueue_reraises_transient_dcim_failure(mock_dcim_client, custom_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error", [TimeoutError, nats.js.errors.NoStreamResponseError, nats.errors.ConnectionClosedError]
+)
 async def test_enqueue_releases_claim_before_reraising_transient_failure(
-    mock_dcim_client, custom_ini
+    error, mock_dcim_client, custom_ini
 ):
-    """A publish that times out releases this producer's claim so a retry can publish."""
+    """A publish NATS cannot complete releases this producer's claim so a retry can publish."""
     custom_ini("[nats]\n")
     _enable_device(mock_dcim_client)
     redis = _enqueue_redis(claimed=True)
     jetstream = _jetstream()
-    jetstream.publish.side_effect = TimeoutError()
+    jetstream.publish.side_effect = error()
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(error):
         await _process_single_device_enqueue(
             "device", "msg", "user", "ts", jetstream, MagicMock(), redis, mock_dcim_client
         )

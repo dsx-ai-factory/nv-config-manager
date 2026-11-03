@@ -17,6 +17,8 @@
 from unittest.mock import MagicMock
 
 import aiohttp
+import nats.errors
+import nats.js.errors
 import pytest
 
 from nv_config_manager.common.client.config_store import (
@@ -50,6 +52,17 @@ def _response_error(status: int) -> aiohttp.ClientResponseError:
         _response_error(500),
         _response_error(503),
         _response_error(429),
+        nats.errors.TimeoutError(),
+        nats.errors.NoRespondersError(),
+        nats.errors.NoServersError(),
+        nats.errors.ConnectionClosedError(),
+        nats.errors.ConnectionDrainingError(),
+        nats.errors.ConnectionReconnectingError(),
+        nats.errors.UnexpectedEOF(),
+        nats.errors.OutboundBufferLimitError(),
+        nats.js.errors.NoStreamResponseError(),
+        nats.js.errors.ServiceUnavailableError(code=503),
+        nats.js.errors.ServerError(code=500),
     ],
 )
 def test_failures_that_may_succeed_later_are_transient(exc: Exception) -> None:
@@ -69,6 +82,11 @@ def test_failures_that_may_succeed_later_are_transient(exc: Exception) -> None:
         _response_error(400),
         _response_error(404),
         KeyError("commit_message"),
+        nats.errors.BadSubjectError(),
+        nats.errors.MaxPayloadError(),
+        nats.errors.AuthorizationError(),
+        nats.js.errors.BadRequestError(code=400),
+        nats.js.errors.NotFoundError(code=404),
     ],
 )
 def test_data_and_request_errors_are_not_transient(exc: Exception) -> None:
