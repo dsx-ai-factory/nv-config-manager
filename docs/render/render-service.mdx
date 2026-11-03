@@ -157,6 +157,10 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 - `nv_config_manager_nautobot_change_message_processing_time` - Render duration
 - `nv_config_manager_nautobot_change_message_end_to_end_time` - Nautobot publish to Config Store persist
 
+**Consumer delivery**:
+
+- `nv_config_manager_nats_consumer_messages_given_up` - Messages terminated on the final delivery the durable allows (by consumer, stream, namespace, and `reason`: `failed` when every delivery failed, `lock` when the render never acquired the device lock)
+
 ## Error handling
 
 **Exception types**:

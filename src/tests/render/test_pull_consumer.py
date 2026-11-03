@@ -30,6 +30,7 @@ from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
+    CONSUMER_GIVEN_UP,
     CONSUMER_PENDING,
     CONSUMER_REDELIVERED,
     CONSUMER_WAITING,
@@ -459,6 +460,12 @@ async def test_pull_device_change_consumer_general_exception(
     mock_lock.release.assert_awaited_once()
 
 
+def _given_up(consumer: PullConsumer, reason: str) -> float:
+    return CONSUMER_GIVEN_UP.labels(
+        consumer.queue, consumer.stream, consumer.namespace, reason
+    )._value.get()
+
+
 def _delivered_msg(device_id: str, num_delivered: int) -> AsyncMock:
     msg = AsyncMock(spec=Msg)
     msg.data = json.dumps({"device_id": device_id}).encode()
@@ -477,11 +484,15 @@ async def test_device_change_lock_failure_gives_up_on_last_delivery(
     consumer.max_deliver = 1000
     mock_msg = _delivered_msg("test-device", 1000)
     mock_lock.acquire.return_value = False
+    lock_before = _given_up(consumer, "lock")
+    failed_before = _given_up(consumer, "failed")
 
     await consumer.message_handler(mock_msg)
 
     mock_msg.term.assert_awaited_once()
     mock_msg.nak.assert_not_awaited()
+    assert _given_up(consumer, "lock") == lock_before + 1
+    assert _given_up(consumer, "failed") == failed_before
 
 
 @pytest.mark.asyncio
@@ -526,11 +537,13 @@ async def test_device_change_unbounded_durable_never_gives_up(
     consumer.max_deliver = -1
     mock_msg = _delivered_msg("test-device", 5000)
     mock_lock.acquire.return_value = False
+    lock_before = _given_up(consumer, "lock")
 
     await consumer.message_handler(mock_msg)
 
     mock_msg.nak.assert_awaited_once_with(delay=30)
     mock_msg.term.assert_not_awaited()
+    assert _given_up(consumer, "lock") == lock_before
 
 
 @pytest.mark.asyncio
@@ -543,11 +556,13 @@ async def test_device_change_failure_gives_up_on_last_delivery(
     consumer.max_deliver = 3
     mock_msg = _delivered_msg("test-device", 3)
     mock_lock.acquire.return_value = True
+    failed_before = _given_up(consumer, "failed")
 
     with patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock):
         mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=Exception("down"))
         await consumer.message_handler(mock_msg)
 
+    assert _given_up(consumer, "failed") == failed_before + 1
     mock_msg.term.assert_awaited_once()
     mock_msg.nak.assert_not_awaited()
     mock_lock.release.assert_awaited_once()
