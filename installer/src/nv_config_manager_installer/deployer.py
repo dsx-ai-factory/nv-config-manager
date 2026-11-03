@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
+from urllib.parse import urlparse
 
 import yaml
 
@@ -187,6 +188,23 @@ _SKIP_REASON = "Not requested"
 _CI_ENV_VAR = "CI"
 _DOCKER_SYSTEM_PRUNE_COMMAND = ("docker", "system", "prune", "-af")
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR = "NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES"
+_LOCAL_CLUSTER_CONTEXT_PREFIXES = (
+    "kind-",
+    "k3d-",
+    "minikube",
+    "docker-desktop",
+    "rancher-desktop",
+    "orbstack",
+    "colima",
+)
+_LOCAL_API_SERVER_HOSTS = {
+    "127.0.0.1",
+    "::1",
+    "localhost",
+    "host.docker.internal",
+    "kubernetes.docker.internal",
+}
 _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
     ("nv-config-manager-nautobot", "build/nautobot.Dockerfile", "components/nautobot", None),
     ("nv-config-manager-nats-ready", "build/nats-ready.Dockerfile", "components/nats-ready", None),
@@ -1353,6 +1371,8 @@ class Deployer:
         if self.options.load_kind and not shutil.which("kind"):
             raise RuntimeError("kind is required for --load-kind")
 
+        self._validate_local_cluster_target(kubectl_ctx or ctx, server)
+
         self._validate_required_config(step)
         if self.config.secrets.method == SecretsMethod.ESO:
             self._validate_vault_config(step)
@@ -1361,6 +1381,41 @@ class Deployer:
             self._check_inotify_limits(step)
 
         self._finish_step(step)
+
+    def _validate_local_cluster_target(self, context: str, server: str) -> None:
+        """Refuse to send a local-dev deployment to a cluster that is not local.
+
+        ``--load-kind`` and ``images.source: local`` only make sense on a cluster
+        running on this machine. The deployer otherwise follows the current kube
+        context, so a context left pointing at a shared cluster would receive the
+        namespace, secrets, PVCs, and Helm release of a local-dev install.
+        """
+        if self.options.load_kind:
+            expected = f"kind-{self.options.kind_cluster}"
+            if context != expected:
+                raise RuntimeError(
+                    f"--load-kind targets Kind cluster '{self.options.kind_cluster}', but the "
+                    f"current kube context is '{context}'. Refusing to deploy. Run "
+                    f"`kubectl config use-context {expected}` (or set KUBECONFIG to a "
+                    "Kind-only kubeconfig) and retry."
+                )
+            return
+        if self.config.images.source != ImageSource.LOCAL:
+            return
+        if os.environ.get(_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR, "").strip().lower() in (
+            _TRUTHY_ENV_VALUES
+        ):
+            return
+        host = (urlparse(server).hostname or "").lower()
+        if context.startswith(_LOCAL_CLUSTER_CONTEXT_PREFIXES) or host in _LOCAL_API_SERVER_HOSTS:
+            return
+        raise RuntimeError(
+            f"images.source is 'local', but the current kube context '{context}' "
+            f"(server: {server}) does not look like a cluster on this machine, so it "
+            "could not pull the locally built images. Refusing to deploy. Switch to a "
+            f"local context, or set {_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR}=1 if this "
+            "cluster really can use local images."
+        )
 
     def _validate_vault_config(self, step: DeployStep) -> None:
         """Validate the Vault connection required for ESO population."""
