@@ -297,6 +297,38 @@ def test_max_concurrent_workflow_tasks_rejects_invalid_values(
         worker_main._max_concurrent_workflow_tasks()
 
 
+@pytest.mark.parametrize(
+    ("cache", "slots", "expected"),
+    [("", "", (200, 10)), ("0", "1", (0, 1)), ("200", "2", (200, 2))],
+)
+def test_workflow_cache_and_task_limits_accept_valid_pairs(
+    monkeypatch: pytest.MonkeyPatch,
+    cache: str,
+    slots: str,
+    expected: tuple[int, int],
+) -> None:
+    """One task slot is allowed only with the sticky cache disabled."""
+    monkeypatch.setenv("NVCM_MAX_CACHED_WORKFLOWS", cache)
+    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", slots)
+
+    assert worker_main._workflow_cache_and_task_limits() == expected
+
+
+async def test_one_task_slot_with_sticky_cache_fails_before_worker_construction(
+    mocker: MockerFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single task slot with the sticky cache enabled fails worker startup."""
+    monkeypatch.delenv("NVCM_MAX_CACHED_WORKFLOWS", raising=False)
+    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", "1")
+    worker_constructor = _mock_worker_startup(mocker)
+
+    with pytest.raises(ValueError, match="must be >= 2 when NVCM_MAX_CACHED_WORKFLOWS"):
+        await worker_main.main()
+
+    worker_constructor.assert_not_called()
+
+
 @pytest.mark.parametrize(("value", "expected"), [("", 200), ("0", 0), (" 50 ", 50)])
 def test_max_cached_workflows_reads_environment(
     monkeypatch: pytest.MonkeyPatch,

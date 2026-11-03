@@ -102,6 +102,21 @@ def _max_concurrent_workflow_tasks() -> int:
     )
 
 
+def _workflow_cache_and_task_limits() -> tuple[int, int]:
+    """Return the validated sticky cache size and workflow task slot count."""
+    max_cached_workflows = _max_cached_workflows()
+    max_concurrent_workflow_tasks = _max_concurrent_workflow_tasks()
+    # The Temporal SDK documents a minimum of two workflow task slots while the
+    # sticky cache is enabled; one slot is only valid with the cache disabled.
+    if max_cached_workflows > 0 and max_concurrent_workflow_tasks < 2:
+        raise ValueError(
+            "NVCM_MAX_CONCURRENT_WORKFLOW_TASKS must be >= 2 when "
+            f"NVCM_MAX_CACHED_WORKFLOWS is nonzero, got {max_concurrent_workflow_tasks} "
+            f"with a cache of {max_cached_workflows}"
+        )
+    return max_cached_workflows, max_concurrent_workflow_tasks
+
+
 def workflow_runner() -> SandboxedWorkflowRunner:
     """Return the sandboxed workflow runner used by the worker."""
     return SandboxedWorkflowRunner(
@@ -113,6 +128,7 @@ def workflow_runner() -> SandboxedWorkflowRunner:
 
 async def main() -> None:
     """Run the temporal worker."""
+    max_cached_workflows, max_concurrent_workflow_tasks = _workflow_cache_and_task_limits()
     configure_workflow_runtime()
     runtime = setup_telemetry("nv-config-manager-temporal-worker")
 
@@ -138,8 +154,8 @@ async def main() -> None:
         activities=registry.all_activities,  # type: ignore[arg-type]
         activity_executor=ThreadPoolExecutor(100),
         workflow_runner=workflow_runner(),
-        max_cached_workflows=_max_cached_workflows(),
-        max_concurrent_workflow_tasks=_max_concurrent_workflow_tasks(),
+        max_cached_workflows=max_cached_workflows,
+        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
     )
 
     await worker.run()
