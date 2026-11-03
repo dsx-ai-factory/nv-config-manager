@@ -1,72 +1,38 @@
 # DSX Air SuperPOD Mock Topology Context
 
-This context is the source of truth for the DSX Air SuperPOD demo topology and the
-Nautobot mock data loaded by the Design Builder mock topology job. The DSX Air sim
-generates its temporary DSX Air topology YAML from these device JSON files, so there
-is no separate maintained topology export for the built-in SuperPOD demo.
+This context supplies the SuperPOD AIR topology and Nautobot inventory.
 
-## Hyper-reach LLDP host
+## Hyper-reach fixture
 
-New SuperPOD simulations include `su02-hyperreach-host`, a dedicated Ubuntu LLDP
-fixture. It connects to `swp2` on both `su01-cin-leaf-r01` and
-`su01-cin-leaf-r02`. The existing SpX compute hosts, their `ens3` addresses, and
-their connections to `swp1` are unchanged. Keep the fixture's `swp2` ports out of
-SpX tenant-change tests; continue using the existing compute hosts or spare
-breakout ports for those tests.
+`su02-hyperreach-host` is an Ubuntu LLDP host installed in DeviceBay
+`line-card-1` of `su02-hyperreach-chassis`. The chassis exists only in Nautobot;
+it does not require another AIR VM. Existing SpX hosts and links are unchanged.
 
-| CIN leaf | Switch port | Intended host interface | Interface label | Advertised port ID |
+| CIN leaf | Port | Child interface | Label | LLDP port ID |
 | --- | --- | --- | --- | --- |
 | su01-cin-leaf-r01 | swp2 | eth1 | C1-2-L1 | A56p0 |
 | su01-cin-leaf-r02 | swp2 | eth2 | C1-2-L2 | A56p1 |
 
-The host advertises `su02-hyperreach-host C1-2-L1` and
-`su02-hyperreach-host C1-2-L2` as its LLDP port descriptions. Its actual data NICs
-are named `A56p0` and `A56p1`, so their interface-name LLDP match intentionally
-differs from the Nautobot interface names. The intended interfaces have no MAC
-addresses in Nautobot, preventing an FDB/ARP match from masking the description
-check. AIR-only deterministic MACs identify the virtual NICs for boot setup.
+The host advertises `su02-hyperreach-chassis <label>` in each LLDP port
+description. The chassis name differs from the child's name, exercising
+Nautobot `parent_bay` resolution. Different interface names and absent intended
+MAC addresses prevent the other identity checks from masking this path.
 
-The installer attaches cloud-init before the host starts. It brings up the NICs,
-installs `lldpd`, and writes `/etc/lldpd.d/90-nvcm-demo.conf` before starting the
-daemon. Unlike interactive `lldpcli configure` overrides, these settings survive
-a daemon restart or reboot. A separate `eth0` exit interface provides DHCP and
-package-download access; the two test interfaces have no IP addresses, gateways,
-or tenant configuration. This host is for cable identity validation, not SpX
-traffic tests.
+Cloud-init configures the host's interface names and persistent LLDP settings.
+Its separate `eth0` interface provides DHCP and package-download access.
+The data interfaces have no IP addresses or tenant configuration.
 
-The opt-in `_air.lldp` mapping in the host JSON associates intended interface
-names with runtime `name` and `port_description` values. Other hosts receive no
-LLDP cloud-init. Fixture hosts must use Ubuntu, have an `eth0` exit interface,
-and have no static IP addresses. Interface labels are loaded into Nautobot by
-the mock topology job. Existing simulations need to be recreated from the
-updated topology to get the new host and links.
+## Updating simulations
 
-After first boot, use the host's AIR console:
+New simulations use these fixtures automatically. The Mock Network Topology job
+creates the chassis, child, and DeviceBay association.
 
-```sh
-cloud-init status --wait
-sudo lldpcli show interfaces details
-sudo lldpcli show interface ports A56p0 details
-sudo lldpcli show interface ports A56p1 details
-```
+Simulations without `su02-hyperreach-host` must be recreated. If the host already
+exists, reload the updated mock topology and change its persistent LLDP
+descriptions to use `su02-hyperreach-chassis`, then restart `lldpd`.
 
-Run Connected Host Metadata against each CIN leaf. Its final table should show
-the `swp2` intended interface label beside the observed LLDP port description
-and `A56p0` or `A56p1` port ID. Then run Device Cable Validation for that leaf.
-Both links should validate through the port-description path. For a negative
-test, change one lane interactively, allow LLDP to refresh, and rerun validation:
+## MCP
 
-```sh
-sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-host WRONG-LANE"
-```
-
-The first link should fail identity validation while the other still passes.
-The validation report should show intended label `C1-2-L1` beside observed
-description `su02-hyperreach-host WRONG-LANE`, retaining `eth1` and `A56p0` as
-the intended and actual port names. The CSV and Excel downloads include the
-same metadata.
-
-Restore the persistent fixture with `sudo systemctl restart lldpd`, wait for LLDP
-to refresh, and rerun validation. This fixture covers port-description and label
-matching; it does not model physical PCIe line cards or exercise Nautobot
-`parent_bay` chassis resolution.
+Cable validation can run through the simulation's operational MCP server using
+`run_device_cable_validation`. Use `get_workflow_detail` to inspect the result.
+See the [MCP connection guide](../../../../docs/overview/mcp.mdx).

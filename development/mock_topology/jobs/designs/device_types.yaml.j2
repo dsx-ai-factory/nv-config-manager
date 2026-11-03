@@ -3,6 +3,7 @@
 device_types:
 {% if json.device_types is defined and json.device_types | length > 0 %}
 {% for device_type in json.device_types %}
+  {% if device_type.model not in (device_types.get(device_type.manufacturer, []) | map(attribute='model') | list) %}
   - "!create_or_update:model": {{ device_type.model }}
     manufacturer__name: {{ device_type.manufacturer }}
     {% set u_height = 0 if 'bluefield' in (device_type.model | lower) else (device_type.u_height | default(1)) %}
@@ -11,6 +12,7 @@ device_types:
     {% if device_type.part_number is defined %}
     part_number: {{ device_type.part_number }}
     {% endif %}
+  {% endif %}
 {% endfor %}
 
 {% endif %}

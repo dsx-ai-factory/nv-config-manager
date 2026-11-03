@@ -6,6 +6,33 @@ This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
 version before the selected release candidate is promoted.
 
+## Unreleased
+
+### Added
+
+- DHCP container probes (liveness, readiness, startup) are now configurable per
+  container (`kea`, `healthcheck`, `api`, `confgen`) through
+  `networkDhcp.probes` in the Helm values. Any Kubernetes probe field can be
+  set, probes can be disabled with `enabled: false`, and off-by-default probes
+  can be enabled. Defaults render exactly as before.
+
+### Changed
+- Updated the
+ managed Temporal server and bootstrap tools from 1.30.8 to 1.31.4.
+  The frontend init container upgrades PostgreSQL core/visibility schemas to
+  1.19/1.14; see the [upgrade and rollback notes](docs/temporal/temporal-deployment.mdx#upgrading-from-temporal-1308-to-1314).
+
+### Fixed
+
+- Installer content hashes no longer depend on wall-clock time, preventing
+  unchanged jobs and templates from being detected as changed across runs.
+- The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay
+  and advertises the chassis name, enabling parent-chassis validation in simulation.
+- `temporal.gateway.devUi.allowedGroups` is now enforced by the OIDC proxy. It
+  was previously ignored, so every authenticated user could open Temporal Web
+  and act on any workflow. Deployments that set it will start returning 403 to
+  users outside the listed groups.
+
 ## 1.4.0
 
 ### Added

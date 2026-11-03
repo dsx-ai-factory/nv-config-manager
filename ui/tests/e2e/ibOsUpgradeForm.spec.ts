@@ -15,7 +15,13 @@
  * limitations under the License.
  */
 
-import { runWorkflowFormTests } from "./shared/workflowFormTests";
+import { expect } from "@playwright/test";
+
+import { DEVICES_LIST, SITES_LIST } from "@/mocks/data";
+
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
+import { test, TEST_TIMEOUT } from "./shared/utils";
+import { formPath, nextPost, runWorkflowFormTests, selected, submit } from "./shared/workflowFormTests";
 
 const isMlnx = (device: { platform: string }) => device.platform === "MLNX-OS";
 
@@ -27,4 +33,18 @@ runWorkflowFormTests({
   deviceFilter: (devices) => devices.find(isMlnx)!,
   forbiddenFilter: (devices) => devices.find(isMlnx)!,
   listedDevices: (devices) => devices.filter(isMlnx),
+});
+
+test("URL parameters cannot set server-owned workflow inputs", async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  const device = DEVICES_LIST[SITES_LIST.pdx01].find(isMlnx)!;
+  await page.goto(
+    `${formPath("InfinibandMlnxOSUpgradeWorkflow")}?site=${SITES_LIST.pdx01}&device-id=${device.id}` +
+      "&user=mallory&user_domain=evil.example&workflow_id=forged"
+  );
+  await expect(selected(page, device.name)).toBeVisible({ timeout: TEST_TIMEOUT });
+
+  const post = nextPost(page, "/v1/workflow/ngc/infiniband_mlnx_os_upgrade");
+  await submit(page);
+  expect((await post).postDataJSON()).toEqual({ device_id: device.id });
 });
