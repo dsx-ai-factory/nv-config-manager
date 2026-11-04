@@ -157,8 +157,13 @@ spec:
       containers:
       {{- range $proxy := $proxies }}
       - name: {{ $proxy.name }}
-        image: "{{ $.Values.oidc.proxy.image.repository }}:{{ $.Values.oidc.proxy.image.tag }}"
+        {{- if or $.Values.oidc.proxy.image.repository $.Values.oidc.proxy.image.tag }}
+        image: "{{ $.Values.oidc.proxy.image.repository | default "quay.io/oauth2-proxy/oauth2-proxy" }}:{{ $.Values.oidc.proxy.image.tag | default "v7.15.5" }}"
         imagePullPolicy: {{ $.Values.oidc.proxy.image.pullPolicy | default "IfNotPresent" }}
+        {{- else }}
+        image: {{ include "nv-config-manager.image" (dict "root" $ "image" $.Values.global.images.oidcProxy) | quote }}
+        imagePullPolicy: {{ $.Values.global.images.oidcProxy.pullPolicy | default "Always" }}
+        {{- end }}
         args:
         - --config=/etc/oauth2-proxy/{{ $proxy.name }}.cfg
         env:

@@ -202,6 +202,7 @@ _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
         "bootstrap",
     ),
     ("nv-config-manager-temporal-ui", "build/temporal.Dockerfile", ".", "ui"),
+    ("nv-config-manager-oidc-proxy", "build/oidc-proxy.Dockerfile", ".", None),
 )
 
 

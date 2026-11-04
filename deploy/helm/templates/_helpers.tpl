@@ -407,7 +407,7 @@ Usage: {{ include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "
 {{- if and $useSpiffe (eq $authMode "jwt") }}
 # SPIFFE Helper -- fetches JWT-SVIDs for outbound service-to-service calls
 - name: spiffe-helper
-  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.8.0" }}
+  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.12.3" }}
   imagePullPolicy: {{ index $spiffeHelperImage "pullPolicy" | default "IfNotPresent" }}
   args:
     - -config
@@ -504,7 +504,7 @@ Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nin
 {{- $spiffe := .root.Values.spiffe | default dict }}
 {{- if and (index $spiffe "enabled") (eq (index $spiffe "authMode" | default "jwt") "jwt") }}
 - name: spiffe-helper
-  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.8.0" }}
+  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.12.3" }}
   imagePullPolicy: {{ (index $spiffe "helper" | default dict).image.pullPolicy | default "IfNotPresent" }}
   {{- if .native }}
   restartPolicy: Always

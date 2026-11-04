@@ -39,6 +39,7 @@ IMAGES = (
     "nv-config-manager-temporal",
     "nv-config-manager-temporal-bootstrap",
     "nv-config-manager-temporal-ui",
+    "nv-config-manager-oidc-proxy",
 )
 
 
@@ -201,3 +202,10 @@ def test_promotion_requires_a_successful_independent_audit() -> None:
         "docker-build-main-amd64",
         "docker-build-main-arm64",
     ]
+
+
+def test_all_pr_images_receive_a_trust_audit() -> None:
+    """New project images must join both the artifact build and trusted audit."""
+    config = yaml.safe_load((ROOT / ".gitlab/ci/pr-build.yml").read_text())
+    built = {entry["NVCM_PR_IMAGE"] for entry in config["pr-build-image"]["parallel"]["matrix"]}
+    assert built == set(IMAGES)

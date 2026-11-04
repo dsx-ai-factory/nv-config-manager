@@ -174,6 +174,7 @@ update-version:
     - docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal:$NEW_VERSION $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal:$CI_COMMIT_SHORT_SHA
     - docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-bootstrap:$NEW_VERSION $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-bootstrap:$CI_COMMIT_SHORT_SHA
     - docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-ui:$NEW_VERSION $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-ui:$CI_COMMIT_SHORT_SHA
+    - docker buildx imagetools create -t $IMAGE_REPOSITORY_BASE/nv-config-manager-oidc-proxy:$NEW_VERSION $IMAGE_REPOSITORY_BASE/nv-config-manager-oidc-proxy:$CI_COMMIT_SHORT_SHA
     - echo "✅ Pushed multi-arch images with tag $NEW_VERSION to configured registry"
     # Verify multi-arch manifests
     - echo "📋 Verifying multi-arch manifests:"
@@ -186,6 +187,7 @@ update-version:
     - docker buildx imagetools inspect $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal:$NEW_VERSION
     - docker buildx imagetools inspect $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-bootstrap:$NEW_VERSION
     - docker buildx imagetools inspect $IMAGE_REPOSITORY_BASE/nv-config-manager-temporal-ui:$NEW_VERSION
+    - docker buildx imagetools inspect $IMAGE_REPOSITORY_BASE/nv-config-manager-oidc-proxy:$NEW_VERSION
     - NVCM_DIGEST_IMAGE_TAG="$CI_COMMIT_TAG" bash .gitlab/ci/scripts/record_main_image_digests.sh
   needs:
     - job: release-version

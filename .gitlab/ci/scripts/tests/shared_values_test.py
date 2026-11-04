@@ -207,6 +207,7 @@ class SharedValuesTests(unittest.TestCase):
             "NV_CONFIG_MANAGER_TEMPORAL",
             "NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP",
             "NV_CONFIG_MANAGER_TEMPORAL_UI",
+            "NV_CONFIG_MANAGER_OIDC_PROXY",
         ]
         (self.project / "digests.env").write_text(
             "".join(f"DIGEST_{key}=sha256:{'c' * 64}\n" for key in digest_keys)
@@ -309,6 +310,7 @@ class SharedValuesTests(unittest.TestCase):
             "NV_CONFIG_MANAGER_TEMPORAL",
             "NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP",
             "NV_CONFIG_MANAGER_TEMPORAL_UI",
+            "NV_CONFIG_MANAGER_OIDC_PROXY",
         ]:
             self.env[f"DIGEST_{key}"] = "sha256:" + "c" * 64
         self.env.update(

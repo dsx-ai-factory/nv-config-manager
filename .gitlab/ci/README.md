@@ -86,7 +86,7 @@ ignoring per-target image mappings because promotion images are published only
 to `NVCM_VALUES_IMAGE_TARGET`.
 
 Builds and scans use the selected image target. After `update-version` creates
-the release tags there, `publish-images-release` copies all nine project images
+the release tags there, `publish-images-release` copies all ten project images
 to the other configured image targets. Copies preserve every architecture and
 the source digests, with separate credentials for each destination. Stable
 releases then run `publish-latest-release` under a shared resource lock. That

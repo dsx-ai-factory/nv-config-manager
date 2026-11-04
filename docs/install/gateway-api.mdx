@@ -11,6 +11,13 @@ shared session, supplies trusted identity headers and an ID-token Authorization
 header, and forwards each hostname to its internal service. API clients continue
 to use the `svc-*` hostnames with a Bearer token.
 
+The project-owned `global.images.oidcProxy` image retains OAuth2 Proxy 7.15.5
+and replaces its public CA bundle to distrust the compromised emSign roots.
+This mitigates the normal public-trust path while awaiting an
+[upstream release](https://github.com/oauth2-proxy/oauth2-proxy/issues/3578).
+The Go runtime remains unchanged, so scanners may still report CVE-2026-111943.
+Explicit `oidc.proxy.image` overrides select a custom image instead of this wrapper.
+
 Every route strips inbound identity headers before forwarding, including routes
 that intentionally bypass browser authentication for native API tokens. When
 `oidc.endSessionEndpoint` is configured, logout clears the shared proxy session
@@ -209,9 +216,9 @@ Before bumping the chart revision in an Argo CD ApplicationSet:
    path must contain both mapped properties; `cookie-secret` decodes to exactly
    32 bytes. Existing client-secret-only paths must be populated before the
    chart revision is updated.
-1. Mirror or permit pulling the pinned `oidc.proxy.image`, then set its
-   repository and tag in the environment overlay when the cluster cannot pull
-   from the default registry.
+1. Mirror or permit pulling `global.images.oidcProxy` along with the other
+   project-owned images. Set its repository and tag or digest in the environment
+   overlay when the cluster cannot pull from the default registry.
 1. Confirm that `networkPolicy.gatewayNamespace` admits the Gateway
    data-plane namespace, render the exact shared and site-specific values
    layers, and verify the Gateway is `Programmed`, HTTPRoutes are `Accepted`,

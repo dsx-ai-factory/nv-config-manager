@@ -815,7 +815,7 @@ class TestImageBuilds:
 
         commands, max_parallel = parallel_calls[0]
         assert max_parallel == 2
-        assert len(commands) == 9
+        assert len(commands) == 10
         assert all(
             command.cmd[:4] == ["docker", "build", "--provenance=false", "--progress=plain"]
             for command in commands
@@ -823,7 +823,7 @@ class TestImageBuilds:
         assert all("--load" not in command.cmd for command in commands)
         assert all(command.timeout == 900 for command in commands)
         assert all(command.env and command.env["DOCKER_BUILDKIT"] == "1" for command in commands)
-        assert len(run_commands) == 9
+        assert len(run_commands) == 10
         assert all(cmd[:2] == ["docker", "tag"] for cmd in run_commands)
         assert deployer._local_image_tags["nv-config-manager-ui"].startswith("sha-")
         targets = {
@@ -863,7 +863,7 @@ class TestImageBuilds:
         deployer._build_images()
 
         commands = parallel_calls[0]
-        assert len(commands) == 9
+        assert len(commands) == 10
         assert all("--load" in command.cmd for command in commands)
         assert all(command.cmd[:3] == ["docker", "buildx", "build"] for command in commands)
         assert all(
@@ -923,7 +923,7 @@ class TestKindImageLoading:
         image_names = {build[0] for build in deployer._local_image_builds()}
 
         assert "nv-config-manager-nautobot" not in image_names
-        assert len(image_names) == 8
+        assert len(image_names) == 9
 
     def test_external_dcim_does_not_load_nautobot_image(self, monkeypatch):
         logged_commands: list[list[str]] = []
@@ -955,7 +955,7 @@ class TestKindImageLoading:
             if command[:3] == ["kind", "load", "docker-image"]
         }
         assert "nv-config-manager-nautobot:local" not in loaded_images
-        assert len(loaded_images) == 8
+        assert len(loaded_images) == 9
 
     def test_kind_preload_images_include_defaults_config_and_env(self, monkeypatch):
         config = _make_config()
@@ -965,13 +965,13 @@ class TestKindImageLoading:
         ]
         monkeypatch.setenv(
             "NVCM_KIND_PRELOAD_IMAGES",
-            "docker.io/library/nats:2.14-alpine,docker.io/library/redis:7-alpine",
+            "docker.io/library/nats:2.14.9-alpine,docker.io/library/redis:7-alpine",
         )
 
         assert _kind_preload_images(config) == [
             "docker.io/library/busybox:1.36",
             "docker.io/library/redis:7-alpine",
-            "docker.io/library/nats:2.14-alpine",
+            "docker.io/library/nats:2.14.9-alpine",
         ]
 
     def test_load_kind_tags_arch_specific_loader_image_as_canonical(self, monkeypatch):
@@ -1024,6 +1024,7 @@ class TestKindImageLoading:
             "nv-config-manager-temporal:local",
             "nv-config-manager-temporal-bootstrap:local",
             "nv-config-manager-temporal-ui:local",
+            "nv-config-manager-oidc-proxy:local",
         }
         assert [
             "docker",
