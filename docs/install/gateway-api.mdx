@@ -39,14 +39,6 @@ Repository-only installer `images.overrides.oidcProxy` settings retain their
 historical upstream tag. Set the wrapper's tag explicitly when using such an
 override to mirror the project image.
 
-For GitLab artifact promotion, the trusted promotion scripts on `main` must
-include the wrapper in the image audit, publisher, and deployment-state digest
-list. The values generator must also pass `images.oidcProxy` from that state to
-`global.images.oidcProxy.digest`. A chart change in an unmerged PR does not
-update those trusted scripts or an external Argo CD ApplicationSet. Confirm
-the running proxy image digest matches the promoted wrapper before considering
-the mitigation deployed.
-
 Every route strips inbound identity headers before forwarding, including routes
 that intentionally bypass browser authentication for native API tokens. When
 `oidc.endSessionEndpoint` is configured, logout clears the shared proxy session
