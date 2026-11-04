@@ -120,6 +120,7 @@ class SharedValuesTests(unittest.TestCase):
         self.config(RECORD + "||extra", success=False)
 
     def prepare_repository(self, with_shared: bool = True, env_has_shared: bool = True) -> None:
+        """Create the repository fixture for shared deployment-value checks."""
         remote = self.root / "remote.git"
         self.git("init", "--bare", str(remote))
         self.repo = self.root / "seed"
@@ -282,6 +283,7 @@ class SharedValuesTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "origin/env-qa", cwd=self.repo), revision)
 
     def test_render_layers_shared_then_cell_then_human_overrides(self) -> None:
+        """Keep human overrides ahead of shared and cell-specific deployment values."""
         self.assertIsNotNone(shutil.which("helm"))
         values = self.root / "values"
         (values / "cells").mkdir(parents=True)

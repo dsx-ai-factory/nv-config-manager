@@ -25,6 +25,7 @@ CHART = Path(__file__).resolve().parents[3] / "deploy/helm"
 
 
 def render(*settings: str) -> list[dict]:
+    """Render OIDC-enabled chart fixtures using the CI values."""
     if shutil.which("helm") is None or not (CHART / "charts").is_dir():
         pytest.skip("Helm and vendored chart dependencies are required")
     command = [
@@ -48,6 +49,7 @@ def render(*settings: str) -> list[dict]:
 
 
 def proxies(documents: list[dict]) -> list[dict]:
+    """Extract OAuth2 Proxy containers from rendered Kubernetes deployments."""
     return [
         container
         for document in documents
@@ -60,6 +62,7 @@ def proxies(documents: list[dict]) -> list[dict]:
 
 
 def test_old_upstream_defaults_select_the_wrapper() -> None:
+    """Migrate historical upstream defaults to the project CA wrapper."""
     containers = proxies(
         render(
             "oidc.proxy.image.repository=quay.io/oauth2-proxy/oauth2-proxy",
@@ -71,6 +74,7 @@ def test_old_upstream_defaults_select_the_wrapper() -> None:
 
 
 def test_old_values_without_the_new_global_key_reuse_the_project_mirror() -> None:
+    """Infer the wrapper mirror when reused values predate its global image key."""
     containers = proxies(
         render(
             "oidc.proxy.image.repository=quay.io/oauth2-proxy/oauth2-proxy",
@@ -88,12 +92,14 @@ def test_old_values_without_the_new_global_key_reuse_the_project_mirror() -> Non
 
 @pytest.mark.parametrize("policy", ["Never", "IfNotPresent"])
 def test_legacy_pull_policy_is_preserved(policy: str) -> None:
+    """Preserve explicit legacy pull policies during image migration."""
     containers = proxies(render(f"oidc.proxy.image.pullPolicy={policy}"))
     assert containers
     assert all(container["imagePullPolicy"] == policy for container in containers)
 
 
 def test_custom_mirror_keeps_its_historical_tag() -> None:
+    """Retain intentional custom repositories and their historical upstream tag."""
     containers = proxies(render("oidc.proxy.image.repository=custom.example/proxy"))
     assert containers
     assert all(container["image"] == "custom.example/proxy:v7.15.5" for container in containers)
@@ -101,6 +107,7 @@ def test_custom_mirror_keeps_its_historical_tag() -> None:
 
 @pytest.mark.parametrize("custom", [False, True])
 def test_custom_image_warning_is_visible_in_helm_notes(tmp_path: Path, custom: bool) -> None:
+    """Warn when an intentional custom image bypasses the project CA wrapper."""
     if shutil.which("helm") is None:
         pytest.skip("Helm is required")
     (tmp_path / "templates").mkdir()
@@ -132,6 +139,7 @@ def test_custom_image_warning_is_visible_in_helm_notes(tmp_path: Path, custom: b
 
 
 def test_managed_server_authorization_is_separate_from_workflow_rbac() -> None:
+    """Keep managed Temporal gRPC authorization separate from workflow RBAC."""
     documents = render(
         "rbac.workflows[0].name=Example",
         "rbac.workflows[0].read_roles[0]=readers",

@@ -76,12 +76,14 @@ def run_guard(tmp_path: Path, version: str, binary: str) -> subprocess.Completed
     ],
 )
 def test_compiler_security_boundaries(tmp_path: Path, version: str, accepted: bool) -> None:
+    """Enforce compiler minima while accepting experiment metadata and rejecting prereleases."""
     result = run_guard(tmp_path, version, "temporal-server")
     assert (result.returncode == 0) is accepted, result.stderr
 
 
 @pytest.mark.parametrize("binary", BINARIES)
 def test_each_copied_binary_must_be_patched(tmp_path: Path, binary: str) -> None:
+    """Require every copied upstream executable to satisfy the compiler policy."""
     result = run_guard(tmp_path, "go1.26.8", binary)
     assert result.returncode != 0
     assert f"{binary}: compiler go1.26.8" in result.stderr

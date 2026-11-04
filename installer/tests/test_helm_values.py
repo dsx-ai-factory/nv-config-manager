@@ -534,6 +534,7 @@ class TestGenerateHelmValues:
         }
 
     def test_local_images(self):
+        """Select local tags for project images, including the OIDC proxy wrapper."""
         values = _gen(_make_config(), local_images=True)
 
         images = values["global"]["images"]
@@ -557,6 +558,7 @@ class TestGenerateHelmValues:
         )
 
     def test_redis_exporter_image_default(self):
+        """Keep the installer Redis exporter pin aligned with the chart."""
         assert _GLOBAL_IMAGE_DEFAULTS["redisExporter"] == (
             "docker.io/oliver006/redis_exporter",
             "v1.95.0",
@@ -1037,6 +1039,7 @@ class TestImagesInHelmValues:
 
     @pytest.mark.parametrize("global_tag", ["", "1.4.2"])
     def test_repository_only_oidc_override_preserves_legacy_tag(self, global_tag):
+        """Preserve the upstream proxy tag for repository-only legacy mirror overrides."""
         config = _make_config(
             images=ImagesConfig(
                 tag=global_tag,
@@ -1139,6 +1142,7 @@ class TestImagesInHelmValues:
         assert images["nautobot"]["tag"] == "local"
 
     def test_airgapped_registry_maps_uploaded_source_paths(self):
+        """Map bundled source-image paths into the upload registry namespace."""
         config = _make_config(
             cluster=ClusterConfig(
                 hostname="test.example.com",

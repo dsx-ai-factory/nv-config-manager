@@ -23,14 +23,15 @@ platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$1")
 echo "Auditing $1 ($platform)"
 container_id=$(docker create --platform "$platform" "$1" /unused)
 mkdir -p "$export_dir/etc/ssl" "$export_dir/usr/share" "$export_dir/usr/local/share"
-docker cp "$container_id:/etc/ssl/certs" "$export_dir/etc/ssl/certs"
+docker cp -L "$container_id:/etc/ssl/certs" "$export_dir/etc/ssl/certs"
 # Include Go's other Linux trust paths and locally installed anchors.
+# Follow source links so the audit sees the same contents as the image runtime.
 # Only Docker's known missing-path error is optional; unknown errors fail closed.
 for ca_path in /usr/share/ca-certificates /usr/local/share/ca-certificates \
     /etc/pki/tls/certs /etc/pki/tls/cacert.pem \
     /etc/pki/ca-trust/extracted/pem /etc/ssl/ca-bundle.pem /etc/ssl/cert.pem; do
     mkdir -p "$export_dir$(dirname "$ca_path")"
-    if ! docker cp "$container_id:$ca_path" "$export_dir$ca_path" 2>"$export_dir/copy-error"; then
+    if ! docker cp -L "$container_id:$ca_path" "$export_dir$ca_path" 2>"$export_dir/copy-error"; then
         case "$(cat "$export_dir/copy-error")" in
             *"Could not find the file $ca_path in container"*) ;;
             *) cat "$export_dir/copy-error" >&2; exit 1 ;;

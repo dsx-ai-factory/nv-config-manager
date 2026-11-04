@@ -781,6 +781,7 @@ class TestImageBuilds:
         assert any(line.startswith("[two] completed in ") for line in callback.logs)
 
     def test_build_images_runs_parallel_builds_and_tags(self, monkeypatch):
+        """Build and tag all project images, including the refreshed OIDC proxy."""
         parallel_calls: list[tuple[list[_ParallelCommand], int]] = []
         run_commands: list[list[str]] = []
 
@@ -840,6 +841,7 @@ class TestImageBuilds:
         }
 
     def test_build_images_loads_buildx_container_outputs(self, monkeypatch):
+        """Load Buildx container outputs before applying local image tags."""
         parallel_calls: list[list[_ParallelCommand]] = []
 
         def fake_run_logged_parallel(commands, step, callback, *, max_parallel, **kwargs):
@@ -917,6 +919,7 @@ class TestImageBuilds:
 
 class TestKindImageLoading:
     def test_external_dcim_excludes_nautobot_from_local_images(self):
+        """Omit Nautobot images when an external DCIM provider is selected."""
         config = _make_config()
         config.services.nautobot = False
         config.dcim = DCIMConfig(provider="synthetic", server="https://synthetic.example")
@@ -928,6 +931,7 @@ class TestKindImageLoading:
         assert len(image_names) == 9
 
     def test_external_dcim_does_not_load_nautobot_image(self, monkeypatch):
+        """Load only the local images needed by the selected DCIM provider."""
         logged_commands: list[list[str]] = []
         config = _make_config()
         config.services.nautobot = False
@@ -960,6 +964,7 @@ class TestKindImageLoading:
         assert len(loaded_images) == 9
 
     def test_kind_preload_images_include_defaults_config_and_env(self, monkeypatch):
+        """Combine default, configured, and environment-supplied Kind preload images."""
         config = _make_config()
         config.images.kind_preload_images = [
             "docker.io/library/redis:7-alpine",
@@ -977,6 +982,7 @@ class TestKindImageLoading:
         ]
 
     def test_load_kind_tags_arch_specific_loader_image_as_canonical(self, monkeypatch):
+        """Load the host-architecture helper under its canonical image tag."""
         run_commands: list[list[str]] = []
         logged_commands: list[list[str]] = []
         pipe_commands: list[tuple[list[str], list[str]]] = []

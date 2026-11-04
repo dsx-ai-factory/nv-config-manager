@@ -81,13 +81,15 @@ def gate(tmp_path: Path) -> Gate:
         '    [[ ! -e "$DOCKER_CONFIG/config.json" ]] || exit 91\n'
         '    case "$1" in\n'
         '      create) [[ ! -f "$base/fail-audit" ]] || exit 92; echo container-id ;;\n'
-        '      cp) path="${2#*:}"\n'
+        "      cp) flags=-RP\n"
+        '          if [[ "$2" == -L ]]; then flags=-RH; shift; fi\n'
+        '          path="${2#*:}"\n'
         '          if [[ "$path" == /etc/pki/tls/certs && -f "$base/fail-copy" ]]; then\n'
         '            echo "permission denied" >&2; exit 95; fi\n'
         '          source="$base/image$path"\n'
         '          if [[ ! -e "$source" && ! -L "$source" ]]; then\n'
         '            echo "Could not find the file $path in container" >&2; exit 1; fi\n'
-        '          cp -RP "$source" "${!#}" ;;\n'
+        '          cp "$flags" "$source" "${!#}" ;;\n'
         '      run) [[ "$*" == *"--network none"* && "$*" == *"--read-only"* ]] || exit 93\n'
         '           cat "$base/roots.pem" ;;\n'
         "    esac ;;\n"
@@ -201,6 +203,25 @@ def test_unexpected_optional_copy_error_fails_the_audit(gate: Gate) -> None:
     result = run_gate(gate, "promote")
     assert result.returncode != 0
     assert "permission denied" in result.stderr
+
+
+@pytest.mark.parametrize("affected", [False, True])
+def test_symlinked_go_trust_directory_exports_contents(gate: Gate, affected: bool) -> None:
+    """A directory link to an existing export parent must not hide its anchors."""
+    _, binaries, _ = gate
+    trust_directory = binaries / "image/etc/pki/tls"
+    trust_directory.mkdir(parents=True)
+    (trust_directory / "certs").symlink_to(".")
+    source = (
+        ROOT / "ci/tests/fixtures/emsign-root-tls-g3.pem" if affected else binaries / "roots.pem"
+    )
+    shutil.copyfile(source, trust_directory / "anchor.pem")
+    result = run_gate(gate, "promote")
+    if affected:
+        assert result.returncode != 0
+        assert "Affected emSign trust anchor remains" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
 
 
 def test_promotion_rejects_changed_archive_before_loading_or_pushing(gate: Gate) -> None:
