@@ -123,6 +123,7 @@ images:
       tag: "0.12.3"
     oidcProxy:
       repository: registry.example.com/nv-config-manager/nvidian/cfa/nv-config-manager-oidc-proxy
+      tag: "1.3.0"
     templatePluginInstaller:
       repository: registry.example.com/nv-config-manager/library/python
       tag: "3.13-alpine"

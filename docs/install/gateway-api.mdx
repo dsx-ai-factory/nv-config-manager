@@ -12,17 +12,23 @@ header, and forwards each hostname to its internal service. API clients continue
 to use the `svc-*` hostnames with a Bearer token.
 
 The project-owned `global.images.oidcProxy` image retains the upstream binary
-and replaces its public CA stores to distrust the compromised emSign roots.
+and refreshes its public CA bundle to distrust the compromised emSign roots.
 This mitigates the normal public-trust path while awaiting an
 [upstream release](https://github.com/oauth2-proxy/oauth2-proxy/issues/3578).
 The Go runtime remains unchanged, so scanners may still report CVE-2026-111943.
 The old upstream defaults migrate automatically to the wrapper, including with
-`helm upgrade --reuse-values`. Intentional custom `oidc.proxy.image` overrides
+`helm upgrade --reuse-values`. If reused values lack `global.images.oidcProxy`
+and the main image repository does not end in `/nv-config-manager`, the upgrade
+cannot infer the wrapper repository and stops. Set
+`global.images.oidcProxy.repository` explicitly before upgrading in that case.
+Intentional custom `oidc.proxy.image` overrides
 remain supported and bypass this wrapper. Their images must contain refreshed
 CA stores; retaining an unrefreshed image explicitly opts out of the mitigation.
 Helm notes flag these custom overrides. For mirrored or airgapped installs,
 mirror the project wrapper, clear the legacy repository/tag overrides, and set
-`global.images.oidcProxy.repository` with its release tag or digest instead.
+`global.images.oidcProxy.repository` to the bare repository name, without a tag
+or digest suffix. Set `global.images.oidcProxy.tag` or
+`global.images.oidcProxy.digest` separately.
 An explicit legacy `oidc.proxy.image.pullPolicy` still takes precedence,
 including `Never` for preloaded disconnected installs.
 The upstream binary pin is maintained in `build/oidc-proxy.Dockerfile`.

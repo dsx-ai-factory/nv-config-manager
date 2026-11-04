@@ -27,15 +27,20 @@ WORKDIR /src
 COPY components/temporal/go.mod ./
 COPY components/temporal/cmd/ ./cmd/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-bootstrap ./cmd/temporal-bootstrap
-RUN CGO_ENABLED=0 go build -trimpath -o /out/check-go-version ./cmd/check-go-version
 
 # Every runtime COPY of an upstream executable must come through this stage.
-# Read build metadata instead of executing binaries from the target architecture.
+# Require the validated compiler used by our pinned, patched Go builder.
 FROM bootstrap-builder AS checked-upstream
 COPY --from=server-upstream /usr/local/bin/temporal-server /checked/temporal-server
 COPY --from=admin-tools-upstream /usr/local/bin/temporal /checked/temporal
 COPY --from=admin-tools-upstream /usr/local/bin/temporal-sql-tool /checked/temporal-sql-tool
-RUN /out/check-go-version /checked/temporal-server /checked/temporal /checked/temporal-sql-tool
+RUN set -eu; \
+    expected="$(go env GOVERSION)"; \
+    for binary in /checked/*; do \
+        actual="$(go version -m "$binary" | head -n 1)"; \
+        [ "${actual##* }" = "$expected" ] || \
+            { echo "$binary: unexpected compiler ($actual), expected $expected" >&2; exit 1; }; \
+    done
 
 # Rebuild the version-matched UI server until an upstream release includes the
 # patched Go toolchain and dependency versions. The released module contains
