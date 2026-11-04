@@ -16,16 +16,13 @@
 
 import asyncio
 import os
-import pkgutil
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
-from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
-import nv_config_manager_workflows
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.converter import get_data_converter
@@ -45,25 +42,6 @@ DEFAULT_MAX_CACHED_WORKFLOWS = 200
 # only time-slice the same CPU; a burst of 100 parallel first tasks can push
 # every one past the 10s workflow task timeout and into retries.
 DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS = 10
-
-# The sandbox re-imports every non-passthrough module for each workflow run and
-# keeps a private copy per cached run. These packages hold no state that workflow
-# code mutates, so sharing the host copy is deterministic and avoids that cost.
-# Workflow definitions under nv_config_manager_workflows.workflows stay sandboxed.
-SANDBOX_PASSTHROUGH_MODULES = (
-    "annotated_types",
-    "pydantic",
-    "pydantic_core",
-    "typing_extensions",
-    "typing_inspection",
-    "nv_config_manager_dcim",
-    "nv_config_manager_infrastructure",
-    *(
-        f"{nv_config_manager_workflows.__name__}.{module.name}"
-        for module in pkgutil.iter_modules(nv_config_manager_workflows.__path__)
-        if module.name != "workflows"
-    ),
-)
 
 
 def _enabled_env_flag(name: str) -> bool:
@@ -117,15 +95,6 @@ def _workflow_cache_and_task_limits() -> tuple[int, int]:
     return max_cached_workflows, max_concurrent_workflow_tasks
 
 
-def workflow_runner() -> SandboxedWorkflowRunner:
-    """Return the sandboxed workflow runner used by the worker."""
-    return SandboxedWorkflowRunner(
-        restrictions=SandboxRestrictions.default.with_passthrough_modules(
-            *SANDBOX_PASSTHROUGH_MODULES
-        )
-    )
-
-
 async def main() -> None:
     """Run the temporal worker."""
     max_cached_workflows, max_concurrent_workflow_tasks = _workflow_cache_and_task_limits()
@@ -153,7 +122,6 @@ async def main() -> None:
         workflows=workflows,
         activities=registry.all_activities,  # type: ignore[arg-type]
         activity_executor=ThreadPoolExecutor(100),
-        workflow_runner=workflow_runner(),
         max_cached_workflows=max_cached_workflows,
         max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
     )

@@ -233,11 +233,11 @@ async def test_worker_registers_the_frozen_temporal_type_names(
     assert HelloWorldRunning not in logged_registry.all_workflows
 
 
-async def test_worker_uses_passthrough_sandbox_and_bounded_cache(
+async def test_worker_uses_default_sandbox_and_bounded_cache(
     mocker: MockerFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Shared libraries are passed through the sandbox and cache and task slots are bounded."""
+    """The worker keeps the SDK's default sandbox and bounds the cache and task slots."""
     monkeypatch.delenv("NVCM_MAX_CACHED_WORKFLOWS", raising=False)
     monkeypatch.delenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", raising=False)
     worker_constructor = _mock_worker_startup(mocker)
@@ -251,26 +251,7 @@ async def test_worker_uses_passthrough_sandbox_and_bounded_cache(
         options["max_concurrent_workflow_tasks"]
         == worker_main.DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS
     )
-    runner = options["workflow_runner"]
-    assert isinstance(runner, SandboxedWorkflowRunner)
-    assert set(worker_main.SANDBOX_PASSTHROUGH_MODULES) <= runner.restrictions.passthrough_modules
-
-
-def test_passthrough_covers_shared_workflow_modules_but_not_definitions() -> None:
-    """Every shared workflows submodule is passed through; workflow definitions stay sandboxed."""
-    passthrough = set(worker_main.SANDBOX_PASSTHROUGH_MODULES)
-
-    assert {
-        "nv_config_manager_workflows.decorators",
-        "nv_config_manager_workflows.metadata",
-        "nv_config_manager_workflows.stage",
-        "nv_config_manager_workflows.workflow_references",
-    } <= passthrough
-    assert not any(
-        name == "nv_config_manager_workflows"
-        or name.startswith("nv_config_manager_workflows.workflows")
-        for name in passthrough
-    )
+    assert "workflow_runner" not in options
 
 
 @pytest.mark.parametrize(("value", "expected"), [("", 10), ("1", 1), (" 25 ", 25)])
@@ -355,7 +336,5 @@ def test_max_cached_workflows_rejects_invalid_values(
 
 @pytest.mark.parametrize("workflow_class", BUILTIN_WORKFLOWS, ids=workflow_type_name)
 async def test_builtin_workflows_load_in_worker_sandbox(workflow_class: type[Any]) -> None:
-    """Every built-in workflow passes sandbox validation with the worker's passthrough list."""
-    worker_main.workflow_runner().prepare_workflow(
-        workflow._Definition.must_from_class(workflow_class)
-    )
+    """Every built-in workflow passes validation in the worker's default sandbox."""
+    SandboxedWorkflowRunner().prepare_workflow(workflow._Definition.must_from_class(workflow_class))

@@ -94,6 +94,36 @@ the registry's workflows and activities. The local-only `HelloWorldRunning`
 latency fixture is kept out of the built-in plugin; the worker appends it only
 when `NVCM_ENABLE_LOCAL_TEST_WORKFLOWS` is enabled.
 
+### Workflow module imports
+
+The worker runs every workflow in Temporal's sandbox, which re-imports a workflow
+module for each workflow run and keeps that copy for as long as the run stays in
+the worker's cache. Any module the workflow module imports normally is
+re-imported with it, including Pydantic and this package's shared modules. Put
+every import other than the standard library and `temporalio` inside one
+`workflow.unsafe.imports_passed_through()` block so the sandbox shares the
+worker's already-loaded copy instead:
+
+```python
+from datetime import timedelta
+
+from temporalio import workflow
+
+with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel
+
+    from example_plugin.activities import example_activity
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+    from nv_config_manager_workflows.stage import StageMixin
+```
+
+Passed-through modules must stay deterministic: they must not keep state that
+workflow code changes, and workflow code must not read the clock, random
+numbers, or I/O through them. Every module that defines a built-in workflow is
+checked by `tests/workflows/test_sandbox_imports.py`. Plugins should follow the
+same pattern in their own workflow modules; the worker does not maintain a
+separate passthrough list for them.
+
 ### Registering a workflow plugin
 
 To make workflows and activities discoverable, an installed Python distribution
