@@ -24,6 +24,11 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
+- The installer now refuses to deploy when `--load-kind` is set but the current
+  kube context is not the matching Kind cluster, or when `images.source` is
+  `local` and the context does not look like a cluster on this machine. Set
+  `NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES=1` to bypass the
+  `images.source: local` check for clusters that can use locally built images.
 - Installer content hashes no longer depend on wall-clock time, preventing
   unchanged jobs and templates from being detected as changed across runs.
 - The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay
