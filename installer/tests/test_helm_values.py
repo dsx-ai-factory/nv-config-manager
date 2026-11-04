@@ -62,6 +62,7 @@ from nv_config_manager_installer.schema import (
     SSOProvider,
     TemplatePath,
     TemplatePluginsConfig,
+    TemporalDeploymentConfig,
     VaultConfig,
     VaultPathConfig,
     VaultPathsConfig,
@@ -130,6 +131,30 @@ class TestGenerateHelmValues:
         assert ext["postgres"]["temporal"]["host"] == "cluster-temporal-rw"
         assert ext["postgres"]["configStore"]["host"] == "cluster-config-store-rw"
         assert values["mcp"]["enabled"] is True
+
+    def test_custom_labels_are_emitted_under_global(self) -> None:
+        values = _gen(
+            _make_config(
+                cluster=ClusterConfig(
+                    hostname="test.example.com",
+                    environment="prod",
+                    custom_labels={
+                        "production": "true",
+                        "include_in_slo": "true",
+                    },
+                )
+            )
+        )
+
+        assert values["global"]["customLabels"] == {
+            "production": "true",
+            "include_in_slo": "true",
+        }
+
+    def test_empty_custom_labels_are_omitted_from_global(self) -> None:
+        values = _gen(_make_config())
+
+        assert "customLabels" not in values["global"]
 
     def test_s3_irsa_role_and_region(self):
         """S3 IRSA emits an annotated ServiceAccount without a credentials Secret."""
@@ -345,6 +370,59 @@ class TestGenerateHelmValues:
         assert values["temporal"]["client"]["namespace"] == "network-automation"
         assert values["cnpg"]["temporal"]["enabled"] is False
         assert values["cnpg"]["temporalVisibility"]["enabled"] is False
+
+    def test_temporal_deployment_defaults_do_not_override_chart_values(self) -> None:
+        temporal = _gen(_make_config())["temporal"]
+
+        assert "numHistoryShards" not in temporal
+        assert "services" not in temporal
+
+    def test_temporal_deployment_maps_history_replicas_and_shards(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=16,
+                num_history_shards=128,
+            )
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 16
+        assert temporal["numHistoryShards"] == 128
+
+    def test_temporal_deployment_maps_only_history_replicas(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(history_replicas=8),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 8
+        assert "numHistoryShards" not in temporal
+
+    def test_temporal_deployment_maps_only_history_shards(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(num_history_shards=64),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["numHistoryShards"] == 64
+        assert "services" not in temporal
+
+    def test_temporal_deployment_overrides_size_profile(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=8,
+                num_history_shards=64,
+            )
+        )
+
+        temporal = _gen(config, complete=True)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 8
+        assert temporal["services"]["history"]["resources"]["requests"]["memory"] == "256Mi"
+        assert temporal["numHistoryShards"] == 64
 
     def test_network_policy(self):
         values = _gen(_make_config())

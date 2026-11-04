@@ -133,6 +133,7 @@ ui/playwright-report/
 ui/test-results/
 ui/.nvmrc
 ui/*.tsbuildinfo
+ui/src/mocks/data/workflows/fixtures/
 
 # macOS
 .DS_Store

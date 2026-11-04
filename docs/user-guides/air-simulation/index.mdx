@@ -133,6 +133,7 @@ flowchart TB
 
   subgraph HOSTS["Demo servers and rack mocks"]
     TRAYS["Compute tray mocks"]
+    HYPERREACH["su02-hyperreach-host<br/>Ubuntu LLDP fixture"]
     CONTROL["Control nodes"]
     STORAGE["Storage node"]
   end
@@ -153,6 +154,7 @@ flowchart TB
   TANHL --> TRAYS
   TANSL --> STORAGE
   CINL --> TRAYS
+  CINL -- "swp2 <-> A56p0 / A56p1" --> HYPERREACH
 
   classDef oob fill:#eaf4ff,stroke:#2b6cb0,color:#111;
   classDef tan fill:#edf7ed,stroke:#2f855a,color:#111;
@@ -161,8 +163,60 @@ flowchart TB
   class OOBSRV,OOBML,OOBSP,OOBHL oob;
   class TANSP,TANBL,TANHL,TANSL tan;
   class CINSP,CINL cin;
-  class DSXAIR,TRAYS,CONTROL,STORAGE host;
+  class DSXAIR,TRAYS,HYPERREACH,CONTROL,STORAGE host;
 ```
+
+### SuperPOD hyper-reach LLDP fixture
+
+New SuperPOD simulations include `su02-hyperreach-host`, an Ubuntu LLDP host
+installed in DeviceBay `line-card-1` of `su02-hyperreach-chassis` in Nautobot.
+The chassis is an inventory record, not another Air VM. This fixture tests
+parent-chassis identity and cable-lane matching through LLDP port descriptions.
+
+Recreate simulations without `su02-hyperreach-host` from the updated topology.
+If the host already exists, reload the updated Mock Network Topology job to
+create the chassis and DeviceBay association. In the host console, update the
+two port descriptions in `/etc/lldpd.d/90-nvcm-demo.conf` to
+`su02-hyperreach-chassis C1-2-L1` and `su02-hyperreach-chassis C1-2-L2`, then
+restart `lldpd`.
+
+| CIN leaf | Switch port | Nautobot host interface | Intended label | Observed port ID |
+| :------- | :---------- | :---------------------- | :------------- | :--------------- |
+| su01-cin-leaf-r01 | swp2 | eth1 | C1-2-L1 | A56p0 |
+| su01-cin-leaf-r02 | swp2 | eth2 | C1-2-L2 | A56p1 |
+
+The host advertises `su02-hyperreach-chassis C1-2-L1` and
+`su02-hyperreach-chassis C1-2-L2` as its LLDP port descriptions. Its LLDP system
+name remains `su02-hyperreach-host`. The two data interfaces have no IP addresses or
+intended MAC addresses. The original SpX compute hosts and their `swp1` links
+remain available; use those hosts for SpX tests and keep the fixture's `swp2`
+ports out of tenant-change tests.
+
+1. Open the host's console from the DSX Air topology. Wait for
+   `cloud-init status --wait` to complete.
+1. Run [Connected Host Metadata](../connected-host-metadata/index.mdx) against
+   each CIN leaf to compare intended labels with observed descriptions. Then
+   run [Cable Validation](../cable-validation/index.mdx); both `swp2` links
+   should validate even though the observed port IDs differ from Nautobot's
+   interface names.
+1. For a metadata-difference test, run this in the host console:
+
+   ```sh
+   sudo lldpcli configure ports A56p0 lldp portdescription "su02-hyperreach-chassis A56p0"
+   ```
+
+   Wait for LLDP to refresh, then rerun validation. The first leaf's `swp2`
+   should fail identity validation, with `C1-2-L1` and `A56p0` visible in
+   the report and **Port naming differs** guidance in the Issue column. This flags differing metadata;
+   alternative naming conventions can refer to the same physical lane. The
+   second leaf's `swp2` should remain valid.
+1. Restore the persistent descriptions with `sudo systemctl restart lldpd`,
+   wait for LLDP to refresh, and rerun validation.
+
+The fixture tests Nautobot `parent_bay` chassis resolution: the description
+identifies the parent chassis while the cable terminates on the child host.
+Different interface names and absent intended MAC addresses prevent the other
+identity checks from masking this path. It does not emulate physical PCIe hardware.
 
 ### Options
 
@@ -335,7 +389,7 @@ The standard demo context already includes `8.8.8.8` as a DNS server. The exampl
 ### Run Multi-Deploy
 
 1. Open `https://nvcm.air`.
-1. Click the **+** button and select **MultiDeployWorkflow**.
+1. Click the **+** button and select **Multi-Configuration Deploy**.
 1. Set **Role** to `TAN-HLEAF`.
 1. Set **Max Batch Size** to `5` so all demo TAN leaf devices can be approved together when they share one diff.
 
@@ -360,7 +414,7 @@ Reprovision intentionally takes the selected switch offline and wipes its runnin
 </Warning>
 
 1. Open `https://nvcm.air`.
-1. Click the **+** button and select **ReprovisionWorkflow**.
+1. Click the **+** button and select **Reprovision**.
 1. Select the DSX Air trial site, such as `TRIAL01 - demo`.
 1. Select a TAN leaf device, such as `tan-leaf-01`.
 

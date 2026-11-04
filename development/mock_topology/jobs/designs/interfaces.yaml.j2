@@ -16,6 +16,9 @@ interfaces:
     enabled: {{ intf.enabled | default(true) }}
     mgmt_only: {{ intf.mgmt_only }}
     mtu: {{ intf.mtu | default(1500, true) | int }}
+    {% if intf.label is defined and intf.label %}
+    label: {{ intf.label | tojson }}
+    {% endif %}
     {% if intf.description is defined and intf.description %}
     description: {{ intf.description }}
     {% endif %}

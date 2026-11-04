@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from nv_config_manager_templates.models import DeviceRenderData, LocationRenderData, RenderData
 
-from nv_config_manager.common.client import ConfigFile, ConfigFileMetadata
+from nv_config_manager.common.client.config_store import ConfigFile, ConfigFileMetadata
 from nv_config_manager.common.client.render import FileCommit
 from nv_config_manager.dcim import IntendedConfigurationUpdate, RenderDeviceIdentity, RenderLocation
 from nv_config_manager.render.exceptions import RenderScopeMismatch

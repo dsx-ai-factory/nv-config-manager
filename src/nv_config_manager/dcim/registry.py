@@ -21,7 +21,7 @@ packages receive an explicit provider name and a plain settings mapping.
 from __future__ import annotations
 
 import warnings
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, Callable, Mapping
 from configparser import ConfigParser
 from contextlib import asynccontextmanager
 from typing import Any
@@ -46,6 +46,8 @@ from nv_config_manager_dcim import (
     get_dcim_provider as get_sdk_dcim_provider,
 )
 
+from nv_config_manager.common.config.loader import load_config
+
 DCIM_PROVIDER_ENTRY_POINT_GROUP = "nv_config_manager.dcim"
 DEFAULT_DCIM_PROVIDER = "nautobot-2x"
 
@@ -54,8 +56,6 @@ def _resolved_config(config: ConfigParser | None) -> ConfigParser:
     """Return an explicit config, loading the service config when omitted."""
     if config is not None:
         return config
-    from nv_config_manager.common.config import load_config  # avoid circular import
-
     return load_config()
 
 
@@ -170,7 +170,7 @@ def normalize_dcim_event(
 
 
 @asynccontextmanager
-async def dcim_client_session(config: ConfigParser | None = None) -> AsyncIterator[DCIMClient]:
+async def dcim_client_session(config: ConfigParser | None = None) -> AsyncGenerator[DCIMClient]:
     """Yield a configured client and always release provider resources."""
     client = create_dcim_client(config)
     try:

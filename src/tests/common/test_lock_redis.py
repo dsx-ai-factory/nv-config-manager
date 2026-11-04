@@ -30,7 +30,7 @@ import pytest
 from testcontainers.redis import RedisContainer
 
 from nv_config_manager.common import lock as lock_module
-from nv_config_manager.common.client import RedisClient
+from nv_config_manager.common.client.redis import RedisClient
 from nv_config_manager.common.lock import acquire_lock, release_lock, renew_lock
 
 pytestmark = pytest.mark.timeout(120)

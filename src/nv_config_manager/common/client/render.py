@@ -22,6 +22,8 @@ from nv_config_manager_clients.render import FileCommit as FileCommit
 from nv_config_manager_clients.render import RenderClient as _RenderClient
 from nv_config_manager_clients.render import RenderClientException as RenderClientException
 
+from nv_config_manager.common.config.http import get_internal_auth_headers, get_mtls_cert_paths
+
 
 class RenderClient(_RenderClient):
     """Application client retaining the legacy INI factory."""
@@ -41,9 +43,6 @@ class RenderClient(_RenderClient):
         Returns:
             Configured RenderClient instance
         """
-        # Avoid circular import: common.config imports these service client factories.
-        from nv_config_manager.common.config import get_internal_auth_headers, get_mtls_cert_paths
-
         render_config = config[section]
         use_internal = render_config.getboolean("use_internal_endpoint", fallback=False)
 

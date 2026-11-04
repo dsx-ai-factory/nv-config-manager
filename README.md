@@ -234,8 +234,9 @@ make local-status             # Show pods, services, and gateway state
 make local-logs               # Tail deployment logs
 make port-forward             # Forward Nautobot and Temporal UI locally
 make docker-build             # Build all local container images
-make test                     # Run root and isolated workflow package tests
+make test                     # Run root, CI tooling, and isolated workflow package tests
 make test-root                # Run root project tests only
+make test-ci                  # Check build/container/CI tooling without application fixtures
 make lint                     # Run Python linters and type checks
 make openapi                  # Regenerate OpenAPI specs
 make openapi-check            # Check OpenAPI specs are current
@@ -340,8 +341,9 @@ Shared structured logging is available independently through the
 ```bash
 make install                 # Install Python dependencies
 make dev                     # Install with development dependencies
-make test                    # Run root and isolated workflow package tests
+make test                    # Run root, CI tooling, and isolated workflow package tests
 make test-root               # Run root project tests only
+make test-ci                 # Check build/container/CI tooling without application fixtures
 make test-cov                # Run root project tests with coverage in parallel
 make test-integration        # Run integration tests against a running cluster
 make test-nautobot-plugin    # Run the vendored Nautobot plugin's Django suite
@@ -394,12 +396,17 @@ OpenAPI specs live in [docs/api-specs](docs/api-specs/README.md). Run `make open
 
 ## Go API Bindings
 
-Generated Go clients for the Temporal, Config Store, ZTP, Render, and DHCP APIs live in
-[`bindings/go`](bindings/go/README.md). Install a specific platform release with:
+Generated Go clients for the Temporal, Config Store, ZTP, Render, and DHCP APIs
+live in [`bindings/go`](bindings/go/README.md). After the stable 1.4.0 release
+containing the corrected module path is published, install it with:
 
 ```bash
-go get github.com/nvidia/nv-config-manager/bindings/go@v1.3.0
+go get github.com/dsx-ai-factory/nv-config-manager/bindings/go@v1.4.0
 ```
+
+Earlier tags declare the previous module path. Refer to the
+[Go bindings README](bindings/go/README.md) for release-candidate and migration
+guidance.
 
 Each service is a separate package. For example, the Temporal client uses the generated request
 builder and bearer-token context:
@@ -408,7 +415,7 @@ builder and bearer-token context:
 import (
     "context"
 
-    "github.com/nvidia/nv-config-manager/bindings/go/temporal"
+    "github.com/dsx-ai-factory/nv-config-manager/bindings/go/temporal"
 )
 
 ctx := context.WithValue(context.Background(), temporal.ContextAccessToken, accessToken)

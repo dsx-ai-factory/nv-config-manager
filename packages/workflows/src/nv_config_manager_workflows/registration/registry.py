@@ -106,10 +106,11 @@ class WorkflowRegistry:
                 workflow_owners.setdefault(cast(type[WorkflowMetadataMixin], workflow), plugin_name)
         api_workflows = [w for w in all_workflows if workflow_api_enabled(w)]
         all_activities = list(dict.fromkeys(a for d in ordered.values() for a in d.activities))
+        # validate_plugins above has checked each class-level scheduler identity.
         scheduler_registrations = tuple(
             SchedulerRegistration(
                 plugin=plugin_name,
-                identity=scheduler.scheduler_identity,
+                identity=scheduler.scheduler_identity,  # ty: ignore[unresolved-attribute]
                 scheduler=scheduler,
             )
             for plugin_name, descriptor in ordered.items()

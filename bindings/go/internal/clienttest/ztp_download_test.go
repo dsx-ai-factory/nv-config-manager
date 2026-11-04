@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/nvidia/nv-config-manager/bindings/go/ztp"
+	"github.com/dsx-ai-factory/nv-config-manager/bindings/go/ztp"
 )
 
 func TestZTPDownloadPreservesBinaryContent(t *testing.T) {
