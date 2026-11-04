@@ -28,7 +28,9 @@ Helm notes flag these custom overrides. For mirrored or airgapped installs,
 mirror the project wrapper, clear the legacy repository/tag overrides, and set
 `global.images.oidcProxy.repository` to the bare repository name, without a tag
 or digest suffix. Set `global.images.oidcProxy.tag` or
-`global.images.oidcProxy.digest` separately.
+`global.images.oidcProxy.digest` separately. A non-empty digest takes precedence
+over the tag and persists when values are reused during an upgrade. To select
+a tag instead, clear `global.images.oidcProxy.digest` by setting it to `""`.
 An explicit legacy `oidc.proxy.image.pullPolicy` still takes precedence,
 including `Never` for preloaded disconnected installs.
 The upstream binary pin is maintained in `build/oidc-proxy.Dockerfile`.

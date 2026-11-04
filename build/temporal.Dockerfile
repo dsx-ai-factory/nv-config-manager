@@ -29,17 +29,22 @@ COPY components/temporal/cmd/ ./cmd/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-bootstrap ./cmd/temporal-bootstrap
 
 # Every runtime COPY of an upstream executable must come through this stage.
-# Require the validated compiler used by our pinned, patched Go builder.
+# Require a security-patched compiler from either supported Go release series.
 FROM bootstrap-builder AS checked-upstream
 COPY --from=server-upstream /usr/local/bin/temporal-server /checked/temporal-server
 COPY --from=admin-tools-upstream /usr/local/bin/temporal /checked/temporal
 COPY --from=admin-tools-upstream /usr/local/bin/temporal-sql-tool /checked/temporal-sql-tool
 RUN set -eu; \
-    expected="$(go env GOVERSION)"; \
     for binary in /checked/*; do \
         actual="$(go version -m "$binary" | head -n 1)"; \
-        [ "${actual##* }" = "$expected" ] || \
-            { echo "$binary: unexpected compiler ($actual), expected $expected" >&2; exit 1; }; \
+        version="${actual##* }"; \
+        case "$version" in \
+            go1.26.*) patch="${version#go1.26.}"; minimum=10 ;; \
+            go1.27.*) patch="${version#go1.27.}"; minimum=3 ;; \
+            *) echo "$binary: unsupported compiler ($version)" >&2; exit 1 ;; \
+        esac; \
+        [ "$patch" -ge "$minimum" ] 2>/dev/null || \
+            { echo "$binary: compiler $version requires Go 1.26.10+ or 1.27.3+" >&2; exit 1; }; \
     done
 
 # Rebuild the version-matched UI server until an upstream release includes the
