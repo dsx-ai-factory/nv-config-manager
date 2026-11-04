@@ -27,6 +27,15 @@ WORKDIR /src
 COPY components/temporal/go.mod ./
 COPY components/temporal/cmd/ ./cmd/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-bootstrap ./cmd/temporal-bootstrap
+RUN CGO_ENABLED=0 go build -trimpath -o /out/check-go-version ./cmd/check-go-version
+
+# Every runtime COPY of an upstream executable must come through this stage.
+# Read build metadata instead of executing binaries from the target architecture.
+FROM bootstrap-builder AS checked-upstream
+COPY --from=server-upstream /usr/local/bin/temporal-server /checked/temporal-server
+COPY --from=admin-tools-upstream /usr/local/bin/temporal /checked/temporal
+COPY --from=admin-tools-upstream /usr/local/bin/temporal-sql-tool /checked/temporal-sql-tool
+RUN /out/check-go-version /checked/temporal-server /checked/temporal /checked/temporal-sql-tool
 
 # Rebuild the version-matched UI server until an upstream release includes the
 # patched Go toolchain and dependency versions. The released module contains
@@ -48,7 +57,7 @@ RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
 # Temporal Server
 # =============================================================================
 FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS server
-COPY --from=server-upstream /usr/local/bin/temporal-server /usr/local/bin/temporal-server
+COPY --from=checked-upstream /checked/temporal-server /usr/local/bin/temporal-server
 COPY --from=dockerize-builder /out/dockerize /usr/local/bin/dockerize
 USER nvs
 ENTRYPOINT ["/usr/local/bin/temporal-server"]
@@ -59,8 +68,8 @@ ENTRYPOINT ["/usr/local/bin/temporal-server"]
 # This image carries Temporal's v1.31 schema files plus NVIDIA Config Manager's
 # bootstrap binary. It runs only as a chart-managed init container.
 FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS bootstrap
-COPY --from=admin-tools-upstream /usr/local/bin/temporal /usr/local/bin/temporal
-COPY --from=admin-tools-upstream /usr/local/bin/temporal-sql-tool /usr/local/bin/temporal-sql-tool
+COPY --from=checked-upstream /checked/temporal /usr/local/bin/temporal
+COPY --from=checked-upstream /checked/temporal-sql-tool /usr/local/bin/temporal-sql-tool
 COPY --from=admin-tools-upstream /etc/temporal/schema /etc/temporal/schema
 COPY --from=bootstrap-builder /out/temporal-bootstrap /usr/local/bin/temporal-bootstrap
 USER nvs

@@ -183,7 +183,7 @@ global:
       tag: "7-alpine"
     redisExporter:
       repository: docker.io/oliver006/redis_exporter
-      tag: "v1.97.0"
+      tag: "v1.95.0"
     nats:
       repository: docker.io/library/nats
       tag: "2.14.9-alpine"
@@ -213,7 +213,7 @@ global:
       repository: registry.example.com/nvidia/nv-config-manager-temporal-ui
       pullPolicy: Always
       digest: ""
-    # OAuth2 Proxy 7.15.5 with a refreshed public CA bundle.
+    # Upstream OAuth2 Proxy with refreshed public CA stores.
     oidcProxy:
       repository: registry.example.com/nvidia/nv-config-manager-oidc-proxy
       pullPolicy: Always
@@ -1073,11 +1073,13 @@ oidc:
     # and nonce validation remain enabled.
     insecureAllowUnverifiedEmail: false
     image:
-      # Optional legacy upstream/custom image override. Empty values use
-      # global.images.oidcProxy, including its release tag or digest pin.
+      # Old upstream defaults migrate to global.images.oidcProxy. Intentional
+      # custom images remain overrides and must provide refreshed CA stores.
       repository: ""
       tag: ""
-      pullPolicy: IfNotPresent
+      # Empty inherits global.images.oidcProxy.pullPolicy. Explicit legacy
+      # policies (including Never on disconnected nodes) remain supported.
+      pullPolicy: ""
     resources:
       requests:
         cpu: 10m

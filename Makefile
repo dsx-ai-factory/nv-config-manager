@@ -840,11 +840,12 @@ docker-build-temporal-multiarch: docker-buildx-setup ## Builds and pushes multi-
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/nv-config-manager-temporal:$(VERSION) $(LATEST_TAG_temporal) $(EXTRA_TAGS) $(TEMPORAL_BUILD_ARGS) --target server -f build/temporal.Dockerfile --push .
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/nv-config-manager-temporal-bootstrap:$(VERSION) $(LATEST_TAG_temporal_bootstrap) $(EXTRA_TAGS) $(TEMPORAL_BUILD_ARGS) --target bootstrap -f build/temporal.Dockerfile --push .
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/nv-config-manager-temporal-ui:$(VERSION) $(LATEST_TAG_temporal_ui) $(EXTRA_TAGS) $(TEMPORAL_BUILD_ARGS) --target ui -f build/temporal.Dockerfile --push .
+	@echo "✅ Multi-arch distroless Temporal images pushed to $(REGISTRY)"
 
 .PHONY: docker-build-oidc-proxy-multiarch
-docker-build-oidc-proxy-multiarch: ## Builds and pushes the OIDC proxy CA wrapper for PLATFORMS.
+docker-build-oidc-proxy-multiarch: docker-buildx-setup ## Builds and pushes the OIDC proxy CA wrapper for PLATFORMS.
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/nv-config-manager-oidc-proxy:$(VERSION) $(LATEST_TAG_oidc_proxy) $(EXTRA_TAGS) $(APT_MIRROR_DEBIAN_ARGS) -f build/oidc-proxy.Dockerfile --push .
-	@echo "✅ Multi-arch distroless Temporal images pushed to $(REGISTRY)"
+	@echo "✅ Multi-arch OIDC proxy CA wrapper pushed to $(REGISTRY)"
 
 # =============================================================================
 # Service run targets (for local development without k8s)

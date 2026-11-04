@@ -559,7 +559,7 @@ class TestGenerateHelmValues:
     def test_redis_exporter_image_default(self):
         assert _GLOBAL_IMAGE_DEFAULTS["redisExporter"] == (
             "docker.io/oliver006/redis_exporter",
-            "v1.97.0",
+            "v1.95.0",
         )
 
     def test_sso_enabled(self):
@@ -1035,6 +1035,18 @@ class TestImagesInHelmValues:
         assert images["nvConfigManager"]["tag"] == "dev-branch"
         assert images["nautobot"]["tag"] == "v1.0"
 
+    @pytest.mark.parametrize("global_tag", ["", "1.4.2"])
+    def test_repository_only_oidc_override_preserves_legacy_tag(self, global_tag):
+        config = _make_config(
+            images=ImagesConfig(
+                tag=global_tag,
+                overrides={"oidcProxy": ImageOverride(repository="mirror.example/proxy")},
+            )
+        )
+        image = _gen(config)["global"]["images"]["oidcProxy"]
+        assert image["repository"] == "mirror.example/proxy"
+        assert image["tag"] == "v7.15.5"
+
     def test_temporal_server_and_ui_overrides_keep_project_bootstrap(self):
         config = _make_config(
             images=ImagesConfig(
@@ -1167,7 +1179,7 @@ class TestImagesInHelmValues:
             images["redisExporter"]["repository"]
             == "registry.example.com/nv-config-manager/oliver006/redis_exporter"
         )
-        assert images["redisExporter"]["tag"] == "v1.97.0"
+        assert images["redisExporter"]["tag"] == "v1.95.0"
         assert (
             images["temporalServer"]["repository"]
             == "registry.example.com/nv-config-manager/nvidian/cfa/nv-config-manager-temporal"

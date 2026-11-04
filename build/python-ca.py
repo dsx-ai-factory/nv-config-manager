@@ -46,7 +46,7 @@ def verify_bundle(path: str = "/etc/ssl/certs/ca-certificates.crt") -> None:
         raise SystemExit("Affected emSign trust anchor remains in CA bundle")
 
 
-def exported_path(directory: Path, path: Path) -> Path:
+def exported_path(directory: Path, path: Path, *, allow_missing: bool = False) -> Path:
     """Resolve an image-relative path without following links into the host."""
     pending = list(path.parts)
     resolved = directory
@@ -67,7 +67,7 @@ def exported_path(directory: Path, path: Path) -> Path:
             target = resolved.readlink()
             resolved = directory if target.is_absolute() else resolved.parent
             pending = list(target.parts[1:] if target.is_absolute() else target.parts) + pending
-    if not resolved.exists():
+    if not allow_missing and not resolved.exists():
         raise SystemExit(f"Certificate target missing from image export: {path}")
     return resolved
 

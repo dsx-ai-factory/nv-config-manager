@@ -313,6 +313,9 @@ jobs:
           test "${go_version}" = "go1.26.10"
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      - name: Test Temporal build tools
+        working-directory: components/temporal
+        run: go test ./cmd/...
 
   helm:
     name: Helm Lint And Template
