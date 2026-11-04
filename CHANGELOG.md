@@ -24,6 +24,17 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
+- The Temporal worker no longer re-imports pydantic and the shared workflow
+  libraries in the sandbox for every workflow run. This cut per-run startup CPU
+  and per-run memory, which caused deadlock errors and OOMKills during large
+  fan-outs such as site cable validation. Every built-in workflow module now
+  imports everything except the standard library and `temporalio` inside its
+  `workflow.unsafe.imports_passed_through()` block, a test enforces this, and
+  the workflows package README documents the pattern for plugin workflows. The
+  sticky workflow cache now defaults to 200 entries and can be set with
+  `NVCM_MAX_CACHED_WORKFLOWS`. The worker also runs at most 10 workflow tasks at
+  once by default (`NVCM_MAX_CONCURRENT_WORKFLOW_TASKS`), so bursts of new
+  workflows queue instead of all exceeding the workflow task timeout.
 - Installer content hashes no longer depend on wall-clock time, preventing
   unchanged jobs and templates from being detected as changed across runs.
 - The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay
