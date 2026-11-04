@@ -6,16 +6,15 @@
 
 # Keep this source line aligned with the currently approved production server
 # version.  Changing it requires the Temporal database-upgrade procedure.
-ARG TEMPORAL_SERVER_VERSION=1.31.4@sha256:1986d4554cc0da8cf09ddcaa10bc348f22f192972b4c2ec1f768f7307c5892e6
+ARG TEMPORAL_SERVER_VERSION=1.31.5@sha256:2796f5d67fb5632771afe1fd13ae14d8ad1dddb2e56c8dedc6bf128b85cd448d
 # The bootstrap-only admin-tools image supplies Temporal's schema files and
 # command-line tools.
-ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.31.4@sha256:c286fe515148587228d692806bc6f7652be5febc384a73dfd16379aed69f7d87
+ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.31.5@sha256:c48b48626c503660ef2b82811c702d24f17ba6f11a7d8e613ac7bcbfd9111fde
 # The UI is independently deployable and does not change Temporal persistence.
 ARG TEMPORAL_UI_VERSION=2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
 
-# Keep official binaries while awaiting upstream rebuilds for Go's CA distrust
-# mitigation: https://go.dev/issue/82345. Local binaries below use patched Go
-# toolchains; copied upstream binaries still await an upstream image rebuild.
+# The version-matched official server and admin-tools binaries use patched Go
+# toolchains with the CA distrust mitigation for CVE-2026-111943.
 FROM temporalio/server:${TEMPORAL_SERVER_VERSION} AS server-upstream
 FROM temporalio/admin-tools:${TEMPORAL_ADMIN_TOOLS_VERSION} AS admin-tools-upstream
 FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream

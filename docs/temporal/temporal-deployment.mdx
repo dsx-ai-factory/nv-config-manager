@@ -74,7 +74,7 @@ count limits useful History replicas. With the default four shards, at most
 four pods own shards; additional replicas add no shard-processing capacity.
 Choose a shard count that covers the largest planned History replica count
 before Temporal initializes the cluster. See Temporal's
-[History shards](https://github.com/temporalio/temporal/blob/v1.31.4/docs/architecture/history-service.md#history-shards)
+[History shards](https://github.com/temporalio/temporal/blob/v1.31.5/docs/architecture/history-service.md#history-shards)
 architecture notes for the deployed server version.
 
 After the shard count is pinned, History replicas can be adjusted as load
@@ -113,13 +113,20 @@ connection](external-temporal.mdx) instead. The chart does not run the server,
 UI, database schema, namespace, or search-attribute bootstrap workloads in
 that mode.
 
-### Upgrading from Temporal 1.30.8 to 1.31.4
+### Upgrading from Temporal 1.30.8 to 1.31.5
 
 Upgrade the server and bootstrap images together. Temporal 1.31 requires
 PostgreSQL core schema `1.19` and visibility schema `1.14`. The chart's frontend
 `schema-setup` init container runs the matching bootstrap image to update both
 databases before that frontend starts. The same images are built for Kind
 integration testing.
+
+The 1.31.5 security patch includes Go's compromised-CA distrust fix for
+CVE-2026-111943. The matching bootstrap image includes Temporal CLI 1.10.0.
+Upgrading from 1.31.4 keeps the same PostgreSQL schema versions. This patch
+also requires namespace write permission for
+`ValidateWorkerDeploymentVersionComputeConfig`; see the
+[Temporal 1.31.5 release notes](https://github.com/temporalio/temporal/releases/tag/v1.31.5).
 
 Before upgrading, take recoverable backups of both databases. After deployment,
 check the frontend's `schema-setup` logs and confirm both `schema_version` tables
