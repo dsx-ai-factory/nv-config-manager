@@ -215,7 +215,8 @@ global:
       digest: ""
     # Upstream OAuth2 Proxy with refreshed public CA stores.
     oidcProxy:
-      repository: registry.example.com/nvidia/nv-config-manager-oidc-proxy
+      # Empty uses the nvConfigManager repository with an -oidc-proxy suffix.
+      repository: ""
       pullPolicy: Always
       digest: ""
 # =============================================================================

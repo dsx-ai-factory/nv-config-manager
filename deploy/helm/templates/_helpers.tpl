@@ -27,10 +27,10 @@ Keep this old tag fixed when the active binary pin changes in the Dockerfile.
 {{- else -}}
 {{- $image := deepCopy (.Values.global.images.oidcProxy | default dict) -}}
 {{- if not $image.repository -}}
-{{- /* --reuse-values can omit the new global entry. Reuse the project mirror. */ -}}
+{{- /* Follow the project registry when the wrapper repository is unset. */ -}}
 {{- $mainRepository := .Values.global.images.nvConfigManager.repository -}}
 {{- if not (hasSuffix "/nv-config-manager" $mainRepository) -}}
-{{- fail "set global.images.oidcProxy.repository to the mirrored CA-refreshed project image when upgrading with --reuse-values and a custom main image repository" -}}
+{{- fail "set global.images.oidcProxy.repository to the CA-refreshed project image; it cannot be inferred from global.images.nvConfigManager.repository" -}}
 {{- end -}}
 {{- $_ := set $image "repository" (printf "%s-oidc-proxy" $mainRepository) -}}
 {{- end -}}

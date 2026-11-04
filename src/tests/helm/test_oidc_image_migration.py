@@ -90,6 +90,35 @@ def test_old_values_without_the_new_global_key_reuse_the_project_mirror() -> Non
     )
 
 
+def test_default_wrapper_repository_follows_the_project_registry() -> None:
+    """Use the configured project registry without a separate wrapper override."""
+    containers = proxies(
+        render("global.images.nvConfigManager.repository=mirror.example/project/nv-config-manager")
+    )
+    assert containers
+    assert all(
+        container["image"].startswith("mirror.example/project/nv-config-manager-oidc-proxy:")
+        for container in containers
+    )
+
+
+def test_explicit_wrapper_repository_and_digest_take_precedence() -> None:
+    """Keep explicit wrapper pins when the main image uses a different naming scheme."""
+    digest = "sha256:" + "a" * 64
+    containers = proxies(
+        render(
+            "global.images.nvConfigManager.repository=mirror.example/project/custom-main",
+            "global.images.oidcProxy.repository=mirror.example/project/custom-proxy",
+            f"global.images.oidcProxy.digest={digest}",
+        )
+    )
+    assert containers
+    assert all(
+        container["image"] == f"mirror.example/project/custom-proxy@{digest}"
+        for container in containers
+    )
+
+
 @pytest.mark.parametrize("policy", ["Never", "IfNotPresent"])
 def test_legacy_pull_policy_is_preserved(policy: str) -> None:
     """Preserve explicit legacy pull policies during image migration."""
