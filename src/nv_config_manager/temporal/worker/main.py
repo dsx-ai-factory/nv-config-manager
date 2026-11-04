@@ -22,7 +22,9 @@ from typing import Any
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
+from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
 from nv_config_manager.temporal.converter import get_data_converter
@@ -42,6 +44,12 @@ DEFAULT_MAX_CACHED_WORKFLOWS = 200
 # only time-slice the same CPU; a burst of 100 parallel first tasks can push
 # every one past the 10s workflow task timeout and into retries.
 DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS = 10
+WORKER_CONFIG_SECTION = "temporal.worker"
+
+# Pydantic imports annotated_types lazily while it builds a model class, after the
+# workflow module's imports_passed_through() block has closed, so no workflow
+# module can pass it through itself.
+SANDBOX_PASSTHROUGH_MODULES = ("annotated_types",)
 
 
 def _enabled_env_flag(name: str) -> bool:
@@ -57,42 +65,43 @@ def _registered_workflows(registry: WorkflowRegistry) -> list[type[Any]]:
     return workflows
 
 
-def _int_env(name: str, default: int, minimum: int) -> int:
-    """Return an integer environment override, or the default when unset."""
-    raw = os.getenv(name, "").strip()
+def _worker_int(option: str, default: int, minimum: int) -> int:
+    """Return an integer from the worker INI section, or the default when unset."""
+    raw = load_config().get(WORKER_CONFIG_SECTION, option, fallback="").strip()
     if not raw:
         return default
     value = int(raw)
     if value < minimum:
-        raise ValueError(f"{name} must be >= {minimum}, got {value}")
+        raise ValueError(f"[{WORKER_CONFIG_SECTION}] {option} must be >= {minimum}, got {value}")
     return value
-
-
-def _max_cached_workflows() -> int:
-    """Return the sticky workflow cache size, overridable with NVCM_MAX_CACHED_WORKFLOWS."""
-    return _int_env("NVCM_MAX_CACHED_WORKFLOWS", DEFAULT_MAX_CACHED_WORKFLOWS, minimum=0)
-
-
-def _max_concurrent_workflow_tasks() -> int:
-    """Return the workflow task slot count, overridable with NVCM_MAX_CONCURRENT_WORKFLOW_TASKS."""
-    return _int_env(
-        "NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS, minimum=1
-    )
 
 
 def _workflow_cache_and_task_limits() -> tuple[int, int]:
     """Return the validated sticky cache size and workflow task slot count."""
-    max_cached_workflows = _max_cached_workflows()
-    max_concurrent_workflow_tasks = _max_concurrent_workflow_tasks()
+    max_cached_workflows = _worker_int(
+        "max_cached_workflows", DEFAULT_MAX_CACHED_WORKFLOWS, minimum=0
+    )
+    max_concurrent_workflow_tasks = _worker_int(
+        "max_concurrent_workflow_tasks", DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS, minimum=1
+    )
     # The Temporal SDK documents a minimum of two workflow task slots while the
     # sticky cache is enabled; one slot is only valid with the cache disabled.
     if max_cached_workflows > 0 and max_concurrent_workflow_tasks < 2:
         raise ValueError(
-            "NVCM_MAX_CONCURRENT_WORKFLOW_TASKS must be >= 2 when "
-            f"NVCM_MAX_CACHED_WORKFLOWS is nonzero, got {max_concurrent_workflow_tasks} "
+            f"[{WORKER_CONFIG_SECTION}] max_concurrent_workflow_tasks must be >= 2 when "
+            f"max_cached_workflows is nonzero, got {max_concurrent_workflow_tasks} "
             f"with a cache of {max_cached_workflows}"
         )
     return max_cached_workflows, max_concurrent_workflow_tasks
+
+
+def workflow_runner() -> SandboxedWorkflowRunner:
+    """Return the worker's sandboxed workflow runner."""
+    return SandboxedWorkflowRunner(
+        restrictions=SandboxRestrictions.default.with_passthrough_modules(
+            *SANDBOX_PASSTHROUGH_MODULES
+        )
+    )
 
 
 async def main() -> None:
@@ -122,6 +131,7 @@ async def main() -> None:
         workflows=workflows,
         activities=registry.all_activities,  # type: ignore[arg-type]
         activity_executor=ThreadPoolExecutor(100),
+        workflow_runner=workflow_runner(),
         max_cached_workflows=max_cached_workflows,
         max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
     )

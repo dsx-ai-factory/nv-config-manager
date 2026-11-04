@@ -15,6 +15,7 @@
 """Tests for Temporal worker startup composition."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -233,13 +234,13 @@ async def test_worker_registers_the_frozen_temporal_type_names(
     assert HelloWorldRunning not in logged_registry.all_workflows
 
 
-async def test_worker_uses_default_sandbox_and_bounded_cache(
-    mocker: MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The worker keeps the SDK's default sandbox and bounds the cache and task slots."""
-    monkeypatch.delenv("NVCM_MAX_CACHED_WORKFLOWS", raising=False)
-    monkeypatch.delenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", raising=False)
+def _worker_ini(**options: str) -> str:
+    """Return an INI with only a [temporal.worker] section holding the given options."""
+    return "[temporal.worker]\n" + "".join(f"{key} = {value}\n" for key, value in options.items())
+
+
+async def test_worker_uses_bounded_cache_and_task_slots(mocker: MockerFixture) -> None:
+    """Without [temporal.worker] settings the worker uses the default limits and runner."""
     worker_constructor = _mock_worker_startup(mocker)
     mocker.patch.object(worker_main, "log_workflow_registry")
 
@@ -251,90 +252,83 @@ async def test_worker_uses_default_sandbox_and_bounded_cache(
         options["max_concurrent_workflow_tasks"]
         == worker_main.DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS
     )
-    assert "workflow_runner" not in options
+    runner = options["workflow_runner"]
+    assert isinstance(runner, SandboxedWorkflowRunner)
+    assert set(worker_main.SANDBOX_PASSTHROUGH_MODULES) <= runner.restrictions.passthrough_modules
 
 
-@pytest.mark.parametrize(("value", "expected"), [("", 10), ("1", 1), (" 25 ", 25)])
-def test_max_concurrent_workflow_tasks_reads_environment(
-    monkeypatch: pytest.MonkeyPatch,
-    value: str,
-    expected: int,
+async def test_worker_reads_limits_from_ini(
+    mocker: MockerFixture, custom_ini: Callable[[str], None]
 ) -> None:
-    """NVCM_MAX_CONCURRENT_WORKFLOW_TASKS overrides the default slot count."""
-    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", value)
+    """The [temporal.worker] section sets the cache size and task slots."""
+    custom_ini(_worker_ini(max_cached_workflows="400", max_concurrent_workflow_tasks="20"))
+    worker_constructor = _mock_worker_startup(mocker)
+    mocker.patch.object(worker_main, "log_workflow_registry")
 
-    assert worker_main._max_concurrent_workflow_tasks() == expected
+    await worker_main.main()
 
-
-@pytest.mark.parametrize("value", ["0", "-1", "many"])
-def test_max_concurrent_workflow_tasks_rejects_invalid_values(
-    monkeypatch: pytest.MonkeyPatch,
-    value: str,
-) -> None:
-    """A malformed slot count fails worker startup instead of silently using a default."""
-    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", value)
-
-    with pytest.raises(ValueError):
-        worker_main._max_concurrent_workflow_tasks()
+    options = worker_constructor.call_args.kwargs
+    assert options["max_cached_workflows"] == 400
+    assert options["max_concurrent_workflow_tasks"] == 20
 
 
 @pytest.mark.parametrize(
     ("cache", "slots", "expected"),
-    [("", "", (200, 10)), ("0", "1", (0, 1)), ("200", "2", (200, 2))],
+    [
+        ("", "", (200, 10)),
+        (" 50 ", " 25 ", (50, 25)),
+        ("0", "1", (0, 1)),
+        ("200", "2", (200, 2)),
+    ],
 )
-def test_workflow_cache_and_task_limits_accept_valid_pairs(
-    monkeypatch: pytest.MonkeyPatch,
+def test_workflow_cache_and_task_limits_accept_valid_values(
+    custom_ini: Callable[[str], None],
     cache: str,
     slots: str,
     expected: tuple[int, int],
 ) -> None:
-    """One task slot is allowed only with the sticky cache disabled."""
-    monkeypatch.setenv("NVCM_MAX_CACHED_WORKFLOWS", cache)
-    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", slots)
+    """Blank values use the defaults; one task slot is allowed only with the cache disabled."""
+    custom_ini(_worker_ini(max_cached_workflows=cache, max_concurrent_workflow_tasks=slots))
 
     assert worker_main._workflow_cache_and_task_limits() == expected
 
 
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("max_cached_workflows", "-1"),
+        ("max_cached_workflows", "many"),
+        ("max_concurrent_workflow_tasks", "0"),
+        ("max_concurrent_workflow_tasks", "-1"),
+        ("max_concurrent_workflow_tasks", "many"),
+    ],
+)
+def test_workflow_cache_and_task_limits_reject_invalid_values(
+    custom_ini: Callable[[str], None], option: str, value: str
+) -> None:
+    """A malformed limit fails worker startup instead of silently using a default."""
+    custom_ini(_worker_ini(**{option: value}))
+
+    with pytest.raises(ValueError):
+        worker_main._workflow_cache_and_task_limits()
+
+
 async def test_one_task_slot_with_sticky_cache_fails_before_worker_construction(
-    mocker: MockerFixture,
-    monkeypatch: pytest.MonkeyPatch,
+    mocker: MockerFixture, custom_ini: Callable[[str], None]
 ) -> None:
     """A single task slot with the sticky cache enabled fails worker startup."""
-    monkeypatch.delenv("NVCM_MAX_CACHED_WORKFLOWS", raising=False)
-    monkeypatch.setenv("NVCM_MAX_CONCURRENT_WORKFLOW_TASKS", "1")
+    custom_ini(_worker_ini(max_concurrent_workflow_tasks="1"))
     worker_constructor = _mock_worker_startup(mocker)
 
-    with pytest.raises(ValueError, match="must be >= 2 when NVCM_MAX_CACHED_WORKFLOWS"):
+    with pytest.raises(ValueError, match="must be >= 2 when max_cached_workflows is nonzero"):
         await worker_main.main()
 
     worker_constructor.assert_not_called()
 
 
-@pytest.mark.parametrize(("value", "expected"), [("", 200), ("0", 0), (" 50 ", 50)])
-def test_max_cached_workflows_reads_environment(
-    monkeypatch: pytest.MonkeyPatch,
-    value: str,
-    expected: int,
-) -> None:
-    """NVCM_MAX_CACHED_WORKFLOWS overrides the default cache size."""
-    monkeypatch.setenv("NVCM_MAX_CACHED_WORKFLOWS", value)
-
-    assert worker_main._max_cached_workflows() == expected
-
-
-@pytest.mark.parametrize("value", ["-1", "many"])
-def test_max_cached_workflows_rejects_invalid_values(
-    monkeypatch: pytest.MonkeyPatch,
-    value: str,
-) -> None:
-    """A malformed cache size fails worker startup instead of silently using a default."""
-    monkeypatch.setenv("NVCM_MAX_CACHED_WORKFLOWS", value)
-
-    with pytest.raises(ValueError):
-        worker_main._max_cached_workflows()
-
-
 @pytest.mark.parametrize("workflow_class", BUILTIN_WORKFLOWS, ids=workflow_type_name)
 async def test_builtin_workflows_load_in_worker_sandbox(workflow_class: type[Any]) -> None:
-    """Every built-in workflow passes validation in the worker's default sandbox."""
-    SandboxedWorkflowRunner().prepare_workflow(workflow._Definition.must_from_class(workflow_class))
+    """Every built-in workflow passes validation in the worker's sandbox."""
+    worker_main.workflow_runner().prepare_workflow(
+        workflow._Definition.must_from_class(workflow_class)
+    )

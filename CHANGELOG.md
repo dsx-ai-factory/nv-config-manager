@@ -31,10 +31,14 @@ version before the selected release candidate is promoted.
   imports everything except the standard library and `temporalio` inside its
   `workflow.unsafe.imports_passed_through()` block, a test enforces this, and
   the workflows package README documents the pattern for plugin workflows. The
-  sticky workflow cache now defaults to 200 entries and can be set with
-  `NVCM_MAX_CACHED_WORKFLOWS`. The worker also runs at most 10 workflow tasks at
-  once by default (`NVCM_MAX_CONCURRENT_WORKFLOW_TASKS`), so bursts of new
-  workflows queue instead of all exceeding the workflow task timeout.
+  worker also passes through `annotated_types`, which Pydantic imports lazily
+  after those blocks have closed. The sticky workflow cache now defaults to 200
+  entries and the worker runs at most 10 workflow tasks at once, so bursts of
+  new workflows queue instead of all exceeding the workflow task timeout. Both
+  limits are set in the `[temporal.worker]` INI section (`max_cached_workflows`,
+  `max_concurrent_workflow_tasks`), which the Helm chart renders from
+  `temporal.configManagerWorker.maxCachedWorkflows` and
+  `maxConcurrentWorkflowTasks`.
 - Installer content hashes no longer depend on wall-clock time, preventing
   unchanged jobs and templates from being detected as changed across runs.
 - The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay

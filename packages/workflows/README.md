@@ -121,8 +121,8 @@ Passed-through modules must stay deterministic: they must not keep state that
 workflow code changes, and workflow code must not read the clock, random
 numbers, or I/O through them. Every module that defines a built-in workflow is
 checked by `tests/workflows/test_sandbox_imports.py`. Plugins should follow the
-same pattern in their own workflow modules; the worker does not maintain a
-separate passthrough list for them.
+same pattern in their own workflow modules. The worker passes through only
+`annotated_types`, which Pydantic imports lazily after the block has closed.
 
 ### Registering a workflow plugin
 
