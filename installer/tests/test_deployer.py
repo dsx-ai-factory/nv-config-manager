@@ -1696,6 +1696,9 @@ class TestK8sClientIntegration:
             ("docker-desktop", "https://kubernetes.docker.internal:6443"),
             ("k3d-dev", "https://0.0.0.0:6443"),
             ("my-laptop", "https://127.0.0.1:6443"),
+            ("my-laptop", "https://127.0.0.2:6443"),
+            ("my-laptop", "https://127.255.10.1:6443"),
+            ("my-laptop", "https://[::1]:6443"),
             ("my-laptop", "https://localhost:6443"),
         ],
     )
@@ -1709,14 +1712,25 @@ class TestK8sClientIntegration:
 
         deployer._validate_local_cluster_target(context, server)
 
-    def test_local_images_refuse_a_remote_cluster(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "server",
+        [
+            "https://prod.example.com:443",
+            "https://127.example.com:443",
+            "https://128.0.0.1:6443",
+            "https://192.0.2.1:6443",
+        ],
+    )
+    def test_local_images_refuse_a_remote_cluster(
+        self, monkeypatch: pytest.MonkeyPatch, server: str
+    ) -> None:
         monkeypatch.delenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", raising=False)
         config = _make_config()
         config.images.source = ImageSource.LOCAL
         deployer = Deployer(config, DeployOptions())
 
         with pytest.raises(RuntimeError, match=r"does not look like a cluster on this machine"):
-            deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
+            deployer._validate_local_cluster_target("prod-eks", server)
 
     def test_local_images_allow_a_remote_cluster_when_opted_in(
         self, monkeypatch: pytest.MonkeyPatch

@@ -25,6 +25,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import platform
@@ -198,13 +199,23 @@ _LOCAL_CLUSTER_CONTEXT_PREFIXES = (
     "orbstack",
     "colima",
 )
-_LOCAL_API_SERVER_HOSTS = {
-    "127.0.0.1",
-    "::1",
+_LOCAL_API_SERVER_HOSTNAMES = {
     "localhost",
     "host.docker.internal",
     "kubernetes.docker.internal",
 }
+
+
+def _is_local_api_server_host(host: str) -> bool:
+    """Return true for loopback addresses (all of 127.0.0.0/8 and ::1) and local Docker names."""
+    if host in _LOCAL_API_SERVER_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
     ("nv-config-manager-nautobot", "build/nautobot.Dockerfile", "components/nautobot", None),
     ("nv-config-manager-nats-ready", "build/nats-ready.Dockerfile", "components/nats-ready", None),
@@ -1443,7 +1454,7 @@ class Deployer:
         ):
             return
         host = (urlparse(server).hostname or "").lower()
-        if context.startswith(_LOCAL_CLUSTER_CONTEXT_PREFIXES) or host in _LOCAL_API_SERVER_HOSTS:
+        if context.startswith(_LOCAL_CLUSTER_CONTEXT_PREFIXES) or _is_local_api_server_host(host):
             return
         raise RuntimeError(
             f"images.source is 'local', but the current kube context '{context}' "
