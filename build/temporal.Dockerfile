@@ -38,6 +38,7 @@ RUN set -eu; \
     for binary in /checked/*; do \
         actual="$(go version -m "$binary" | head -n 1)"; \
         version="${actual##* }"; \
+        version="${version%%-X:*}"; \
         case "$version" in \
             go1.26.*) patch="${version#go1.26.}"; minimum=10 ;; \
             go1.27.*) patch="${version#go1.27.}"; minimum=3 ;; \

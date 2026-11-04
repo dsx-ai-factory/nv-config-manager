@@ -133,6 +133,13 @@ Temporal servers with authorization enabled must review their caller roles.
 See the
 [Temporal 1.31.5 release notes](https://github.com/temporalio/temporal/releases/tag/v1.31.5).
 
+The container build checks the copied server and admin-tool binaries' Go build
+metadata. It accepts patched Go 1.26 and 1.27 releases, including experiment
+suffixes, and rejects prereleases or unknown versions. A future Go release
+series requires reviewing the build guard when updating the image pins. CI
+regression tests cover the minimum patch versions and rejected metadata;
+image builds check the actual upstream executables.
+
 Before upgrading, take recoverable backups of both databases. After deployment,
 check the frontend's `schema-setup` logs and confirm both `schema_version` tables
 report the required versions. The other server roles can restart while the
