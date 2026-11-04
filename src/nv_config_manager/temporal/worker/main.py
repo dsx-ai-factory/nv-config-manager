@@ -47,8 +47,9 @@ DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS = 10
 WORKER_CONFIG_SECTION = "temporal.worker"
 
 # Pydantic imports annotated_types lazily while it builds a model class, after the
-# workflow module's imports_passed_through() block has closed, so no workflow
-# module can pass it through itself.
+# workflow module's imports_passed_through() block has closed. Passing it through
+# here covers every workflow module, including plugins, without each one adding an
+# otherwise unused import to its block.
 SANDBOX_PASSTHROUGH_MODULES = ("annotated_types",)
 
 
