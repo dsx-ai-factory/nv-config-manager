@@ -20,7 +20,7 @@ dependencies = [
     "nv-config-manager-logging",
     "openpyxl>=3.1.0",
     "pandas>=2.3.0",
-    "paramiko>=3.4.0",
+    "paramiko>=5.0.0",
     "py-markdown-table>=1.1.0",
     "pydantic>=2.10.2",
     "pyeapi>=1.0.2",
