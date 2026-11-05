@@ -23,7 +23,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	natsready "github.com/nvidia/nv-config-manager/components/nats-ready/internal/nats-ready"
+	natsready "github.com/dsx-ai-factory/nv-config-manager/components/nats-ready/internal/nats-ready"
 )
 
 func main() {

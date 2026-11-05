@@ -38,6 +38,10 @@ if TYPE_CHECKING:
     from nv_config_manager_installer.providers.api import DCIMInstallerProvider, SecretGroupSpec
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
+_KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
+_RESERVED_CUSTOM_LABEL_PREFIXES = ("app.kubernetes.io/", "helm.sh/")
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -116,6 +120,8 @@ class ImageSource(StrEnum):
 class ClusterConfig(BaseModel):
     """Cluster-level deployment settings."""
 
+    model_config = ConfigDict(validate_assignment=True)
+
     hostname: str = ""
     environment: str = "local"
     namespace: str = "nv-config-manager"
@@ -124,6 +130,39 @@ class ClusterConfig(BaseModel):
     airgapped: bool = False
     mock_devices: bool = False
     size: DeploySize = DeploySize.SMALL
+    custom_labels: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("custom_labels")
+    @classmethod
+    def validate_custom_labels(cls, labels: dict[str, str]) -> dict[str, str]:
+        """Require Kubernetes-compatible label keys and values."""
+        for key, value in labels.items():
+            if not _is_kubernetes_label_key(key):
+                raise ValueError(f"invalid Kubernetes label key: {key!r}")
+            if key in _RESERVED_CUSTOM_LABEL_KEYS or key.startswith(
+                _RESERVED_CUSTOM_LABEL_PREFIXES
+            ):
+                raise ValueError(f"reserved custom label key: {key!r}")
+            if value and (len(value) > 63 or _KUBERNETES_LABEL_NAME_RE.fullmatch(value) is None):
+                raise ValueError(f"invalid Kubernetes label value for {key!r}: {value!r}")
+        return labels
+
+
+def _is_kubernetes_label_key(key: str) -> bool:
+    """Return whether *key* follows Kubernetes label-key syntax."""
+    if "/" not in key:
+        return len(key) <= 63 and _KUBERNETES_LABEL_NAME_RE.fullmatch(key) is not None
+
+    prefix, name = key.split("/", 1)
+    if (
+        not prefix
+        or len(prefix) > 253
+        or not name
+        or len(name) > 63
+        or _KUBERNETES_LABEL_NAME_RE.fullmatch(name) is None
+    ):
+        return False
+    return all(_KUBERNETES_DNS_LABEL_RE.fullmatch(part) is not None for part in prefix.split("."))
 
 
 class VaultAuth(BaseModel):
@@ -591,6 +630,13 @@ class ServicesConfig(BaseModel):
     config_store: bool = True
 
 
+class TemporalDeploymentConfig(BaseModel):
+    """Optional sizing for the installer-managed Temporal server."""
+
+    history_replicas: int = Field(default=0, ge=0)
+    num_history_shards: int = Field(default=0, ge=0)
+
+
 class RedfishVendorCreds(BaseModel):
     """Per-vendor Redfish/BMC credentials."""
 
@@ -974,6 +1020,7 @@ NV_CONFIG_MANAGER_IMAGE_KEYS: list[tuple[str, str]] = [
     ("temporalServer", "nv-config-manager-temporal"),
     ("temporalBootstrap", "nv-config-manager-temporal-bootstrap"),
     ("temporalUi", "nv-config-manager-temporal-ui"),
+    ("oidcProxy", "nv-config-manager-oidc-proxy"),
 ]
 
 # Image override keys accepted by the installer. The second field is the
@@ -999,7 +1046,7 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("temporalServer", "temporalio/server"),
     ("temporalUi", "temporalio/ui"),
     ("spiffeHelper", "ghcr.io/spiffe/spiffe-helper"),
-    ("oidcProxy", "quay.io/oauth2-proxy/oauth2-proxy"),
+    ("oidcProxy", "nvcr.io/nvidian/cfa/nv-config-manager-oidc-proxy"),
     ("templatePluginInstaller", "docker.io/library/python"),
     ("dcimProviderInstaller", "docker.io/library/python"),
     ("envoyGateway", "docker.io/envoyproxy/gateway"),
@@ -1142,6 +1189,7 @@ class NVConfigManagerInstallConfig(BaseModel):
     content: ContentConfig = Field(default_factory=ContentConfig)
     dcim: DCIMConfig = Field(default_factory=DCIMConfig)
     services: ServicesConfig = Field(default_factory=ServicesConfig)
+    temporal: TemporalDeploymentConfig = Field(default_factory=TemporalDeploymentConfig)
     external_services: ExternalServicesConfig = Field(default_factory=ExternalServicesConfig)
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
@@ -1211,6 +1259,18 @@ class NVConfigManagerInstallConfig(BaseModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def validate_temporal_deployment(self) -> NVConfigManagerInstallConfig:
+        """Allow sizing overrides only for the installer-managed Temporal server."""
+        configured = self.temporal.history_replicas or self.temporal.num_history_shards
+        managed_server = self.services.temporal and not self.external_services.temporal.address
+        if configured and not managed_server:
+            raise ValueError(
+                "Temporal sizing requires an enabled, managed Temporal server; "
+                "remove temporal overrides or clear external_services.temporal.address"
+            )
+        return self
+
     # -- Serialization helpers -----------------------------------------------
 
     def to_yaml(self, path: Path | str) -> None:
@@ -1242,12 +1302,16 @@ class NVConfigManagerInstallConfig(BaseModel):
 
 def _prune_inactive_sections(data: dict[str, Any]) -> None:
     """Remove values from conditional sections that are not currently active."""
+    cluster = _as_dict(data.get("cluster"))
+    if not cluster.get("custom_labels"):
+        cluster.pop("custom_labels", None)
     secrets = _as_dict(data.get("secrets"))
     _prune_secrets(secrets, data)
     _prune_git_tokens(data, secrets.get("method", SecretsMethod.KUBERNETES.value))
     _prune_sso(_as_dict(data.get("sso")))
     _prune_spiffe(_as_dict(data.get("spiffe")))
     _prune_dcim(_as_dict(data.get("dcim")))
+    _prune_temporal(data)
     _prune_external_services(_as_dict(data.get("external_services")))
     _prune_infrastructure(_as_dict(data.get("infrastructure")))
     _prune_images(_as_dict(data.get("images")))
@@ -1341,6 +1405,12 @@ def _prune_dcim(dcim: dict[str, Any]) -> None:
         get_installer_provider(dcim.get("provider", BUILT_IN_NAUTOBOT_PROVIDER)).prune_yaml(dcim)
     except Exception:  # noqa: BLE001 - saving never depends on provider discovery
         pass
+
+
+def _prune_temporal(data: dict[str, Any]) -> None:
+    temporal = _as_dict(data.get("temporal"))
+    if not temporal.get("history_replicas") and not temporal.get("num_history_shards"):
+        data.pop("temporal", None)
 
 
 def _prune_external_services(external_services: dict[str, Any]) -> None:

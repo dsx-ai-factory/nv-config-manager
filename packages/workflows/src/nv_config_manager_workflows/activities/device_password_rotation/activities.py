@@ -60,6 +60,8 @@ async def validate_password_diff(
         return helpers._validate_cumulus_diff(diff, username)
     elif platform == "junos":
         return helpers._validate_junos_diff(diff, username)
+    elif platform == "eos":
+        return helpers._validate_eos_diff(diff, username)
     else:
         error_msg = f"No diff parser available for platform: {platform}"
         activity.logger.error(error_msg)
@@ -113,6 +115,7 @@ async def validate_platform_support(
         Platform.CUMULUS_LINUX: "cumulus",
         Platform.NV_OS: "nvos",
         Platform.JUNIPER_JUNOS: "junos",
+        Platform.ARISTA_EOS: "eos",
     }
 
     slugified_platform = platform_map.get(platform)

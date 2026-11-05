@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import BaseModel
@@ -197,7 +197,7 @@ class UndecoratedWorkflow(WorkflowMetadataMixin, StageMixin):
 class UndecoratedMisdeclaredWorkflow(WorkflowMetadataMixin, StageMixin):
     """Undecorated, and what metadata it declares is unusable as well."""
 
-    workflow_name = 42  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType]
+    workflow_name = 42  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     @workflow.run
     async def run(self, workflow_input: BaseModel) -> None: ...
@@ -295,7 +295,7 @@ def plugin(
         name=name,
         workflows=workflows,
         activities=activities,
-        schedulers=schedulers,
+        schedulers=cast(tuple[type[WorkflowScheduler], ...], schedulers),
     )
 
 

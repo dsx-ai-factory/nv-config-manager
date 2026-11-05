@@ -107,10 +107,10 @@ images:
       tag: "7-alpine"
     nats:
       repository: registry.example.com/nv-config-manager/library/nats
-      tag: "2.14-alpine"
+      tag: "2.14.9-alpine"
     natsBox:
       repository: registry.example.com/nv-config-manager/natsio/nats-box
-      tag: "0.14.3"
+      tag: "0.20.2"
     temporalServer:
       repository: registry.example.com/nv-config-manager/nvidian/cfa/nv-config-manager-temporal
     temporalUi:
@@ -120,10 +120,10 @@ images:
       tag: "1.27"
     spiffeHelper:
       repository: registry.example.com/nv-config-manager/spiffe/spiffe-helper
-      tag: "0.8.0"
+      tag: "0.12.3"
     oidcProxy:
-      repository: registry.example.com/nv-config-manager/oauth2-proxy/oauth2-proxy
-      tag: "v7.15.5"
+      repository: registry.example.com/nv-config-manager/nvidian/cfa/nv-config-manager-oidc-proxy
+      tag: "1.3.0"
     templatePluginInstaller:
       repository: registry.example.com/nv-config-manager/library/python
       tag: "3.13-alpine"

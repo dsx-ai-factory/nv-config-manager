@@ -16,10 +16,15 @@
 
 from __future__ import annotations
 
+import gzip
+import io
 import re
 import ssl
 import sys
-from typing import cast
+import tarfile
+import time
+from collections.abc import Callable
+from typing import NoReturn, cast
 from uuid import uuid4
 
 import pyeapi
@@ -36,6 +41,7 @@ from nv_config_manager_workflows.clients.device.exceptions import (
     ConfigSyntaxException,
     DiffChangedException,
     NetworkDeviceException,
+    ZTPRollbackException,
 )
 from nv_config_manager_workflows.clients.device.models import (
     DeviceArpTable,
@@ -47,6 +53,111 @@ from nv_config_manager_workflows.clients.device.models import (
 from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
+
+# Lab and engineering builds append the build to the release:
+# "4.34.3M-44102239.4343M (engineering build)" is release 4.34.3M.
+_ENGINEERING_BUILD = re.compile(r"-\d+\.\w+\s+\(engineering build\)$")
+
+# Below the 600 s tech-support activity timeout.
+_TECH_SUPPORT_TIMEOUT_SECONDS = 540
+# Either file keeps EOS out of ZeroTouch at boot: a startup-config, or the
+# zerotouch-config that "zerotouch cancel" or "zerotouch disable" leaves behind.
+_ZTP_BLOCKING_FILES = ("startup-config", "zerotouch-config")
+# execute_ztp renames each file aside to this name and renames it back if the reload
+# does not happen. The EOS boot script removes the renamed files after ZeroTouch.
+_ZTP_BACKUP_SUFFIX = ".nvcm-backup"
+# execute_ztp schedules the reload so EOS answers before it goes down. When the answer
+# is lost, the files are renamed back and the reload cancelled before it fires.
+_ZTP_RELOAD_DELAY = "00:05"
+# Timeout for every request execute_ztp sends. At most ten requests (two renames, the
+# reload, two files at three each to restore, the cancel) take 200 s, inside both the
+# reload delay and the five-minute activity deadline.
+_ZTP_REQUEST_TIMEOUT_SECONDS = 20
+
+
+def _unrestored_note(names: list[str]) -> str:
+    """Name each blocking file that may still be moved aside, for an error message."""
+    return "".join(
+        f"; flash:{name} may still be at flash:{name}{_ZTP_BACKUP_SUFFIX}" for name in names
+    )
+
+
+class _PasswordFallbackNode(Node):
+    """A pyeapi node that retries a rejected request with the other known passwords.
+
+    pyeapi sends nothing when it connects, so a stale password only shows up as
+    a 401 on the first command. A request that eAPI rejects as unauthorized is
+    retried with the remaining candidate passwords, newest first; the one that
+    works becomes the node's password for the rest of the session. A pass in
+    which every password fails restores the original one and is not repeated
+    for the rest of the session, since each failed login counts towards the
+    account's lockout.
+    """
+
+    def __init__(
+        self,
+        connection: object,
+        *,
+        host: str,
+        username: str,
+        passwords: Callable[[], list[str]],
+        on_password: Callable[[str], None],
+        **kwargs: object,
+    ) -> None:
+        super().__init__(connection, **kwargs)
+        self._fallback_host = host
+        self._fallback_username = username
+        self._candidate_passwords = passwords
+        self._on_password = on_password
+        self._fallback_spent = False
+
+    def run_commands(self, commands: object, *args: object, **kwargs: object) -> object:
+        try:
+            return super().run_commands(commands, *args, **kwargs)
+        except pyeapi.eapilib.ConnectionError as exc:
+            if "unauthorized" not in str(exc).lower():
+                raise
+            unauthorized = exc
+        if self._fallback_spent:
+            raise NetworkDeviceException(
+                f"eAPI on {self._fallback_host} rejected the password for "
+                f"{self._fallback_username}; the other known passwords already failed"
+            ) from unauthorized
+        original = self._enablepwd
+        for password in self._candidate_passwords():
+            self._use_password(password)
+            try:
+                result = super().run_commands(commands, *args, **kwargs)
+            except pyeapi.eapilib.CommandError:
+                # eAPI accepted the password; a command in the request failed.
+                self._password_worked(password)
+                raise
+            except pyeapi.eapilib.ConnectionError as exc:
+                if "unauthorized" in str(exc).lower():
+                    continue
+                # Whether this password works is unknown, so go back to the one in use.
+                self._use_password(original)
+                raise
+            self._password_worked(password)
+            return result
+        self._fallback_spent = True
+        self._use_password(original)
+        raise NetworkDeviceException(
+            f"eAPI on {self._fallback_host} rejected every known password for "
+            f"{self._fallback_username}"
+        ) from unauthorized
+
+    def _use_password(self, password: str | None) -> None:
+        self.connection.authentication(self._fallback_username, password)
+        self.enable_authentication(password)
+
+    def _password_worked(self, password: str) -> None:
+        logger.warning(
+            "eAPI on %s rejected the password in use for %s; another known password worked",
+            self._fallback_host,
+            self._fallback_username,
+        )
+        self._on_password(password)
 
 
 class AristaConnection(NetworkConnection):
@@ -75,22 +186,38 @@ class AristaConnection(NetworkConnection):
         ctx.set_ciphers("DEFAULT")
 
         def connect_with_password(password: str) -> Node:
-            return pyeapi.connect(
+            connection = pyeapi.connect(
                 transport="https",
                 host=self._host,
                 port=self._port,
                 username=self._username,
                 password=password,
-                enablepwd=password,
-                return_node=True,
                 context=ctx,
                 timeout=300,
             )
+            self._working_password = password
+            return _PasswordFallbackNode(
+                connection,
+                host=self._host,
+                username=self._username,
+                passwords=self._other_passwords,
+                on_password=self._remember_password,
+                enablepwd=password,
+            )
 
+        # Connecting sends nothing, so this only picks the first candidate; the
+        # node falls back to the others on the first unauthorized request.
         return self._try_passwords_with_callback(
             connect_with_password,
             (pyeapi.eapilib.ConnectionError, pyeapi.eapilib.CommandError),
         )
+
+    def _other_passwords(self) -> list[str]:
+        """Candidate passwords other than the one in use, newest first."""
+        return [p for p in self._passwords_to_try if p != self._working_password]
+
+    def _remember_password(self, password: str) -> None:
+        self._working_password = password
 
     def get_running_configuration(self) -> str:
         """Load the running configuration for a given device."""
@@ -308,6 +435,86 @@ class AristaConnection(NetworkConnection):
         response = self._node.enable("show uptime")
         return int(response[0]["result"]["upTime"])
 
+    def get_running_image(self) -> str:
+        """Get the running EOS release, for example ``4.34.3M``.
+
+        Lab and engineering builds report the build after the release; only the
+        release is returned, so it compares equal to the image store's version.
+        """
+        try:
+            version = str(self._node.enable("show version")[0]["result"]["version"])
+        except (KeyError, IndexError) as error:
+            raise NetworkDeviceException(
+                f"No EOS version reported by {self._host}", non_retryable=True
+            ) from error
+        return _ENGINEERING_BUILD.sub("", version)
+
+    def get_tech_support_bundle(
+        self, heartbeat_fn: Callable[[], None] | None = None
+    ) -> tuple[bytes, str]:
+        """Collect ``show tech-support`` and return it as a gzipped tarball.
+
+        EOS produces the report as command output, so it is read over eAPI and
+        packed in memory; nothing is written to the device. The tarball keeps the
+        format the tech-support download and ticket attachment expect.
+
+        heartbeat_fn, if provided, is called every ~15 s while EOS generates the
+        report, keeping the Temporal heartbeat window satisfied.
+
+        Returns:
+            (gzipped tarball bytes, one-line summary of the collection)
+        """
+        start = time.monotonic()
+        transport = self._node.connection.transport
+        default_timeout = transport.timeout
+        stop_hb, hb = self._start_heartbeat_thread(heartbeat_fn)
+        if heartbeat_fn:
+            try:
+                heartbeat_fn()
+            except Exception:
+                pass
+        transport.timeout = _TECH_SUPPORT_TIMEOUT_SECONDS
+        try:
+            response = self._node.enable("show tech-support", encoding="text")
+        except pyeapi.eapilib.ConnectionError as exc:
+            if isinstance(exc.__context__, TimeoutError):
+                elapsed = time.monotonic() - start
+                logger.warning("show tech-support on %s timed out after %.0fs", self._host, elapsed)
+                raise NetworkDeviceException(
+                    f"show tech-support timed out on {self._host} after {elapsed:.0f}s"
+                ) from exc
+            raise NetworkDeviceException(f"show tech-support failed on {self._host}") from exc
+        except pyeapi.eapilib.CommandError as exc:
+            raise NetworkDeviceException(f"show tech-support failed on {self._host}") from exc
+        finally:
+            transport.timeout = default_timeout
+            stop_hb.set()
+            hb.join(timeout=2)
+
+        try:
+            report = cast(str, response[0]["result"]["output"]).encode()
+        except (KeyError, IndexError, TypeError) as exc:
+            raise NetworkDeviceException(
+                f"show tech-support returned no output on {self._host}"
+            ) from exc
+        member = tarfile.TarInfo("show-tech-support.txt")
+        member.size = len(report)
+        member.mtime = int(time.time())
+        bundle = io.BytesIO()
+        # The constructors, not tarfile.open(): the package boundary test rejects any call
+        # named open, and nothing here touches a file.
+        with (
+            gzip.GzipFile(fileobj=bundle, mode="wb") as compressed,
+            tarfile.TarFile(fileobj=compressed, mode="w") as tar,
+        ):
+            tar.addfile(member, io.BytesIO(report))
+
+        summary = (
+            f"show tech-support collected from {self._host}: {len(report)} bytes "
+            f"in {time.monotonic() - start:.0f}s"
+        )
+        return bundle.getvalue(), summary
+
     # ------------------------------------------------------------------
     # Diagnostic commands — all via eAPI JSON-RPC (HTTPS port 443).
     # Optional features (BGP, ISIS, MPLS, MACsec, MLAG, VRRP) catch
@@ -419,3 +626,164 @@ class AristaConnection(NetworkConnection):
             return self._node.enable("show vrrp", encoding="json")[0]["result"]
         except pyeapi.eapilib.CommandError:
             return {"error": "VRRP not configured on this device"}
+
+    def diag_get_platform_environment(self) -> object:
+        # Each sensor group is queried on its own so a platform without one
+        # (virtual EOS has no sensors) reports that group instead of failing.
+        sections = {
+            "cooling": "show system environment cooling",
+            "temperature": "show system environment temperature",
+            "power": "show system environment power",
+        }
+        environment: dict[str, object] = {}
+        for section, command in sections.items():
+            try:
+                environment[section] = self._node.enable(command, encoding="json")[0]["result"]
+            except pyeapi.eapilib.CommandError:
+                environment[section] = {"error": f"No {section} data available on this device"}
+        return environment
+
+    def diag_get_platform_transceiver(self) -> object:
+        try:
+            return self._node.enable("show interfaces transceiver", encoding="json")[0]["result"]
+        except pyeapi.eapilib.CommandError:
+            return {"error": "Transceiver data not available on this device"}
+
+    def diag_get_interface_counters(self) -> object:
+        counters, errors = self._node.enable(
+            ["show interfaces counters", "show interfaces counters errors"], encoding="json"
+        )
+        return {"counters": counters["result"], "errors": errors["result"]}
+
+    def diag_get_interface_mac(self) -> object:
+        interfaces = self._node.enable("show interfaces", encoding="json")[0]["result"][
+            "interfaces"
+        ]
+        return {
+            name: {key: data[key] for key in ("physicalAddress", "burnedInAddress") if key in data}
+            for name, data in interfaces.items()
+            if "physicalAddress" in data or "burnedInAddress" in data
+        }
+
+    # ------------------------------------------------------------------
+    # Zero-touch provisioning. EOS runs ZeroTouch when it boots without a
+    # startup-config: DHCP option 67 names the script it downloads and runs.
+    # ------------------------------------------------------------------
+
+    def execute_ztp(self) -> None:
+        """Factory-reset the switch so it re-runs ZeroTouch on its next boot.
+
+        Moving the startup-config and any zerotouch-config aside, then
+        reloading, is what makes EOS enter ZeroTouch; the running configuration
+        is deliberately not saved. The files are renamed rather than deleted,
+        and renamed back if the reset does not go through, so a later unrelated
+        reboot does not put the switch into ZeroTouch. The reload is scheduled
+        a short time ahead so EOS confirms it before going down. Without that
+        confirmation the reload may or may not be scheduled, so the files are
+        renamed back and the reload is cancelled. The rollback checks both files,
+        so it also restores a file that an earlier attempt of the activity moved.
+        If a file cannot be put back, the error is not retryable.
+        """
+        transport = self._node.connection.transport
+        default_timeout = transport.timeout
+        transport.timeout = _ZTP_REQUEST_TIMEOUT_SECONDS
+        try:
+            for name in _ZTP_BLOCKING_FILES:
+                try:
+                    self._node.enable(f"rename flash:{name} flash:{name}{_ZTP_BACKUP_SUFFIX}")
+                except pyeapi.eapilib.CommandError as exc:
+                    if "No such file" in str(exc.command_error):
+                        continue  # not there, or moved aside by an earlier attempt
+                    self._undo_ztp_reset(f"could not move flash:{name} aside", exc)
+                except (pyeapi.eapilib.ConnectionError, NetworkDeviceException) as exc:
+                    # The rename may have run before the connection dropped. A
+                    # NetworkDeviceException is eAPI rejecting every known password.
+                    self._undo_ztp_reset(f"could not move flash:{name} aside", exc)
+
+            try:
+                # strict: never resend this command with another encoding.
+                self._node.enable(
+                    f"reload in {_ZTP_RELOAD_DELAY} force", encoding="text", strict=True
+                )
+            except (
+                pyeapi.eapilib.CommandError,
+                pyeapi.eapilib.ConnectionError,
+                NetworkDeviceException,
+            ) as exc:
+                self._undo_ztp_reset("did not confirm the reload", exc)
+        finally:
+            transport.timeout = default_timeout
+        logger.info("%s reloads into ZeroTouch in %s", self._host, _ZTP_RELOAD_DELAY)
+
+    def _undo_ztp_reset(self, failure: str, exc: Exception) -> NoReturn:
+        """Rename the files back and cancel any scheduled reload, then raise.
+
+        The cancel also covers a reload that an earlier attempt scheduled without
+        getting the answer. A file that cannot be put back makes the error
+        ZTPRollbackException, which is not retryable.
+        """
+        unrestored = self._restore_ztp_files()
+        self._cancel_reload()
+        message = f"{self._host} {failure}: {exc}{_unrestored_note(unrestored)}"
+        if unrestored:
+            raise ZTPRollbackException(message) from exc
+        raise NetworkDeviceException(message) from exc
+
+    def _cancel_reload(self) -> None:
+        try:
+            self._node.enable("reload cancel", encoding="text", strict=True)
+        except (
+            pyeapi.eapilib.CommandError,
+            pyeapi.eapilib.ConnectionError,
+            NetworkDeviceException,
+        ):
+            logger.warning("Could not cancel a possibly scheduled reload on %s", self._host)
+
+    def _restore_ztp_files(self) -> list[str]:
+        """Rename back the files execute_ztp moved aside, after a reset that did not happen.
+
+        A file is renamed back only when the original is gone and the backup is
+        there, which is the state a move leaves, whether this attempt or an
+        earlier one made it, and whether or not its response arrived. A backup
+        never replaces a file that is still in place. Returns the files that
+        could not be checked or renamed back, so the caller can name them.
+        """
+        unrestored: list[str] = []
+        for name in _ZTP_BLOCKING_FILES:
+            backup = f"{name}{_ZTP_BACKUP_SUFFIX}"
+            try:
+                if self._flash_file_exists(name) or not self._flash_file_exists(backup):
+                    continue
+                self._node.enable(f"rename flash:{backup} flash:{name}")
+            except (
+                pyeapi.eapilib.CommandError,
+                pyeapi.eapilib.ConnectionError,
+                NetworkDeviceException,
+            ):
+                logger.error(
+                    "Could not restore flash:%s on %s; it may still be at flash:%s",
+                    name,
+                    self._host,
+                    backup,
+                )
+                unrestored.append(name)
+        return unrestored
+
+    def _flash_file_exists(self, name: str) -> bool:
+        try:
+            self._node.enable(f"show file information flash:{name}")
+        except pyeapi.eapilib.CommandError as exc:
+            if "No such file" in str(exc.command_error):
+                return False
+            raise
+        return True
+
+    def get_ztp_status(self) -> str:
+        """Report ``success`` once the switch runs its provisioned configuration.
+
+        While ZeroTouch runs there is no eAPI to answer, so the caller sees
+        connection errors. Once eAPI answers, ``show zerotouch`` reports
+        ``disabled`` for a switch booted from a startup-config.
+        """
+        mode = str(self._node.enable("show zerotouch")[0]["result"].get("mode", ""))
+        return "success" if mode == "disabled" else mode or "unknown"

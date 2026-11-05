@@ -23,6 +23,7 @@ import tempfile
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -35,6 +36,7 @@ from nv_config_manager_installer.deployer import (
     StepStatus,
     _get_image_digest_tag,
     _hash_content_dir,
+    _kind_api_server,
     _kind_preload_images,
     _parallel_build_limit,
     _ParallelCommand,
@@ -822,6 +824,7 @@ class TestImageBuilds:
         assert any(line.startswith("[two] completed in ") for line in callback.logs)
 
     def test_build_images_runs_parallel_builds_and_tags(self, monkeypatch):
+        """Build and tag all project images, including the refreshed OIDC proxy."""
         parallel_calls: list[tuple[list[_ParallelCommand], int]] = []
         run_commands: list[list[str]] = []
 
@@ -858,7 +861,7 @@ class TestImageBuilds:
 
         commands, max_parallel = parallel_calls[0]
         assert max_parallel == 2
-        assert len(commands) == 9
+        assert len(commands) == 10
         assert all(
             command.cmd[:4] == ["docker", "build", "--provenance=false", "--progress=plain"]
             for command in commands
@@ -866,7 +869,7 @@ class TestImageBuilds:
         assert all("--load" not in command.cmd for command in commands)
         assert all(command.timeout == 900 for command in commands)
         assert all(command.env and command.env["DOCKER_BUILDKIT"] == "1" for command in commands)
-        assert len(run_commands) == 9
+        assert len(run_commands) == 10
         assert all(cmd[:2] == ["docker", "tag"] for cmd in run_commands)
         assert deployer._local_image_tags["nv-config-manager-ui"].startswith("sha-")
         targets = {
@@ -881,6 +884,7 @@ class TestImageBuilds:
         }
 
     def test_build_images_loads_buildx_container_outputs(self, monkeypatch):
+        """Load Buildx container outputs before applying local image tags."""
         parallel_calls: list[list[_ParallelCommand]] = []
 
         def fake_run_logged_parallel(commands, step, callback, *, max_parallel, **kwargs):
@@ -906,7 +910,7 @@ class TestImageBuilds:
         deployer._build_images()
 
         commands = parallel_calls[0]
-        assert len(commands) == 9
+        assert len(commands) == 10
         assert all("--load" in command.cmd for command in commands)
         assert all(command.cmd[:3] == ["docker", "buildx", "build"] for command in commands)
         assert all(
@@ -958,6 +962,7 @@ class TestImageBuilds:
 
 class TestKindImageLoading:
     def test_external_dcim_excludes_nautobot_from_local_images(self):
+        """Omit Nautobot images when an external DCIM provider is selected."""
         config = _make_config()
         config.dcim = DCIMConfig(
             provider="synthetic", server="https://synthetic.example", local=False
@@ -967,7 +972,7 @@ class TestKindImageLoading:
         image_names = {build[0] for build in deployer._local_image_builds()}
 
         assert "nv-config-manager-nautobot" not in image_names
-        assert len(image_names) == 8
+        assert len(image_names) == 9
 
     def test_local_nautobot_adds_its_image_to_local_builds(self):
         deployer = Deployer(_make_config(), DeployOptions(), RecordingCallback())
@@ -975,7 +980,7 @@ class TestKindImageLoading:
         image_names = [build[0] for build in deployer._local_image_builds()]
 
         assert image_names[0] == "nv-config-manager-nautobot"
-        assert len(image_names) == 9
+        assert len(image_names) == 10
 
     def test_external_nautobot_omits_the_local_only_image(self):
         config = _make_config()
@@ -985,6 +990,7 @@ class TestKindImageLoading:
         assert "nv-config-manager-nautobot" not in {b[0] for b in deployer._local_image_builds()}
 
     def test_external_dcim_does_not_load_nautobot_image(self, monkeypatch):
+        """Load only the local images needed by the selected DCIM provider."""
         logged_commands: list[list[str]] = []
         config = _make_config()
         config.dcim = DCIMConfig(
@@ -1015,9 +1021,10 @@ class TestKindImageLoading:
             if command[:3] == ["kind", "load", "docker-image"]
         }
         assert "nv-config-manager-nautobot:local" not in loaded_images
-        assert len(loaded_images) == 8
+        assert len(loaded_images) == 9
 
     def test_kind_preload_images_include_defaults_config_and_env(self, monkeypatch):
+        """Combine default, configured, and environment-supplied Kind preload images."""
         config = _make_config()
         config.images.kind_preload_images = [
             "docker.io/library/redis:7-alpine",
@@ -1025,16 +1032,17 @@ class TestKindImageLoading:
         ]
         monkeypatch.setenv(
             "NVCM_KIND_PRELOAD_IMAGES",
-            "docker.io/library/nats:2.14-alpine,docker.io/library/redis:7-alpine",
+            "docker.io/library/nats:2.14.9-alpine,docker.io/library/redis:7-alpine",
         )
 
         assert _kind_preload_images(config) == [
             "docker.io/library/busybox:1.36",
             "docker.io/library/redis:7-alpine",
-            "docker.io/library/nats:2.14-alpine",
+            "docker.io/library/nats:2.14.9-alpine",
         ]
 
     def test_load_kind_tags_arch_specific_loader_image_as_canonical(self, monkeypatch):
+        """Load the host-architecture helper under its canonical image tag."""
         run_commands: list[list[str]] = []
         logged_commands: list[list[str]] = []
         pipe_commands: list[tuple[list[str], list[str]]] = []
@@ -1084,6 +1092,7 @@ class TestKindImageLoading:
             "nv-config-manager-temporal:local",
             "nv-config-manager-temporal-bootstrap:local",
             "nv-config-manager-temporal-ui:local",
+            "nv-config-manager-oidc-proxy:local",
         }
         assert [
             "docker",
@@ -1441,6 +1450,22 @@ class TestHelmInstall:
 
 
 class TestContentHashing:
+    @pytest.mark.parametrize("hash_directory", [False, True])
+    def test_hash_ignores_wall_clock(self, tmp_path: Path, hash_directory: bool):
+        """Unchanged files hash identically across clock ticks for either input type."""
+        job_dir = tmp_path / "my_job"
+        job_dir.mkdir()
+        job_file = job_dir / "main.py"
+        job_file.write_text("print('hello')")
+        source = job_dir if hash_directory else job_file
+
+        with patch("time.time", return_value=1_700_000_000):
+            h1 = _hash_content_dir([source])
+        with patch("time.time", return_value=1_700_000_002):
+            h2 = _hash_content_dir([source])
+
+        assert h1 == h2, "Wall-clock time should not affect the content hash"
+
     def test_deterministic_hash(self):
         with tempfile.TemporaryDirectory() as d:
             job_dir = Path(d) / "my_job"
@@ -1642,6 +1667,176 @@ class TestK8sClientIntegration:
         config = _make_config()
         deployer = Deployer(config, DeployOptions())
         assert deployer._k8s is None
+
+    def test_load_kind_refuses_a_non_kind_context(self) -> None:
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"current kube context is 'prod-eks'"):
+            deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
+
+    def test_load_kind_accepts_the_matching_kind_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server",
+            lambda cluster: "https://127.0.0.1:6443",
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        deployer._validate_local_cluster_target("kind-nv-config-manager", "https://127.0.0.1:6443/")
+
+    def test_load_kind_refuses_a_different_kind_cluster(self) -> None:
+        deployer = Deployer(_make_config(), DeployOptions(load_kind=True, kind_cluster="a"))
+
+        with pytest.raises(RuntimeError, match=r"Kind cluster 'a'"):
+            deployer._validate_local_cluster_target("kind-b", "https://127.0.0.1:6443")
+
+    def test_load_kind_refuses_a_kind_named_context_pointing_elsewhere(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server",
+            lambda cluster: "https://127.0.0.1:6443",
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"would target different clusters"):
+            deployer._validate_local_cluster_target(
+                "kind-nv-config-manager", "https://prod.example.com:443"
+            )
+
+    def test_load_kind_refuses_when_kind_cannot_report_the_api_server(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server", lambda cluster: None
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"could not report its API server"):
+            deployer._validate_local_cluster_target(
+                "kind-nv-config-manager", "https://127.0.0.1:6443"
+            )
+
+    @pytest.mark.parametrize(
+        ("returncode", "stdout", "expected"),
+        [
+            (
+                0,
+                "clusters:\n- cluster:\n    server: https://127.0.0.1:6443\n",
+                "https://127.0.0.1:6443",
+            ),
+            (1, "", None),
+            (0, "clusters: []\n", None),
+            (0, "clusters: [\n", None),
+        ],
+    )
+    def test_kind_api_server_reads_the_kind_kubeconfig(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        returncode: int,
+        stdout: str,
+        expected: str | None,
+    ) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            calls.append(cmd)
+            return MagicMock(returncode=returncode, stdout=stdout, stderr="")
+
+        monkeypatch.setattr("nv_config_manager_installer.deployer._run", fake_run)
+
+        assert _kind_api_server("nv-config-manager") == expected
+        assert calls == [["kind", "get", "kubeconfig", "--name", "nv-config-manager"]]
+
+    @pytest.mark.parametrize(
+        ("context", "server"),
+        [
+            ("docker-desktop", "https://kubernetes.docker.internal:6443"),
+            ("k3d-dev", "https://0.0.0.0:6443"),
+            ("my-laptop", "https://127.0.0.1:6443"),
+            ("my-laptop", "https://127.0.0.2:6443"),
+            ("my-laptop", "https://127.255.10.1:6443"),
+            ("my-laptop", "https://[::1]:6443"),
+            ("my-laptop", "https://localhost:6443"),
+        ],
+    )
+    def test_local_images_accept_a_local_cluster(
+        self, monkeypatch: pytest.MonkeyPatch, context: str, server: str
+    ) -> None:
+        monkeypatch.delenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", raising=False)
+        config = _make_config()
+        config.images.source = ImageSource.LOCAL
+        deployer = Deployer(config, DeployOptions())
+
+        deployer._validate_local_cluster_target(context, server)
+
+    @pytest.mark.parametrize(
+        "server",
+        [
+            "https://prod.example.com:443",
+            "https://127.example.com:443",
+            "https://128.0.0.1:6443",
+            "https://192.0.2.1:6443",
+        ],
+    )
+    def test_local_images_refuse_a_remote_cluster(
+        self, monkeypatch: pytest.MonkeyPatch, server: str
+    ) -> None:
+        monkeypatch.delenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", raising=False)
+        config = _make_config()
+        config.images.source = ImageSource.LOCAL
+        deployer = Deployer(config, DeployOptions())
+
+        with pytest.raises(RuntimeError, match=r"does not look like a cluster on this machine"):
+            deployer._validate_local_cluster_target("prod-eks", server)
+
+    def test_local_images_allow_a_remote_cluster_when_opted_in(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", "1")
+        config = _make_config()
+        config.images.source = ImageSource.LOCAL
+        deployer = Deployer(config, DeployOptions())
+
+        deployer._validate_local_cluster_target("dev-vm", "https://dev-vm.example.com:6443")
+
+    def test_registry_images_allow_any_cluster(self) -> None:
+        deployer = Deployer(_make_config(), DeployOptions())
+
+        deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
+
+    def test_prereqs_refuse_load_kind_against_a_remote_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer.shutil.which",
+            lambda tool: f"/usr/bin/{tool}",
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer.K8sClient",
+            lambda *a, **kw: _mock_k8s(),
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run",
+            lambda cmd, **kwargs: MagicMock(returncode=0, stdout="", stderr=""),
+        )
+        deployer = Deployer(
+            _make_config(),
+            DeployOptions(load_kind=True, kind_cluster="nv-config-manager"),
+            RecordingCallback(),
+        )
+
+        with pytest.raises(RuntimeError, match=r"Refusing to deploy"):
+            deployer._check_prerequisites()
 
     @patch("nv_config_manager_installer.deployer._run_logged")
     @patch("nv_config_manager_installer.deployer._run")

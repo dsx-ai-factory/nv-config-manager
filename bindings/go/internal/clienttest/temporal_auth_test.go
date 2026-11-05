@@ -24,7 +24,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nvidia/nv-config-manager/bindings/go/temporal"
+	"github.com/dsx-ai-factory/nv-config-manager/bindings/go/temporal"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

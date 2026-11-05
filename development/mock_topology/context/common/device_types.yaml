@@ -55,6 +55,17 @@ device_types:
           label: PCIe slot 0
 
   NVIDIA:
+    - model: AIR Hyper-reach Chassis
+      is_full_depth: true
+      u_height: 1
+      subdevice_role: parent
+      device_bays:
+        - name: line-card-1
+          label: Hyper-reach fixture child
+    - model: AIR Hyper-reach Line Card
+      is_full_depth: false
+      u_height: 0
+      subdevice_role: child
     - model: SN5600
       part_number: 920-9N42F-00RI-7C0
       is_full_depth: true

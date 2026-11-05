@@ -14,9 +14,19 @@
 # limitations under the License.
 """Service integration tests for the Nautobot workflow provider."""
 
+import json
+from unittest.mock import AsyncMock
+
+import aiohttp
 import pytest
 from aioresponses import aioresponses
 from nv_config_manager_dcim import DCIMError, DeviceInventoryFilter
+from nv_config_manager_dcim.errors import (
+    DCIMConnectivityError,
+    DCIMInvalidDataError,
+    DCIMReadCancelledError,
+)
+from nv_config_manager_dcim_nautobot_2x.client import NautobotReadCancelledError
 from nv_config_manager_dcim_nautobot_2x.workflow import DeviceVrfInfo, NautobotClient
 from temporalio.exceptions import ApplicationError
 
@@ -470,6 +480,75 @@ async def test_graphql_query_error():
             with pytest.raises(DCIMError, match="GraphQL error") as exc_info:
                 await client.graphql_query("bad query")
             assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "transport_error",
+    [
+        TimeoutError(),
+        aiohttp.ClientConnectionError("connection reset"),
+        aiohttp.ClientPayloadError("truncated body"),
+    ],
+    ids=["timeout", "connection", "payload"],
+)
+async def test_get_backup_enabled_device_ids_wraps_transport_errors(
+    monkeypatch: pytest.MonkeyPatch, transport_error: Exception
+) -> None:
+    """Transport failures surface as DCIMConnectivityError so the scheduler keeps running."""
+    client = NautobotClient()
+    monkeypatch.setattr(client, "graphql_query", AsyncMock(side_effect=transport_error))
+
+    with pytest.raises(DCIMConnectivityError) as exc_info:
+        await client.get_backup_enabled_device_ids(False)
+
+    assert exc_info.value.__cause__ is transport_error
+
+
+@pytest.mark.asyncio
+async def test_get_backup_enabled_device_ids_wraps_http_server_error() -> None:
+    """A 5xx GraphQL response surfaces as DCIMConnectivityError, not ClientResponseError."""
+    with aioresponses() as m:
+        m.post("https://nautobot.example.com/api/graphql/", status=500)
+
+        async with NautobotClient() as client:
+            with pytest.raises(DCIMConnectivityError) as exc_info:
+                await client.get_backup_enabled_device_ids(False)
+
+    assert isinstance(exc_info.value.__cause__, aiohttp.ClientResponseError)
+
+
+@pytest.mark.asyncio
+async def test_get_backup_enabled_device_ids_wraps_malformed_json() -> None:
+    """A 200 whose JSON body does not parse surfaces as DCIMInvalidDataError."""
+    with aioresponses() as m:
+        m.post(
+            "https://nautobot.example.com/api/graphql/",
+            status=200,
+            body="{not json",
+            content_type="application/json",
+        )
+
+        async with NautobotClient() as client:
+            with pytest.raises(DCIMInvalidDataError) as exc_info:
+                await client.get_backup_enabled_device_ids(False)
+
+    assert isinstance(exc_info.value.__cause__, json.JSONDecodeError)
+
+
+@pytest.mark.asyncio
+async def test_get_backup_enabled_device_ids_keeps_read_cancelled_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A datastore-cancelled read keeps its retry-later type instead of being rewrapped."""
+    client = NautobotClient()
+    cancelled = NautobotReadCancelledError("canceling statement due to statement timeout")
+    monkeypatch.setattr(client, "graphql_query", AsyncMock(side_effect=cancelled))
+
+    with pytest.raises(DCIMReadCancelledError) as exc_info:
+        await client.get_backup_enabled_device_ids(False)
+
+    assert exc_info.value is cancelled
 
 
 @pytest.mark.asyncio

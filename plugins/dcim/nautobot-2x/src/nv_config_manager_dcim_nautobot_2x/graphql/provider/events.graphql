@@ -76,6 +76,7 @@ query GetIntendedInterfaceNeighbors($device_id: String) {
     }
     connected_interface {
       name
+      label
       mac_address
       device {
         name
@@ -86,6 +87,19 @@ query GetIntendedInterfaceNeighbors($device_id: String) {
         serial
         role {
           name
+        }
+        parent_bay {
+          device {
+            name
+            rack {
+              name
+            }
+            position
+            serial
+            role {
+              name
+            }
+          }
         }
       }
       module {

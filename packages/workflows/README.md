@@ -143,6 +143,14 @@ print(registry.all_workflows)
 print(registry.all_activities)
 ```
 
+To deploy a plugin on Kubernetes without rebuilding the service image, package
+the wheel in an image under `/plugin-wheels` and list it under
+`temporal.workflowPlugins` in the Helm values. The plugin image must not carry
+packages that ship in the service image. See
+[Workflow Plugins](../../docs/temporal/temporal-deployment.mdx#workflow-plugins)
+for the image contract, the pod checks, and the `rbac.workflows` rows each API
+workflow needs.
+
 The worker, API, workflow CLI, and MCP server use this registry, so no
 service-code registration change is required. Plugin workflows must satisfy the
 registration contract above. Workflow class names, declared workflow names,
@@ -658,10 +666,16 @@ in that deployment's runtime `/openapi.json`, because the project cannot know
 which plugins another installation will have. Workflow form IDs and provider
 slugs use lowercase kebab-case. Both form part of the
 public URL. Workflow form IDs are globally unique; provider slugs are unique
-within their workflow. Treat both as stable API identifiers. Adding an optional
-query field is compatible; renaming or changing a field, or adding a required
-field, requires a new provider slug such as `fabric-profiles-v2` while the old
-version remains available for the compatibility window.
+within their workflow. Treat both as stable API identifiers. Keep existing
+query fields and response semantics backward compatible while clients migrate.
+
+For a breaking query change, introduce a new slug such as `fabric-profiles-v2`.
+The API registers routes only for providers referenced by a current form;
+retaining an unused declaration does not keep its old URL available. Before
+promising a compatibility window, verify that both URLs are registered and
+that the old URL still accepts an old client's query. If both versions cannot
+remain referenced, retain the backward-compatible contract until old clients
+are retired, or coordinate a cutover with those clients.
 
 Validate an installed plugin before deployment:
 
@@ -964,6 +978,35 @@ so importing a workflow module does not parse them. The UI keeps byte-for-byte c
 Change both copies together, and add a capability only together with the UI
 code that implements it.
 
+### Shared workflow fixtures
+
+`tests/fixtures/workflow_detail_deploy_pending_approval.json` is the canonical
+running-workflow example used by the Deploy workflow test, UI workflow-detail
+tests, and documentation screenshot generator. The Python workflow test captures
+the actual stage query at the approval gate; the UI reads the resulting API
+response directly rather than maintaining a TypeScript copy.
+
+`tests/fixtures/workflow_summaries/` contains one canonical JSON file for each
+API workflow exposed through the browser UI with `workflow_form_enabled`.
+Edit only the canonical files. UI commands generate ignored browser copies in
+`ui/src/mocks/data/workflows/fixtures/` for development, tests, and screenshots.
+Production UI builds exclude the mock handlers and do not require the generated
+copies. Python and UI tests require every form-enabled workflow to be represented
+and valid against its registered API models. When enabling a workflow form, add
+its summary and run `make docs-ui-screenshots`.
+
+When an intentional Deploy stage change makes the snapshot stale, regenerate it
+from the repository root and review the JSON diff:
+
+```sh
+NVCM_UPDATE_SNAPSHOTS=1 uv run pytest \
+  packages/workflows/tests/workflows/test_deploy_workflow.py::test_execute_workflow
+```
+
+Then regenerate `deployworkflow-running.png` with `make docs-ui-screenshots`.
+Do not edit a separate UI fixture; workflow stage changes should be reconciled
+in the canonical detail fixture once.
+
 ## Temporal compatibility
 
 Changes to workflow definitions, scheduled activity arguments or options, and
@@ -991,11 +1034,17 @@ When workflow commands or Temporal payloads may be affected, also run:
 uv run pytest packages/workflows/tests/workflows/replay
 ```
 
-When changing the plugin contract or package boundaries, also run
-`make test-workflow-wheels`. It builds the workflows and fixture-plugin wheels,
-installs them into a clean virtual environment without the service package, and
-runs the fixture plugin's workflows and scheduler on a local Temporal server. It
-needs network access for PyPI and, on first use, the Temporal dev server
+CI runs the complete package suite through `make test-workflow-package`. That
+target installs the workflows package non-editably with only its declared
+runtime and test dependencies, verifies that the service package is absent,
+and writes `packages/workflows/coverage.xml` for Sonar.
+
+When changing the plugin contract or built artifacts, also run
+`make test-workflow-wheels`. It builds the workflows source distribution and
+wheel plus the fixture-plugin wheel, installs the wheels into a clean virtual
+environment without the service package, and runs the fixture plugin's
+workflows and scheduler on a local Temporal server. Both package-isolation
+targets need network access for PyPI and, on first use, the Temporal dev server
 download.
 
 See the repository [contribution guide](../../CONTRIBUTING.md) for the broader

@@ -108,7 +108,7 @@ npm install
 Validation commands:
 
 ```bash
-uv run pytest
+make test
 uv run ruff check src/
 uv run mypy src/
 uv run ruff format src/
@@ -234,7 +234,9 @@ make local-status             # Show pods, services, and gateway state
 make local-logs               # Tail deployment logs
 make port-forward             # Forward Nautobot and Temporal UI locally
 make docker-build             # Build all local container images
-make test                     # Run Python tests
+make test                     # Run root, CI tooling, and isolated workflow package tests
+make test-root                # Run root project tests only
+make test-ci                  # Check build/container/CI tooling without application fixtures
 make lint                     # Run Python linters and type checks
 make openapi                  # Regenerate OpenAPI specs
 make openapi-check            # Check OpenAPI specs are current
@@ -337,13 +339,31 @@ Shared structured logging is available independently through the
 [logging package](packages/logging/README.md).
 
 ```bash
-make test
-make test-cov
+make install                 # Install Python dependencies
+make dev                     # Install with development dependencies
+make test                    # Run root, CI tooling, and isolated workflow package tests
+make test-root               # Run root project tests only
+make test-ci                 # Check build/container/CI tooling without application fixtures
+make test-cov                # Run root project tests with coverage in parallel
+make test-integration        # Run integration tests against a running cluster
+make test-nautobot-plugin    # Run the vendored Nautobot plugin's Django suite
+make test-workflow-package   # Test a non-editable, isolated workflow package install
+make test-workflow-wheels    # Test built workflow artifacts and the fixture plugin
+make lint                    # Run linters
+make format                  # Format code
+```
+
+`make test` includes `make test-workflow-package`, which creates a temporary,
+non-editable package environment. The package-isolation targets may require
+network access for Python dependencies and, on first use, the Temporal
+development server download.
+
+Run an individual service suite directly when a narrower check is sufficient:
+
+```bash
 uv run pytest src/tests/ztp/
 uv run pytest src/tests/temporal/
 uv run pytest src/tests/render/
-make lint
-make format
 ```
 
 Integration tests require a running deployment:
@@ -376,12 +396,17 @@ OpenAPI specs live in [docs/api-specs](docs/api-specs/README.md). Run `make open
 
 ## Go API Bindings
 
-Generated Go clients for the Temporal, Config Store, ZTP, Render, and DHCP APIs live in
-[`bindings/go`](bindings/go/README.md). Install a specific platform release with:
+Generated Go clients for the Temporal, Config Store, ZTP, Render, and DHCP APIs
+live in [`bindings/go`](bindings/go/README.md). After the stable 1.4.0 release
+containing the corrected module path is published, install it with:
 
 ```bash
-go get github.com/nvidia/nv-config-manager/bindings/go@v1.3.0
+go get github.com/dsx-ai-factory/nv-config-manager/bindings/go@v1.4.0
 ```
+
+Earlier tags declare the previous module path. Refer to the
+[Go bindings README](bindings/go/README.md) for release-candidate and migration
+guidance.
 
 Each service is a separate package. For example, the Temporal client uses the generated request
 builder and bearer-token context:
@@ -390,7 +415,7 @@ builder and bearer-token context:
 import (
     "context"
 
-    "github.com/nvidia/nv-config-manager/bindings/go/temporal"
+    "github.com/dsx-ai-factory/nv-config-manager/bindings/go/temporal"
 )
 
 ctx := context.WithValue(context.Background(), temporal.ContextAccessToken, accessToken)

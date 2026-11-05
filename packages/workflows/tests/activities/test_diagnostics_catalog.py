@@ -25,6 +25,30 @@ with workflow.unsafe.imports_passed_through():
         get_available_commands,
         validate_commands,
     )
+    from nv_config_manager_workflows.clients.device.base import NetworkConnection
+    from nv_config_manager_workflows.clients.device.factory import connection_class_for_platform
+
+
+# =============================================================================
+# catalog / client consistency
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "platform",
+    # Platforms without diagnostic commands (UFM has no device client at all) are skipped.
+    sorted((platform for platform, commands in PLATFORM_COMMANDS.items() if commands), key=str),
+)
+def test_catalog_commands_are_implemented_by_platform_client(platform: Platform) -> None:
+    """Every command a platform advertises has a diag_get_* implementation on its client."""
+    connection_class = connection_class_for_platform(platform, mock=False)
+    missing = sorted(
+        command
+        for command in PLATFORM_COMMANDS[platform]
+        if getattr(connection_class, "diag_get_" + command.removeprefix("show_"))
+        is getattr(NetworkConnection, "diag_get_" + command.removeprefix("show_"))
+    )
+    assert missing == [], f"{connection_class.__name__} advertises unimplemented {missing}"
 
 
 # =============================================================================
@@ -48,10 +72,10 @@ def test_get_available_commands_cumulus_keys_are_strings() -> None:
 
 
 def test_get_available_commands_arista() -> None:
-    """Returns a non-empty dict with 21 entries for ARISTA_EOS."""
+    """Returns a non-empty dict with 25 entries for ARISTA_EOS."""
     result = get_available_commands(Platform.ARISTA_EOS)
     assert isinstance(result, dict)
-    assert len(result) == 21
+    assert len(result) == 25
 
 
 def test_get_available_commands_juniper() -> None:

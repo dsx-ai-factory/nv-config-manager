@@ -22,11 +22,15 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from nv_config_manager.common.auth import auth_required as config_auth_required
-from nv_config_manager.common.client import (
+from nv_config_manager.common.client.config_store import (
     ConfigStoreClient,
     ConfigStoreException,
+)
+from nv_config_manager.common.client.dhcp import (
     DHCPClient,
     DHCPClientException,
+)
+from nv_config_manager.common.client.temporal import (
     TemporalClient,
     TemporalClientException,
 )
@@ -42,6 +46,9 @@ SECRET_KEY_RE = re.compile(r"(password|passwd|secret|token|api[_-]?key|private[_
 SECRET_LINE_RE = re.compile(
     r"(?i)^(\s*[^#\n]*(password|secret|token|api[_-]?key)[^:=\n]*\s*[:=]\s*).*$"
 )
+# Response metadata exempt from secret redaction, scoped to the workflow list.
+# Add only public scalar fields; nested payloads never inherit this allowlist.
+WORKFLOW_LIST_PUBLIC_KEYS = frozenset({"next_page_token"})
 MAX_LIMIT = 100
 
 
@@ -58,13 +65,18 @@ def clamp_limit(limit: int, maximum: int = MAX_LIMIT) -> int:
     return max(1, min(limit, maximum))
 
 
-def redact_data(value: Any) -> Any:
-    """Recursively redact likely secret values."""
+def redact_data(value: Any, *, public_keys: frozenset[str] = frozenset()) -> Any:
+    """Redact secrets, allowing named scalar metadata only at this dictionary level."""
     if isinstance(value, dict):
-        return {
-            key: "<redacted>" if SECRET_KEY_RE.search(str(key)) else redact_data(item)
-            for key, item in value.items()
-        }
+        result = {}
+        for key, item in value.items():
+            if key in public_keys and (item is None or isinstance(item, (str, bool, int, float))):
+                result[key] = item
+            elif SECRET_KEY_RE.search(str(key)):
+                result[key] = "<redacted>"
+            else:
+                result[key] = redact_data(item)
+        return result
     if isinstance(value, list):
         return [redact_data(item) for item in value]
     if isinstance(value, str):
@@ -77,9 +89,11 @@ def redact_text(value: str) -> str:
     return "\n".join(SECRET_LINE_RE.sub(r"\1<redacted>", line) for line in value.splitlines())
 
 
-def bounded_response(value: Any, max_response_bytes: int) -> dict[str, Any]:
+def bounded_response(
+    value: Any, max_response_bytes: int, *, public_keys: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     """Return redacted data with a byte-size boundary indicator."""
-    redacted = redact_data(value)
+    redacted = redact_data(value, public_keys=public_keys)
     encoded = json.dumps(redacted, default=str, sort_keys=True)
     encoded_bytes = encoded.encode("utf-8")
     if len(encoded_bytes) <= max_response_bytes:
@@ -238,7 +252,9 @@ async def fetch_workflows(
         async with workflow_client(settings) as client:
             return _add_workflow_ui_links(settings, await client.list_workflows(params=params))
 
-    return await _bounded_client_call(call, settings.max_response_bytes)
+    return await _bounded_client_call(
+        call, settings.max_response_bytes, public_keys=WORKFLOW_LIST_PUBLIC_KEYS
+    )
 
 
 async def fetch_workflow_detail(settings: MCPSettings, workflow_id: str) -> dict[str, Any]:
@@ -290,6 +306,8 @@ def config_store_client(settings: MCPSettings, file_type: str = "intended") -> C
 
 def dhcp_client(settings: MCPSettings) -> DHCPClient:
     """Create a DHCP API client."""
+    if not settings.dhcp_enabled:
+        raise MCPClientError("DHCP is not deployed on this cell.")
     return DHCPClient.for_mcp(
         base_url=settings.dhcp_api_url,
         headers=mcp_downstream_auth_headers,
@@ -299,9 +317,11 @@ def dhcp_client(settings: MCPSettings) -> DHCPClient:
 async def _bounded_client_call(
     call: Callable[[], Awaitable[Any]],
     max_response_bytes: int,
+    *,
+    public_keys: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     try:
-        return bounded_response(await call(), max_response_bytes)
+        return bounded_response(await call(), max_response_bytes, public_keys=public_keys)
     except MissingBearerTokenError as exc:
         raise MCPAuthError(str(exc)) from exc
     except (

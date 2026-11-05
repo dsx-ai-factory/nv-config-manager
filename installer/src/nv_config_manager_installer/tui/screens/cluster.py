@@ -49,12 +49,36 @@ class _SiteCard(Vertical):
         )
 
 
+class _CustomLabelRow(Horizontal):
+    """Editable Kubernetes label key/value pair."""
+
+    def __init__(self, key: str, value: str, index: int) -> None:
+        super().__init__(classes="account-title-row custom-label-row")
+        self._key = key
+        self._value = value
+        self._index = index
+
+    def compose(self) -> ComposeResult:
+        prefix = f"custom-label-{self._index}"
+        yield Input(value=self._key, placeholder="include_in_slo", id=f"{prefix}-key")
+        yield Input(value=self._value, placeholder="true", id=f"{prefix}-value")
+        yield Button("Remove", variant="error", id=f"{prefix}-remove")
+
+    def collect(self) -> tuple[str, str]:
+        prefix = f"custom-label-{self._index}"
+        return (
+            self.query_one(f"#{prefix}-key", Input).value.strip(),
+            self.query_one(f"#{prefix}-value", Input).value.strip(),
+        )
+
+
 class ClusterScreen(Container):
     """Cluster settings: hostname, environment, namespace, size, and sites."""
 
     def __init__(self, config: NVConfigManagerInstallConfig, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._config = config
+        self._custom_label_items = list(config.cluster.custom_labels.items())
 
     def compose(self) -> ComposeResult:
         c = self._config.cluster
@@ -110,6 +134,13 @@ class ClusterScreen(Container):
         )
 
         yield Label("")
+        yield Label("Custom Labels", classes="section-title")
+        yield Label("─" * 40, classes="section-divider")
+        yield Label("Kubernetes labels propagated to workloads and monitoring metrics.")
+        yield Button("+ Add Label", id="add-custom-label", classes="add-button")
+        yield Vertical(id="custom-labels-list")
+
+        yield Label("")
         yield Label("Sites", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
         yield Label("Data centers managed by this NVIDIA Config Manager deployment.")
@@ -125,11 +156,25 @@ class ClusterScreen(Container):
         yield Vertical(id="sites-list")
 
     def on_mount(self) -> None:
+        self._rebuild_custom_label_rows()
         self._rebuild_site_cards()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
-        if bid == "add-site":
+        if bid == "add-custom-label":
+            self._collect_custom_label_items()
+            self._custom_label_items.append(("", ""))
+            self._rebuild_custom_label_rows()
+        elif bid.startswith("custom-label-") and bid.endswith("-remove"):
+            self._collect_custom_label_items()
+            try:
+                idx = int(bid.split("-")[2])
+                if 0 <= idx < len(self._custom_label_items):
+                    self._custom_label_items.pop(idx)
+            except (ValueError, IndexError):
+                pass
+            self._rebuild_custom_label_rows()
+        elif bid == "add-site":
             self._collect_sites()
             self._config.sites.append(SiteConfig(name=""))
             self._rebuild_site_cards()
@@ -143,6 +188,26 @@ class ClusterScreen(Container):
             except (ValueError, IndexError):
                 pass
             self._rebuild_site_cards()
+
+    def _rebuild_custom_label_rows(self) -> None:
+        container = self.query_one("#custom-labels-list", Vertical)
+        container.remove_children()
+        for index, (key, value) in enumerate(self._custom_label_items):
+            container.mount(_CustomLabelRow(key, value, index))
+
+    def _collect_custom_label_items(self) -> None:
+        self._custom_label_items = [row.collect() for row in self.query(_CustomLabelRow)]
+
+    def _collect_custom_labels(self) -> dict[str, str]:
+        self._collect_custom_label_items()
+        labels: dict[str, str] = {}
+        for key, value in self._custom_label_items:
+            if not key and not value:
+                continue
+            if key in labels:
+                raise ValueError(f"duplicate custom label key: {key!r}")
+            labels[key] = value
+        return labels
 
     def _rebuild_site_cards(self) -> None:
         container = self.query_one("#sites-list", Vertical)
@@ -178,6 +243,7 @@ class ClusterScreen(Container):
                 break
 
         config.cluster.mock_devices = self.query_one("#cluster-mock-devices", LabeledSwitch).value
+        config.cluster.custom_labels = self._collect_custom_labels()
 
         self._collect_sites()
         config.sites = list(self._config.sites)
@@ -186,6 +252,7 @@ class ClusterScreen(Container):
         """Refresh widget values from the config model."""
         self._config = config
         c = config.cluster
+        self._custom_label_items = list(c.custom_labels.items())
         self.query_one("#cluster-hostname", Input).value = c.hostname
         self.query_one("#cluster-environment", Input).value = c.environment
         self.query_one("#cluster-namespace", Input).value = c.namespace
@@ -207,6 +274,7 @@ class ClusterScreen(Container):
         for size_val, radio_id in size_radio_map.items():
             self.query_one(radio_id, RadioButton).value = size_val == c.size
 
+        self._rebuild_custom_label_rows()
         self._rebuild_site_cards()
 
     def get_status(self, config: NVConfigManagerInstallConfig) -> str:

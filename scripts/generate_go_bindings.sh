@@ -80,7 +80,7 @@ for service in "${services[@]}"; do
         --template-dir /out/templates \
         --output "/out/${service}" \
         --git-host github.com \
-        --git-user-id nvidia \
+        --git-user-id dsx-ai-factory \
         --git-repo-id "$repo_id" \
         --additional-properties "packageName=${package_name},packageVersion=0.0.0,goVersion=${GO_VERSION},withGoMod=false,hideGenerationTimestamp=true" \
         --global-property apiDocs=false,apiTests=false,modelDocs=false,modelTests=false

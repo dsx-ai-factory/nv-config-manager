@@ -29,6 +29,7 @@ from nv_config_manager.temporal.client.device import (
     NetworkConnection,
     NVOSConnection,
 )
+from nv_config_manager.temporal.client.device.factory import from_device_data
 from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
 
 _SETTINGS: DeviceConnectionSettings = {
@@ -124,7 +125,7 @@ def test_service_adapters_do_not_accept_explicit_settings(
 
 
 def test_service_factory_does_not_accept_explicit_settings() -> None:
-    factory = cast(Any, NetworkConnection.from_device_data)
+    factory = cast(Any, from_device_data)
 
     with pytest.raises(TypeError, match="settings"):
         factory(None, settings=_SETTINGS)

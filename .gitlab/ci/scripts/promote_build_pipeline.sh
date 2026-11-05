@@ -16,7 +16,7 @@
 #           not in the CI_JOB_TOKEN allowlist), CI_JOB_TOKEN (repo clone)
 # Output:   promote.env (dotenv + file artifact) - PR_NUM, PR_REF, PR_SHA,
 #           PR_SHORT_SHA,
-#           PROMOTE_VERSION, BUILD_PIPELINE_ID, BUILD_JOB_ID_<IMAGE> x9,
+#           PROMOTE_VERSION, BUILD_PIPELINE_ID, BUILD_JOB_ID_<IMAGE> x10,
 #           CHART_BUILD_JOB_ID
 set -euo pipefail
 
@@ -41,7 +41,7 @@ allowed_build_sources='["push"]'
 PR_NUM="$NVCM_PROMOTE_PR"
 PR_REF="pull-request/${PR_NUM}"
 
-# The nine pr-build-image matrix entries (target|image), matching pr-build.yml.
+# The ten pr-build-image matrix entries (target|image), matching pr-build.yml.
 matrix_entries="nv-config-manager|nv-config-manager
 kea|nv-config-manager-kea
 kea-admin|nv-config-manager-kea-admin
@@ -50,7 +50,8 @@ nb|nv-config-manager-nautobot
 nats-ready|nv-config-manager-nats-ready
 temporal-server|nv-config-manager-temporal
 temporal-bootstrap|nv-config-manager-temporal-bootstrap
-temporal-ui|nv-config-manager-temporal-ui"
+temporal-ui|nv-config-manager-temporal-ui
+oidc-proxy|nv-config-manager-oidc-proxy"
 
 api_get() {
     curl -fsS --max-time 30 -H "PRIVATE-TOKEN: ${NVCM_MIRROR_API_TOKEN}" "$@"
@@ -183,7 +184,7 @@ done
 echo "Provenance OK: ${build_source} pipeline ${BUILD_PIPELINE_ID} ran on ${PR_REF}@${PR_SHA}"
 
 # -----------------------------------------------------------------------------
-# Collect the nine pr-build-image job ids and confirm artifacts are usable.
+# Collect the ten pr-build-image job ids and confirm artifacts are usable.
 # -----------------------------------------------------------------------------
 jobs_json="$(api_get "${api}/pipelines/${BUILD_PIPELINE_ID}/jobs?per_page=100")"
 

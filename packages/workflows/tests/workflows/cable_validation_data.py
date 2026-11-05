@@ -17,7 +17,78 @@ from typing import Any
 from temporalio import workflow
 
 with workflow.unsafe.imports_passed_through():
+    from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
+
     from nv_config_manager_workflows.clients.device.models import DeviceMacEntry, DeviceMacTable
+
+
+def _network_device(
+    *,
+    device_id: str,
+    name: str,
+    position: int,
+    primary_ip4: str,
+    site: str = "SITEA",
+    platform: Platform = Platform.CUMULUS_LINUX,
+    device_type: str = "msn4600-cs2fc",
+) -> NetworkDeviceData:
+    return NetworkDeviceData(
+        id=device_id,
+        name=name,
+        rack="a01",
+        position=position,
+        role="tenant-a-device",
+        site=site,
+        device_type=device_type,
+        platform=platform,
+        primary_ip4=primary_ip4,
+        primary_ip6=None,
+        render_enabled=True,
+        deploy_enabled=True,
+        backup_enabled=True,
+        ztp_enabled=True,
+    )
+
+
+VALID_NETWORK_DEVICES = {
+    "mock_device1": _network_device(
+        device_id="c2c2b006-d4f6-4645-8ac8-a4a968050273",
+        name="mock_device1",
+        position=1,
+        primary_ip4="10.0.0.1",
+    ),
+    "mock_device2": _network_device(
+        device_id="c2c2b006-d4f6-4645-8ac8-a4a968050232",
+        name="mock_device2",
+        position=2,
+        primary_ip4="10.0.0.2",
+    ),
+    "mock_device3": _network_device(
+        device_id="c2c2b006-d4f6-4645-8ac8-a4a968050214",
+        name="mock_device3",
+        position=3,
+        primary_ip4="10.0.0.3",
+        platform=Platform.ARISTA_EOS,
+        device_type="dcs-7368x-128-bnd-r",
+    ),
+    "MOCK-LEAF-04": _network_device(
+        device_id="c2c2b336-d4f6-4645-8ac8-a4a968050232",
+        name="MOCK-LEAF-04",
+        position=4,
+        primary_ip4="10.0.0.4",
+        site="LEGACY01",
+    ),
+}
+
+INVALID_NETWORK_DEVICE = VALID_NETWORK_DEVICES["mock_device1"].model_copy(deep=True)
+
+MAC_VALIDATION_NETWORK_DEVICE = _network_device(
+    device_id="c2c2b006-d4f6-4645-8ac8-a4a968050273",
+    name="MOCK-IPMITOR-01",
+    position=1,
+    primary_ip4="10.0.0.1",
+    site="LEGACY01",
+)
 
 
 DEVICE_CONNECTION_DATA_VALID: dict[str, dict[str, Any]] = {
@@ -464,471 +535,6 @@ DEVICE_CONNECTION_DATA_VALID: dict[str, dict[str, Any]] = {
         ],
     },
 }
-
-DEVICE_CONNECTION_DATA_INVALID: dict[str, dict[str, Any]] = {
-    "mock_device1": {
-        "id": "c2c2b006-d4f6-4645-8ac8-a4a968050273",
-        "name": "mock_device1",
-        "rack": {"name": "a01"},
-        "position": 1,
-        "platform": {"name": "Cumulus Linux"},
-        "role": {"name": "Tenant A Device"},
-        "location": {"location_type": {"name": "Site"}, "name": "SITEA"},
-        "device_type": {"model": "MSN4600-CS2FC"},
-        "primary_ip4": {"host": "10.0.0.1"},
-        "primary_ip6": None,
-        "configmanagerdevicestatus": {
-            "render_enabled": True,
-            "deploy_enabled": True,
-            "backup_enabled": True,
-            "ztp_enabled": True,
-        },
-        "actual_connections": [
-            {
-                "name": "swp0",
-                "connected_interface": {
-                    "name": "swp6",
-                    "device": {
-                        "name": "MOCK_DEVICE2",
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "swp1",
-                "connected_interface": {
-                    "name": "SWP1",
-                    "device": {
-                        "name": "MOCK_DEVICE2",
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "swp2",
-                "connected_interface": {
-                    "name": "swp9",
-                    "device": {
-                        "name": "mock_device2",
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "swp3",
-                "connected_interface": {
-                    "name": "Ethernet1/2",
-                    "device": {
-                        "name": "mock_device3",
-                        "serial": "MOCKSERIAL3",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:03",
-                },
-                "link_up": True,
-            },
-        ],
-        "intended_connections": [
-            {
-                "name": "swp0",
-                "connected_interface": {
-                    "name": "swp0",
-                    "device": {
-                        "name": "mock_device2",
-                        "rack": {"name": "a01"},
-                        "position": 2,
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-            },
-            {
-                "name": "swp1",
-                "connected_interface": {
-                    "name": "swp1",
-                    "device": {
-                        "name": "mock_device2",
-                        "rack": {"name": "a01"},
-                        "position": 2,
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-            },
-            {
-                "name": "swp2",
-                "connected_interface": {
-                    "name": "Ethernet1/1",
-                    "device": {
-                        "name": "mock_device3",
-                        "rack": {"name": "a01"},
-                        "position": 3,
-                        "serial": "MOCKSERIAL3",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:03",
-                },
-            },
-            {
-                "name": "swp3",
-                "connected_interface": {
-                    "name": "Ethernet1/2",
-                    "device": {
-                        "name": "mock_device3",
-                        "rack": {"name": "a01"},
-                        "position": 3,
-                        "serial": "MOCKSERIAL3",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:03",
-                },
-            },
-        ],
-    },
-    "mock_device2": {
-        "id": "c2c2b006-d4f6-4645-8ac8-a4a968050232",
-        "name": "mock_device2",
-        "rack": {"name": "a01"},
-        "position": 2,
-        "platform": {"name": "Cumulus Linux"},
-        "role": {"name": "Tenant A Device"},
-        "location": {"location_type": {"name": "Site"}, "name": "SITEA"},
-        "device_type": {"model": "MSN4600-CS2FC"},
-        "primary_ip4": {"host": "10.0.0.2"},
-        "primary_ip6": None,
-        "configmanagerdevicestatus": {
-            "render_enabled": True,
-            "deploy_enabled": True,
-            "backup_enabled": True,
-            "ztp_enabled": True,
-        },
-        "actual_connections": [
-            {
-                "name": "swp6",
-                "connected_interface": {
-                    "name": "swp0",
-                    "device": {
-                        "name": "mock_device1",
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "swp1",
-                "connected_interface": {
-                    "name": "swp1",
-                    "device": {
-                        "name": "mock_device1",
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-                "link_up": False,
-                "ts_info": "Cable is unplugged.",
-            },
-            {
-                "name": "swp0",
-                "link_up": False,
-                "ts_info": "Cable is unplugged.",
-            },
-            {
-                "name": "swp2",
-                "link_up": False,
-                "ts_info": "Cable is unplugged.",
-            },
-            {
-                "name": "swp9",
-                "connected_interface": {
-                    "name": "swp2",
-                    "device": {
-                        "name": "mock_device1",
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "swp3",
-                "connected_interface": {
-                    "name": "Ethernet1/4",
-                    "device": {
-                        "name": "mock_device3",
-                        "serial": "MOCKSERIAL3",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:03",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "swp10",
-                "connected_interface": {
-                    "name": "swp11",
-                    "device": {
-                        "name": "mock_device1",
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-                "link_up": True,
-            },
-        ],
-        "intended_connections": [
-            {
-                "name": "swp0",
-                "connected_interface": {
-                    "name": "swp0",
-                    "device": {
-                        "name": "mock_device1",
-                        "rack": {"name": "a01"},
-                        "position": 1,
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-            },
-            {
-                "name": "swp1",
-                "connected_interface": {
-                    "name": "swp1",
-                    "device": {
-                        "name": "mock_device1",
-                        "rack": {"name": "a01"},
-                        "position": 1,
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-            },
-            {
-                "name": "swp2",
-                "connected_interface": {
-                    "name": "Ethernet1/3",
-                    "device": {
-                        "name": "mock_device3",
-                        "rack": {"name": "a01"},
-                        "position": 3,
-                        "serial": "MOCKSERIAL3",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:03",
-                },
-            },
-            {
-                "name": "swp3",
-                "connected_interface": {
-                    "name": "Ethernet1/4",
-                    "device": {
-                        "name": "mock_device3",
-                        "rack": {"name": "a01"},
-                        "position": 3,
-                        "serial": "MOCKSERIAL3",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:03",
-                },
-            },
-        ],
-    },
-    "mock_device3": {
-        "id": "c2c2b006-d4f6-4645-8ac8-a4a968050214",
-        "name": "mock_device3",
-        "rack": {"name": "a01"},
-        "position": 3,
-        "platform": {"name": "Cumulus Linux"},
-        "role": {"name": "Tenant A Device"},
-        "location": {"location_type": {"name": "Site"}, "name": "SITEA"},
-        "device_type": {"model": "MSN4600-CS2FC"},
-        "primary_ip4": {"host": "10.0.0.3"},
-        "primary_ip6": None,
-        "configmanagerdevicestatus": {
-            "render_enabled": True,
-            "deploy_enabled": True,
-            "backup_enabled": True,
-            "ztp_enabled": True,
-        },
-        "actual_connections": [
-            {
-                "name": "Ethernet1/2",
-                "connected_interface": {
-                    "name": "swp3",
-                    "device": {
-                        "name": "mock_device1",
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "Ethernet1/4",
-                "connected_interface": {
-                    "name": "swp3",
-                    "device": {
-                        "name": "mock_device2",
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-                "link_up": True,
-            },
-            {
-                "name": "Ethernet1/1",
-                "link_up": False,
-                "ts_info": "Cable is unplugged.",
-            },
-            {
-                "name": "Ethernet1/3",
-                "link_up": True,
-            },
-        ],
-        "intended_connections": [
-            {
-                "name": "Ethernet1/1",
-                "connected_interface": {
-                    "name": "swp2",
-                    "device": {
-                        "name": "mock_device1",
-                        "rack": {"name": "a01"},
-                        "position": 1,
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-            },
-            {
-                "name": "Ethernet1/2",
-                "connected_interface": {
-                    "name": "swp3",
-                    "device": {
-                        "name": "mock_device1",
-                        "rack": {"name": "a01"},
-                        "position": 1,
-                        "serial": "MOCKSERIAL1",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:01",
-                },
-            },
-            {
-                "name": "Ethernet1/3",
-                "connected_interface": {
-                    "name": "swp2",
-                    "device": {
-                        "name": "mock_device2",
-                        "rack": {"name": "a01"},
-                        "position": 2,
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-            },
-            {
-                "name": "Ethernet1/4",
-                "connected_interface": {
-                    "name": "swp3",
-                    "device": {
-                        "name": "mock_device2",
-                        "rack": {"name": "a01"},
-                        "position": 2,
-                        "serial": "MOCKSERIAL2",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:02",
-                },
-            },
-        ],
-    },
-    "MOCK-LEAF-04": {
-        "id": "c2c2b336-d4f6-4645-8ac8-a4a968050232",
-        "name": "MOCK-LEAF-04",
-        "rack": {"name": "a01"},
-        "position": 4,
-        "platform": {"name": "Cumulus Linux"},
-        "role": {"name": "Tenant A Device"},
-        "location": {"location_type": {"name": "Site"}, "name": "SITEA"},
-        "device_type": {"model": "MSN4600-CS2FC"},
-        "primary_ip4": {"host": "10.0.0.4"},
-        "primary_ip6": None,
-        "configmanagerdevicestatus": {
-            "render_enabled": True,
-            "deploy_enabled": True,
-            "backup_enabled": True,
-            "ztp_enabled": True,
-        },
-        "actual_connections": [
-            {
-                "name": "swp0",
-                "link_up": True,
-            },
-            {
-                "name": "swp1",
-                "link_up": False,
-                "ts_info": "Cable is unplugged.",
-            },
-            {
-                "name": "swp2",
-                "link_up": False,
-                "ts_info": "Cable is unplugged.",
-            },
-        ],
-        "intended_connections": [
-            {
-                "name": "swp0",
-                "connected_interface": {
-                    "name": "eth1",
-                    "device": {
-                        "name": "MOCK-Server-04",
-                        "rack": {"name": "b01"},
-                        "position": 4,
-                        "serial": "MOCKSERIAL4",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:44",
-                },
-            },
-            {
-                "name": "swp1",
-                "connected_interface": {
-                    "name": "eth1",
-                    "device": {
-                        "name": "MOCK-Server-05",
-                        "rack": {"name": "b01"},
-                        "position": 5,
-                        "serial": "MOCKSERIAL5",
-                        "role": {"name": "Tenant A Device"},
-                    },
-                    "mac_address": "00:00:00:00:00:45",
-                },
-            },
-        ],
-    },
-}
-
 
 DEVICE_CONNECTION_DATA_MAC_VALIDATION: dict[str, dict[str, Any]] = {
     "MOCK-IPMITOR-01": {

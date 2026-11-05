@@ -19,7 +19,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
@@ -42,6 +42,7 @@ from nv_config_manager_workflows.activities.deploy import (
 )
 from nv_config_manager_workflows.activities.nats import PublishNatsInput
 from nv_config_manager_workflows.workflows.backup import (
+    BACKUP_WITHOUT_RENDER_PATCH_ID,
     UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID,
     BackupInput,
     BackupWorkflow,
@@ -709,3 +710,227 @@ async def test_api_backup_waits_for_retry_after_stage_failure(mock_time: Any, en
         description = await handle.describe()
         assert description.status == WorkflowExecutionStatus.RUNNING
         await handle.terminate()
+
+
+async def _device(*, backup_enabled: bool, render_enabled: bool) -> GetNetworkDeviceOutput:
+    output = await mock_get_network_device(GetNetworkDeviceInput(device_id="mock_device_uuid"))
+    return GetNetworkDeviceOutput(
+        device=output.device.model_copy(
+            update={"backup_enabled": backup_enabled, "render_enabled": render_enabled}
+        )
+    )
+
+
+async def _check_drift_with(
+    execute_activity: AsyncMock, patched: MagicMock
+) -> BackupWorkflow.CheckDriftStageOutput:
+    with patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0):
+        workflow_instance = BackupWorkflow()
+    with (
+        patch(
+            "nv_config_manager_workflows.workflows.backup.workflow.execute_activity",
+            new=execute_activity,
+        ),
+        patch("nv_config_manager_workflows.workflows.backup.workflow.patched", new=patched),
+    ):
+        return cast(
+            BackupWorkflow.CheckDriftStageOutput,
+            await cast(Any, BackupWorkflow.check_drift).__wrapped__(
+                workflow_instance,
+                BackupWorkflow.CheckDriftStageInput(
+                    device_id="mock_device_uuid",
+                    intended_config_commit_id=None,
+                    suppress_drift_notification=False,
+                ),
+            ),
+        )
+
+
+def _scheduled(execute_activity: AsyncMock) -> list[str]:
+    return [call.args[0].__name__ for call in execute_activity.await_args_list]
+
+
+@pytest.mark.asyncio
+async def test_check_drift_skipped_for_backed_up_device_that_is_not_rendered() -> None:
+    execute_activity = AsyncMock(
+        side_effect=[await _device(backup_enabled=True, render_enabled=False)]
+    )
+    patched = MagicMock(return_value=True)
+
+    output = await _check_drift_with(execute_activity, patched)
+
+    patched.assert_called_once_with(BACKUP_WITHOUT_RENDER_PATCH_ID)
+    assert output.commit_id is None
+    assert output.diff == ""
+    assert output.has_drift is False
+    assert _scheduled(execute_activity) == ["get_network_device"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("backup_enabled", "render_enabled"),
+    [(True, True), (False, False), (False, True)],
+    ids=["rendered", "backups-disabled", "rendered-backups-disabled"],
+)
+async def test_check_drift_compares_other_devices_without_consulting_the_patch(
+    backup_enabled: bool, render_enabled: bool
+) -> None:
+    execute_activity = AsyncMock(
+        side_effect=[
+            await _device(backup_enabled=backup_enabled, render_enabled=render_enabled),
+            ("intended configuration", "commit-1", "http://config-store/commit-1"),
+            "",
+        ]
+    )
+    patched = MagicMock(return_value=True)
+
+    output = await _check_drift_with(execute_activity, patched)
+
+    # No patch marker for these devices, so their histories replay unchanged.
+    patched.assert_not_called()
+    assert output.commit_id == "commit-1"
+    assert _scheduled(execute_activity) == [
+        "get_network_device",
+        "load_intended_configuration",
+        "perform_candidate_diff",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_check_drift_without_patch_still_loads_intended_configuration() -> None:
+    """A history recorded before the patch replays the original drift check."""
+    execute_activity = AsyncMock(
+        side_effect=[
+            await _device(backup_enabled=True, render_enabled=False),
+            ("intended configuration", "commit-1", "http://config-store/commit-1"),
+            "",
+        ]
+    )
+
+    output = await _check_drift_with(execute_activity, MagicMock(return_value=False))
+
+    assert output.commit_id == "commit-1"
+    assert _scheduled(execute_activity) == [
+        "get_network_device",
+        "load_intended_configuration",
+        "perform_candidate_diff",
+    ]
+
+
+@activity.defn(name="get_network_device")
+async def mock_get_backed_up_device_without_render(
+    activity_input: GetNetworkDeviceInput,
+) -> GetNetworkDeviceOutput:
+    return await _device(backup_enabled=True, render_enabled=False)
+
+
+@activity.defn(name="get_network_device")
+async def mock_get_rendered_backed_up_device(
+    activity_input: GetNetworkDeviceInput,
+) -> GetNetworkDeviceOutput:
+    return await _device(backup_enabled=True, render_enabled=True)
+
+
+@activity.defn(name="load_intended_configuration")
+async def mock_load_intended_configuration_missing(
+    device_data: NetworkDeviceData,
+) -> tuple[str, str, str]:
+    raise ApplicationError(
+        f"No intended configuration for {device_data.name}", type="ConfigStoreFileNotFound"
+    )
+
+
+recorded_backups: list[RecordBackupConfigManagerPluginInput] = []
+
+
+@activity.defn(name="record_backup_config_manager_plugin")
+async def mock_record_backup_capturing_input(
+    activity_input: RecordBackupConfigManagerPluginInput,
+) -> tuple[bool, str]:
+    recorded_backups.append(activity_input)
+    return True, "Persisted new backup configuration."
+
+
+async def _run_backup(
+    env: Any, get_network_device: Any, terminate_on_failure: bool = False
+) -> WorkflowHandle:
+    recorded_backups.clear()
+    task_queue_name = str(uuid.uuid4())
+    async with Worker(
+        env.client,
+        task_queue=task_queue_name,
+        workflows=[BackupWorkflow],
+        activities=[
+            get_network_device,
+            mock_load_running_configuration,
+            mock_load_intended_configuration_missing,
+            mock_perform_candidate_diff,
+            mock_persist_config_backup,
+            mock_record_backup_capturing_input,
+            mock_publish_nats,
+            mock_send_slack_message,
+        ],
+        activity_executor=ThreadPoolExecutor(100),
+    ):
+        handle: WorkflowHandle = await env.client.start_workflow(
+            BackupWorkflow.run,
+            BackupInput(
+                device_id="mock_device_uuid",
+                trigger=TriggerEnum.API,
+                user="test_user",
+                user_domain="nvidia.com",
+                terminate_on_failure=terminate_on_failure,
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=task_queue_name,
+            run_timeout=timedelta(minutes=10),
+        )
+        if terminate_on_failure:
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+        else:
+            assert await handle.result()
+        return handle
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
+@patch(
+    "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
+    new=TEST_RETRY_POLICY,
+)
+@patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
+async def test_execute_workflow_backs_up_device_that_is_not_rendered(
+    mock_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
+    handle = await _run_backup(env, mock_get_backed_up_device_without_render)
+
+    history = await handle.fetch_history()
+    scheduled = {
+        event.activity_task_scheduled_event_attributes.activity_type.name
+        for event in history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+    }
+    assert "load_intended_configuration" not in scheduled
+    assert "perform_candidate_diff" not in scheduled
+    assert "persist_config_backup" in scheduled
+    assert [record.deployed_commit_id for record in recorded_backups] == [None]
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=float(0))
+@patch(
+    "nv_config_manager_workflows.workflows.backup.DEFAULT_ACTIVITY_RETRY_POLICY",
+    new=TEST_RETRY_POLICY,
+)
+@patch("nv_config_manager_workflows.workflows.backup.timedelta", return_value=TEST_TIMEOUT)
+async def test_execute_workflow_rendered_device_without_intended_configuration_fails(
+    mock_timedelta: Any,
+    mock_time: Any,
+    env: Any,
+) -> None:
+    await _run_backup(env, mock_get_rendered_backed_up_device, terminate_on_failure=True)
+
+    assert recorded_backups == []

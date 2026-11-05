@@ -1,0 +1,21 @@
+{
+  "data": {
+    "device": {
+      "id": "air-superpod-su02-hyperreach-chassis",
+      "name": "su02-hyperreach-chassis",
+      "tags": [],
+      "tenant": {"name": "Public Demo"},
+      "role": {"name": "Compute-Tray"},
+      "device_type": {
+        "manufacturer": {"name": "NVIDIA"},
+        "model": "AIR Hyper-reach Chassis"
+      },
+      "status": {"name": "Active"},
+      "serial": "AIR-HYPERREACH-CHASSIS-01",
+      "config_context": {},
+      "location": {"name": "SPO01"},
+      "_air": {"enabled": false},
+      "interfaces": []
+    }
+  }
+}

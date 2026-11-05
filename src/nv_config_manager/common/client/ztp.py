@@ -21,6 +21,8 @@ from configparser import ConfigParser
 from nv_config_manager_clients.ztp import ZTPClient as _ZTPClient
 from nv_config_manager_clients.ztp import ZTPClientException as ZTPClientException
 
+from nv_config_manager.common.config.http import get_internal_auth_headers, get_mtls_cert_paths
+
 
 class ZTPClient(_ZTPClient):
     """Application client retaining the legacy INI factory."""
@@ -40,9 +42,6 @@ class ZTPClient(_ZTPClient):
         Returns:
             Configured ZTPClient instance
         """
-        # Avoid circular import: common.config imports these service client factories.
-        from nv_config_manager.common.config import get_internal_auth_headers, get_mtls_cert_paths
-
         ztp_config = config[section]
         use_internal = ztp_config.getboolean("use_internal_endpoint", fallback=False)
 

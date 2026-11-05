@@ -33,6 +33,8 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "show_platform_environment": "Fan, PSU, and temperature sensor readings",
     "show_platform_transceiver": "Optic transceiver DOM values per port",
     "show_system_health": "System health checks and component status",
+    "show_interface_counters": "Interface traffic counters and error statistics",
+    "show_interface_mac": "MAC address of each interface",
     # Arista-only
     "show_vrf": "VRF list and routing instance detail",
     "show_arp_table": "ARP / neighbor resolution table",
@@ -47,9 +49,6 @@ COMMAND_DESCRIPTIONS: dict[str, str] = {
     "show_mac_security_counters": "MACsec encrypted/unencrypted byte counters",
     "show_vrrp": "VRRP group states and priorities",
     "show_inventory": "Full hardware inventory (chassis, modules, SFPs)",
-    # Cumulus-only
-    "show_interface_counters": "Interface traffic counters and error statistics",
-    "show_interface_mac": "MAC addresses learned per interface",
 }
 
 # Per-platform support sets — each platform declares which commands it supports.
@@ -112,6 +111,10 @@ PLATFORM_COMMANDS: dict[Platform, set[str]] = {
         "show_mac_table",
         "show_inventory",
         "show_mlag",
+        "show_platform_environment",
+        "show_platform_transceiver",
+        "show_interface_counters",
+        "show_interface_mac",
     },
     Platform.JUNIPER_JUNOS: {
         "show_version",
