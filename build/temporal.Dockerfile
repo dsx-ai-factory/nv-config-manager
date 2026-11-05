@@ -37,7 +37,8 @@ COPY --from=admin-tools-upstream /usr/local/bin/temporal-sql-tool /checked/tempo
 RUN set -eu; \
     for binary in /checked/*; do \
         actual="$(go version -m "$binary" | head -n 1)"; \
-        version="${actual##* }"; \
+        version="${actual#*: }"; \
+        version="${version%% X:*}"; \
         version="${version%%-X:*}"; \
         printf '%s\n' "$version" | grep -Eq '^go1\.[0-9]+\.[0-9]+$' || \
             { echo "$binary: unsupported compiler ($version)" >&2; exit 1; }; \
