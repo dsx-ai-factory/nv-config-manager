@@ -81,6 +81,7 @@ from nv_config_manager.temporal.common.search_attributes import (
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.telemetry import get_runtime
 from nv_config_manager_workflows.registration.form_catalog import WORKFLOW_FORM_ID_PATTERN
+from nv_config_manager_workflows.secret_redaction import redact_diff_fields
 from nv_config_manager_workflows.tech_support import tech_support_key
 from nv_config_manager_workflows.ui import wire_schema
 
@@ -446,7 +447,7 @@ class WorkflowSummaryResponse(WorkflowResponse):
                 queries,
                 query_timeout_seconds=_WORKFLOW_LIST_QUERY_TIMEOUT_SECONDS,
             )
-            workflow_input = query_results.get("input")
+            workflow_input = redact_diff_fields(query_results.get("input"))
             if pending_approval is None:
                 pending_approval = bool(query_results.get("pending_approval"))
         except RPCError:
@@ -532,7 +533,7 @@ class WorkflowDetailResponse(WorkflowSummaryResponse):
             query_results = await WorkflowSummaryResponse._execute_queries(
                 handle, description, queries
             )
-            workflow_input = query_results.get("input")
+            workflow_input = redact_diff_fields(query_results.get("input"))
             if pending_approval is None:
                 pending_approval = bool(query_results.get("pending_approval"))
 
@@ -542,6 +543,16 @@ class WorkflowDetailResponse(WorkflowSummaryResponse):
             if compressed_stages is not None:
                 stages = StageMixin.decompress_stages(compressed_stages)
                 failed_stage = any(stage.state == StateEnum.FAILED for stage in stages)
+                # copies for the response: the stage data keeps the raw diff for the apply step
+                stages = [
+                    stage.model_copy(
+                        update={
+                            "input": redact_diff_fields(stage.input),
+                            "output": redact_diff_fields(stage.output),
+                        }
+                    )
+                    for stage in stages
+                ]
 
         except RPCError:
             # Should not occur in prod, but there was a point in time in

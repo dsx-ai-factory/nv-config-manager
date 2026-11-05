@@ -27,7 +27,7 @@ from temporalio.exceptions import ApplicationError
 
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.secret_redaction import redact_junos_secrets
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.stage import (
     StageInput,
     StageMixin,
@@ -53,6 +53,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from nv_config_manager_workflows.activities.deploy import (
         DiffActivityInput,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
@@ -270,10 +271,10 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
         diff = await workflow.execute_activity(
             perform_candidate_diff,
             DiffActivityInput(device_data=result.device, configuration=content),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
-        diff = redact_junos_secrets(diff)
+        diff = redact_device_secrets(diff)
 
         has_drift = bool(diff.strip())
         if not has_drift:
