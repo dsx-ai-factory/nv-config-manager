@@ -78,6 +78,7 @@ def test_yq_is_verified_before_chmod(tmp_path: Path, filename: str, job: str, fa
 def test_isc_key_is_verified_before_import(
     tmp_path: Path, repo: str, codename: str, failure: str
 ) -> None:
+    """Reject unverified keys before importing them or enabling their APT sources."""
     script_name = "setup.kea.deb.sh" if repo == "kea-2-6" else "setup.stork.deb.sh"
     result = run_download(
         tmp_path,
