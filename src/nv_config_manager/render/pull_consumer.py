@@ -223,17 +223,23 @@ class PullConsumer:
             self.logger.error("Error nacking message: %s", str(e))
             raise
 
-    async def term(self, msg: Msg) -> None:
-        """Stop redelivery of a message with resilient error handling."""
+    async def term(self, msg: Msg) -> bool:
+        """Stop redelivery of a message with resilient error handling.
+
+        Returns whether the termination was sent; ``False`` means it was skipped
+        because no responders were available.
+        """
         try:
             await msg.term()
         except nats.errors.NoRespondersError:
             self.logger.warning(
                 "No responders available for term (likely during shutdown), ignoring"
             )
+            return False
         except Exception as e:
             self.logger.error("Error terminating message: %s", str(e))
             raise
+        return True
 
     async def main(self) -> None:
         """Connect to NATS and start the pull consumer loop."""
@@ -569,6 +575,10 @@ class PullConsumer:
     async def _give_up(self, msg: Msg, subject: str, reason: str, metric_reason: str) -> None:
         """Drop a message JetStream will not redeliver.
 
+        A failed termination is logged rather than raised: JetStream will not
+        redeliver the message anyway, and raising would make the caller give up
+        on it again under another reason.
+
         A device's queued flag needs no cleanup here: it expires within
         QUEUED_FLAG_TTL_SECONDS, after which the next change queues a new render.
         """
@@ -578,8 +588,12 @@ class PullConsumer:
             self.max_deliver,
             reason,
         )
-        CONSUMER_GIVEN_UP.labels(self.queue, self.stream, self.namespace, metric_reason).inc()
-        await self.term(msg)
+        try:
+            terminated = await self.term(msg)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return
+        if terminated:
+            CONSUMER_GIVEN_UP.labels(self.queue, self.stream, self.namespace, metric_reason).inc()
 
     def _clean_exit(self) -> None:
         """Cancel all running tasks and close the connection to NATS."""

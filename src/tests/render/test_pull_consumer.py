@@ -496,6 +496,49 @@ async def test_device_change_lock_failure_gives_up_on_last_delivery(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "term_error", [RuntimeError("connection closed"), nats.errors.NoRespondersError()]
+)
+async def test_lock_give_up_is_not_counted_or_repeated_when_term_fails(
+    mock_dispatcher, mock_lock, custom_ini, term_error
+):
+    """A termination that does not go out is not counted, and is not retried as a failure."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = 1000
+    mock_msg = _delivered_msg("test-device", 1000)
+    mock_msg.term.side_effect = term_error
+    mock_lock.acquire.return_value = False
+    lock_before = _given_up(consumer, "lock")
+    failed_before = _given_up(consumer, "failed")
+
+    await consumer._resilient_message_handler(mock_msg)
+
+    mock_msg.term.assert_awaited_once()
+    assert _given_up(consumer, "lock") == lock_before
+    assert _given_up(consumer, "failed") == failed_before
+
+
+@pytest.mark.asyncio
+async def test_failed_handler_give_up_is_not_repeated_when_term_fails(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """A render that fails on its last delivery is terminated once, under its own reason."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = 1000
+    mock_msg = _delivered_msg("test-device", 1000)
+    mock_msg.term.side_effect = RuntimeError("connection closed")
+    mock_dispatcher.nautobot_change_dispatch.side_effect = RuntimeError("redis down")
+    failed_before = _given_up(consumer, "failed")
+
+    await consumer._resilient_message_handler(mock_msg)
+
+    mock_msg.term.assert_awaited_once()
+    assert _given_up(consumer, "failed") == failed_before
+
+
+@pytest.mark.asyncio
 async def test_device_change_lock_failure_retries_before_last_delivery(
     mock_dispatcher, mock_lock, custom_ini
 ):
