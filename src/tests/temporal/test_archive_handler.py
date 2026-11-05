@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
 from elasticsearch import ApiError, BadRequestError
+from fastapi import HTTPException
 from nv_config_manager_infrastructure.nats.admin import (
     ARCHIVE_CONSUMER_MAX_DELIVER,
     CONSUMER_ACK_WAIT_SECONDS,
@@ -308,6 +309,40 @@ async def test_elasticsearch_event_without_publish_time_is_rejected(
     with pytest.raises(ArchiveRejectedError, match="malformed"):
         await archive_main._archive_workflow({"workflow_id": "wf-1"})
     write.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_workflow_past_retention_is_discarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An event for a workflow Temporal no longer has is terminated, not retried."""
+    monkeypatch.setattr(archive_main, "get_client", AsyncMock(return_value=MagicMock()))
+    missing = HTTPException(status_code=404, detail="Workflow with ID 'wf-1' not found")
+    monkeypatch.setattr(
+        archive_main.WorkflowDetailResponse, "from_handle", AsyncMock(side_effect=missing)
+    )
+    write = AsyncMock()
+    monkeypatch.setattr(archive_main, "_archive_nvdataflow", write)
+    monkeypatch.setattr(archive_main, "ARCHIVE_BACKEND", "nvdataflow")
+    msg = _msg()
+
+    await handle_archive_msg(msg)
+
+    write.assert_not_awaited()
+    assert _settled(msg) == ["term"]
+
+
+@pytest.mark.asyncio
+async def test_other_temporal_lookup_errors_are_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A Temporal error other than a missing workflow leaves the event for a retry."""
+    monkeypatch.setattr(archive_main, "get_client", AsyncMock(return_value=MagicMock()))
+    failure = HTTPException(status_code=503, detail="Temporal unavailable")
+    monkeypatch.setattr(
+        archive_main.WorkflowDetailResponse, "from_handle", AsyncMock(side_effect=failure)
+    )
+    msg = _msg()
+
+    await handle_archive_msg(msg)
+
+    msg.nak.assert_awaited_once_with(delay=ARCHIVE_RETRY_DELAY_SECONDS)
 
 
 def _api_error(cls: type[ApiError], status: int, error: str) -> ApiError:

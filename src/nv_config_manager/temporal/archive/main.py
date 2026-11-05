@@ -28,6 +28,7 @@ from typing import Any
 
 import boto3
 from elasticsearch import ApiError, BadRequestError, Elasticsearch
+from fastapi import HTTPException
 from nats.aio.msg import Msg
 from nv_config_manager_infrastructure.nats.admin import (
     ARCHIVE_CONSUMER_MAX_DELIVER,
@@ -116,7 +117,7 @@ async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_D
         async with asyncio.timeout(ARCHIVE_TIMEOUT_SECONDS):
             await _archive_workflow(data)
     except ArchiveRejectedError:
-        logging.exception("Archive backend rejected workflow %s; discarding it", workflow_id)
+        logging.exception("Cannot archive workflow %s; discarding it", workflow_id)
         await msg.term()
         return
     except Exception:
@@ -144,7 +145,16 @@ async def _archive_workflow(data: dict[str, Any]) -> None:
     """Look up the finished workflow in Temporal and write it to the archive backend."""
     temporal_client = await get_client()
     workflow_handle = temporal_client.get_workflow_handle(data["workflow_id"])
-    workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
+    try:
+        workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
+    except HTTPException as exc:
+        # A workflow past Temporal retention never comes back, and retrying it
+        # would hold an in-flight slot for the whole max_deliver window.
+        if exc.status_code == 404:
+            raise ArchiveRejectedError(
+                f"workflow {data['workflow_id']} is no longer in Temporal"
+            ) from exc
+        raise
     workflow_details = workflow_response.model_dump(mode="json")
 
     logging.debug("Response from temporal API: %s", workflow_details)
