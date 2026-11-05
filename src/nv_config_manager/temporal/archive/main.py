@@ -25,6 +25,7 @@ from typing import Any
 
 import boto3
 from elasticsearch import Elasticsearch
+from fastapi import HTTPException
 from nats.aio.msg import Msg
 from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
 
@@ -70,7 +71,19 @@ async def handle_archive_msg(msg: Msg) -> None:
 
     temporal_client = await get_client()
     workflow_handle = temporal_client.get_workflow_handle(data["workflow_id"])
-    workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
+    try:
+        workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        # Returning lets the subscription ack the event. A workflow past Temporal
+        # retention never comes back, and redelivering it forever fills the
+        # consumer's ack-pending window and blocks every newer event.
+        logging.warning(
+            "Skipping archive event for workflow %s: no longer in Temporal",
+            data["workflow_id"],
+        )
+        return
     workflow_details = workflow_response.model_dump(mode="json")
 
     logging.debug("Response from temporal API: %s", workflow_details)
