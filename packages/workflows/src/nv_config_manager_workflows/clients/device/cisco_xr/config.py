@@ -358,8 +358,12 @@ def check_access_preserved(
                 f"the intended 'username {username}' has no 'group' line, so the account would lose its privileges"
             )
 
-    protected_vrfs: set[str] = set()
+    # The VRFs the management interfaces sit in; ``None`` is the default VRF, which an interface
+    # without a ``vrf`` line is in.
+    protected_vrfs: set[str | None] = set()
     for node in _protected_interfaces(running, host):
+        vrf_line = next((c.line for c in node.children if c.line.startswith("vrf ")), None)
+        protected_vrfs.add(vrf_line.split(" ", 1)[1] if vrf_line else None)
         wanted = _find(intended, node.line)
         if wanted is None:
             problems.append(
@@ -376,7 +380,6 @@ def check_access_preserved(
             problems.append(f"'{node.line}' no longer carries the management address {host}")
         for child in node.children:
             if child.line.startswith("vrf "):
-                protected_vrfs.add(child.line.split(" ", 1)[1])
                 if _find(wanted.children, child.line) is None:
                     problems.append(
                         f"'{node.line}' loses '{child.line}' in the intended configuration"
@@ -429,18 +432,19 @@ def check_access_preserved(
     return problems
 
 
-def _default_route_paths(static: Node, vrfs: set[str]) -> list[tuple[str, ...]]:
+def _default_route_paths(static: Node, vrfs: set[str | None]) -> list[tuple[str, ...]]:
+    vrfs = vrfs or {None}  # no management interface found: protect the default VRF's route
     paths = []
     for path in flatten(static.children):
         if not path[-1].startswith(("0.0.0.0/0 ", "::/0 ")):
             continue
         in_vrf = next((p.split(" ", 1)[1] for p in path if p.startswith("vrf ")), None)
-        if (in_vrf is None and not vrfs) or (in_vrf is not None and in_vrf in vrfs):
+        if in_vrf in vrfs:
             paths.append(path)
     return paths
 
 
-def _missing_default_routes(static: Node, wanted: Node | None, vrfs: set[str]) -> list[str]:
+def _missing_default_routes(static: Node, wanted: Node | None, vrfs: set[str | None]) -> list[str]:
     present = set(flatten(wanted.children)) if wanted is not None else set()
     return [
         f"the intended configuration drops the management default route ({' / '.join(path)})"

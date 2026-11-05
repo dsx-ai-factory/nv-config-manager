@@ -452,3 +452,52 @@ def test_guard_blocks_an_interface_that_loses_its_ipv6_address() -> None:
     )
 
     assert any("loses its IP address" in problem for problem in problems)
+
+
+DEFAULT_VRF_HOST = "198.51.100.7"
+DEFAULT_VRF_RUNNING = (
+    RUNNING.replace(
+        "router static\n",
+        "router static\n address-family ipv4 unicast\n  0.0.0.0/0 198.51.100.1\n !\n",
+        1,
+    )
+    + "interface HundredGigE0/0/0/9\n ipv4 address 198.51.100.7 255.255.255.0\n!\n"
+)
+
+
+def test_guard_blocks_dropping_the_default_vrf_route_when_a_mgmteth_is_in_a_named_vrf() -> None:
+    """Management through a default-VRF interface keeps its route even if MgmtEth is in MGMT."""
+    intended = _without(DEFAULT_VRF_RUNNING, "  0.0.0.0/0 198.51.100.1")
+
+    problems = xr.check_access_preserved(
+        xr.parse_config(DEFAULT_VRF_RUNNING),
+        xr.parse_config(intended),
+        username=USERNAME,
+        host=DEFAULT_VRF_HOST,
+    )
+
+    assert any("0.0.0.0/0 198.51.100.1" in problem for problem in problems)
+
+
+def test_guard_still_blocks_dropping_the_named_vrf_route_with_a_default_vrf_host() -> None:
+    intended = _without(DEFAULT_VRF_RUNNING, "   0.0.0.0/0 192.0.2.1")
+
+    problems = xr.check_access_preserved(
+        xr.parse_config(DEFAULT_VRF_RUNNING),
+        xr.parse_config(intended),
+        username=USERNAME,
+        host=DEFAULT_VRF_HOST,
+    )
+
+    assert any("0.0.0.0/0 192.0.2.1" in problem for problem in problems)
+
+
+def test_guard_allows_the_default_vrf_route_to_stay_when_nothing_else_changes() -> None:
+    problems = xr.check_access_preserved(
+        xr.parse_config(DEFAULT_VRF_RUNNING),
+        xr.parse_config(DEFAULT_VRF_RUNNING),
+        username=USERNAME,
+        host=DEFAULT_VRF_HOST,
+    )
+
+    assert problems == []
