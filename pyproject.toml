@@ -215,7 +215,7 @@ docs = [
     "mkdocs-autorefs==0.4.1",
     "mkdocstrings>=0.24.0",
     "mkdocstrings-python>=1.7.0",
-    "pymdown-extensions>=10.0",
+    "pymdown-extensions>=11.0.1",
     "mkdocs-techdocs-core>=1.2.0",
 ]
 

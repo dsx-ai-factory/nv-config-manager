@@ -2689,7 +2689,7 @@ docs = [
     { name = "mkdocs-techdocs-core", specifier = ">=1.2.0" },
     { name = "mkdocstrings", specifier = ">=0.24.0" },
     { name = "mkdocstrings-python", specifier = ">=1.7.0" },
-    { name = "pymdown-extensions", specifier = ">=10.0" },
+    { name = "pymdown-extensions", specifier = ">=11.0.1" },
 ]
 integration-test = [{ name = "pytest", specifier = ">=8.3.3" }]
 ipython = [{ name = "ipython", specifier = ">=8.28.0" }]
