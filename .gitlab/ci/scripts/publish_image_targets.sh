@@ -102,7 +102,7 @@ done
 
 images=(nv-config-manager nv-config-manager-ui nv-config-manager-kea
     nv-config-manager-kea-admin nv-config-manager-nautobot nv-config-manager-nats-ready
-    nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui)
+    nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui nv-config-manager-oidc-proxy)
 digests=()
 for image in "${images[@]}"; do
     digest="$(skopeo inspect --authfile "$auth_dir/source.json" --format '{{.Digest}}' \
