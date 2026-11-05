@@ -19,7 +19,7 @@ import base64
 import gzip
 import json
 from configparser import ConfigParser
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -311,23 +311,88 @@ async def test_elasticsearch_event_without_publish_time_is_rejected(
     write.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_workflow_past_retention_is_discarded(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An event for a workflow Temporal no longer has is terminated, not retried."""
-    monkeypatch.setattr(archive_main, "get_client", AsyncMock(return_value=MagicMock()))
+@pytest.fixture
+def missing_workflow(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Make Temporal report the workflow as not found, with a 14-day retention."""
+    temporal_client = MagicMock()
+    temporal_client.namespace = "default"
+    retention = MagicMock()
+    retention.config.workflow_execution_retention_ttl.ToTimedelta.return_value = timedelta(days=14)
+    temporal_client.workflow_service.describe_namespace = AsyncMock(return_value=retention)
+    monkeypatch.setattr(archive_main, "_retention", None)
+    monkeypatch.setattr(archive_main, "get_client", AsyncMock(return_value=temporal_client))
     missing = HTTPException(status_code=404, detail="Workflow with ID 'wf-1' not found")
     monkeypatch.setattr(
         archive_main.WorkflowDetailResponse, "from_handle", AsyncMock(side_effect=missing)
     )
+    monkeypatch.setattr(archive_main, "ARCHIVE_BACKEND", "nvdataflow")
+    return temporal_client
+
+
+def _event_msg(published: datetime | str | None) -> MagicMock:
+    event: dict[str, object] = {"workflow_id": "wf-1"}
+    if published is not None:
+        event["publish_time"] = (
+            published.isoformat() if isinstance(published, datetime) else published
+        )
+    return _msg(payload=json.dumps(event).encode())
+
+
+@pytest.mark.asyncio
+async def test_workflow_past_retention_is_discarded(
+    missing_workflow: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An event older than Temporal retention whose workflow is gone is terminated."""
     write = AsyncMock()
     monkeypatch.setattr(archive_main, "_archive_nvdataflow", write)
-    monkeypatch.setattr(archive_main, "ARCHIVE_BACKEND", "nvdataflow")
-    msg = _msg()
+    msg = _event_msg(datetime.now(UTC) - timedelta(days=15))
 
     await handle_archive_msg(msg)
 
     write.assert_not_awaited()
     assert _settled(msg) == ["term"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "published",
+    [
+        datetime.now(UTC) - timedelta(days=1),
+        None,
+        "not a time",
+        datetime.now(UTC).replace(tzinfo=None) - timedelta(days=15),
+    ],
+    ids=["recent", "missing", "unparseable", "naive"],
+)
+async def test_missing_workflow_not_known_to_be_expired_is_retried(
+    missing_workflow: MagicMock, published: datetime | str | None
+) -> None:
+    """A 404 that retention cannot explain, such as a wrong namespace, stays retryable."""
+    msg = _event_msg(published)
+
+    await handle_archive_msg(msg)
+
+    msg.nak.assert_awaited_once_with(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+
+
+@pytest.mark.asyncio
+async def test_failed_retention_lookup_is_retried(missing_workflow: MagicMock) -> None:
+    """If Temporal cannot report its retention, the event is retried rather than dropped."""
+    missing_workflow.workflow_service.describe_namespace.side_effect = RuntimeError("down")
+    msg = _event_msg(datetime.now(UTC) - timedelta(days=15))
+
+    await handle_archive_msg(msg)
+
+    msg.nak.assert_awaited_once_with(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+
+
+@pytest.mark.asyncio
+async def test_namespace_retention_is_looked_up_once(missing_workflow: MagicMock) -> None:
+    """Retention is fetched once per process, not on every archive event."""
+    for _ in range(3):
+        await handle_archive_msg(_event_msg(datetime.now(UTC) - timedelta(days=15)))
+
+    missing_workflow.workflow_service.describe_namespace.assert_awaited_once()
 
 
 @pytest.mark.asyncio

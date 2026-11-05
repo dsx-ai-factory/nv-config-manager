@@ -23,7 +23,7 @@ import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import boto3
@@ -35,6 +35,8 @@ from nv_config_manager_infrastructure.nats.admin import (
     CONSUMER_ACK_WAIT_SECONDS,
 )
 from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
+from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
+from temporalio.client import Client
 
 from nv_config_manager.common.client.nvdataflow import NVDataflowClient
 from nv_config_manager.common.config.loader import load_config
@@ -141,6 +143,32 @@ async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_D
     await msg.ack()
 
 
+_retention: timedelta | None = None
+
+
+async def _namespace_retention(temporal_client: Client) -> timedelta:
+    """Return the Temporal namespace's workflow retention, looked up once per process."""
+    global _retention
+    if _retention is None:
+        response = await temporal_client.workflow_service.describe_namespace(
+            DescribeNamespaceRequest(namespace=temporal_client.namespace)
+        )
+        _retention = response.config.workflow_execution_retention_ttl.ToTimedelta()
+    return _retention
+
+
+async def _past_retention(temporal_client: Client, data: dict[str, Any]) -> bool:
+    """Whether the event was published longer ago than Temporal keeps workflows."""
+    try:
+        published = datetime.fromisoformat(data["publish_time"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if published.tzinfo is None:
+        return False
+    retention = await _namespace_retention(temporal_client)
+    return retention > timedelta(0) and datetime.now(UTC) - published > retention
+
+
 async def _archive_workflow(data: dict[str, Any]) -> None:
     """Look up the finished workflow in Temporal and write it to the archive backend."""
     temporal_client = await get_client()
@@ -149,10 +177,11 @@ async def _archive_workflow(data: dict[str, Any]) -> None:
         workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
     except HTTPException as exc:
         # A workflow past Temporal retention never comes back, and retrying it
-        # would hold an in-flight slot for the whole max_deliver window.
-        if exc.status_code == 404:
+        # would hold an in-flight slot for the whole max_deliver window. A 404 for a
+        # newer event can mean the wrong namespace, so that one is retried.
+        if exc.status_code == 404 and await _past_retention(temporal_client, data):
             raise ArchiveRejectedError(
-                f"workflow {data['workflow_id']} is no longer in Temporal"
+                f"workflow {data['workflow_id']} is past Temporal retention"
             ) from exc
         raise
     workflow_details = workflow_response.model_dump(mode="json")
