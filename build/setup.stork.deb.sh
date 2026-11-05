@@ -4,7 +4,7 @@
 # Source: https://dl.cloudsmith.io/public/isc/stork/
 #
 
-set -e
+set -euo pipefail
 
 echo "Setting up ISC Stork repository for Debian/Ubuntu..."
 
@@ -26,9 +26,15 @@ if [[ "${VERSION_CODENAME}" = "noble" ]]; then
     STORK_CODENAME="jammy"
 fi
 
-# Use the official Cloudsmith setup script for Stork
-# This handles key management correctly
-curl -1sLf "https://dl.cloudsmith.io/public/isc/stork/setup.deb.sh" | \
-    distro="${ID}" codename="${STORK_CODENAME}" bash
+# Configure the signed repository without executing a downloaded setup script.
+key_file=$(mktemp)
+trap 'rm -f "$key_file"' EXIT
+curl -fsSL 'https://dl.cloudsmith.io/public/isc/stork/gpg.77F64EC28053D1FB.key' -o "$key_file"
+echo "ba7714baafbb9764f0645cdf996e297f8fe7bf37d909c912ca593136f1c066dc  $key_file" | sha256sum -c -
+gpg --batch --yes --dearmor -o /usr/share/keyrings/isc-stork-archive-keyring.gpg "$key_file"
+chmod 644 /usr/share/keyrings/isc-stork-archive-keyring.gpg
+printf 'deb [signed-by=/usr/share/keyrings/isc-stork-archive-keyring.gpg] https://dl.cloudsmith.io/public/isc/stork/deb/%s %s main\n' \
+    "$ID" "$STORK_CODENAME" > /etc/apt/sources.list.d/isc-stork.list
+apt-get update
 
 echo "Stork repository setup complete!"

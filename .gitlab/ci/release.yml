@@ -60,7 +60,10 @@ helm-publish-release:
       apt update
       apt install -y helm git wget unzip
       # Install Go version of yq (not Python version from apt)
-      wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+      YQ_VERSION=v4.44.6
+      YQ_SHA256=0c2b24e645b57d8e7c0566d18643a6d4f5580feeea3878127354a46f2a1e4598
+      wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+      echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
       chmod +x /usr/local/bin/yq
     - wget --content-disposition https://api.ngc.nvidia.com/v2/resources/nvidia/ngc-apps/ngc_cli/versions/4.8.2/files/ngccli_linux.zip -O ngccli_linux.zip
     - unzip ngccli_linux.zip
