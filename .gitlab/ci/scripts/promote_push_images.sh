@@ -2,7 +2,7 @@
 # Stage 2 of the test-env promote flow: turn the untrusted build's artifacts
 # into immutable registry artifacts.
 #
-# For each of the nine built images: download the build job's artifact archive by job
+# For each of the ten built images: download the build job's artifact archive by job
 # id (race-free, CI_JOB_TOKEN allowlisted), docker load, retag to
 # ${NVCM_IMAGE_REPOSITORY}/<image>:${PROMOTE_VERSION}, push, and capture the
 # pushed manifest digest from the registry. Images and tars are deleted
@@ -15,10 +15,10 @@
 #
 # Requires (from test-promote-build FILE artifact promote.env): PR_SHORT_SHA,
 #          PROMOTE_VERSION,
-#          BUILD_JOB_ID_<IMAGE> x9
+#          BUILD_JOB_ID_<IMAGE> x10
 # Requires (from before_script): docker login already performed,
 #          NVCM_IMAGE_REPOSITORY exported by image_target_env.sh
-# Output:  digests.env - DIGEST_<IMAGE>=sha256:... x9 (dotenv + file artifact)
+# Output:  digests.env - DIGEST_<IMAGE>=sha256:... x10 (dotenv + file artifact)
 set -euo pipefail
 
 : "${NVCM_IMAGE_REPOSITORY:?image_target_env.sh exports required}"
@@ -50,7 +50,8 @@ nv-config-manager-nautobot
 nv-config-manager-nats-ready
 nv-config-manager-temporal
 nv-config-manager-temporal-bootstrap
-nv-config-manager-temporal-ui"
+nv-config-manager-temporal-ui
+nv-config-manager-oidc-proxy"
 
 : > digests.env
 

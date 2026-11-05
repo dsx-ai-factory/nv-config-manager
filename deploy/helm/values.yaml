@@ -183,19 +183,19 @@ global:
       tag: "7-alpine"
     redisExporter:
       repository: docker.io/oliver006/redis_exporter
-      tag: "v1.90.0"
+      tag: "v1.95.0"
     nats:
       repository: docker.io/library/nats
-      tag: "2.14-alpine"
+      tag: "2.14.9-alpine"
     natsBox:
       repository: docker.io/natsio/nats-box
-      tag: "0.14.3"
+      tag: "0.20.2"
     # prometheus-nats-exporter sidecar (optional; nautobotNats.metrics.enabled).
     # The historical values prefix does not imply that Nautobot must be enabled.
     # Polls the NATS monitoring endpoint and exposes nats_* Prometheus metrics.
     natsExporter:
       repository: docker.io/natsio/prometheus-nats-exporter
-      tag: "0.20.1"
+      tag: "0.20.3"
     # Project-owned Temporal images use distroless runtimes. temporalServer
     # and temporalUi may be replaced with compatible upstream or locally built
     # images. temporalBootstrap is intentionally project-owned: it contains
@@ -213,6 +213,14 @@ global:
       repository: registry.example.com/nvidia/nv-config-manager-temporal-ui
       pullPolicy: Always
       digest: ""
+    # Upstream OAuth2 Proxy with refreshed public CA stores.
+    oidcProxy:
+      # Empty uses the nvConfigManager repository with an -oidc-proxy suffix.
+      repository: ""
+      pullPolicy: Always
+      digest: ""
+      # Installer provenance: custom images require operators to verify CA stores.
+      installerImageOverride: false
 # =============================================================================
 # Local Development - Mock SSO Authentication
 # =============================================================================
@@ -1068,9 +1076,13 @@ oidc:
     # and nonce validation remain enabled.
     insecureAllowUnverifiedEmail: false
     image:
-      repository: quay.io/oauth2-proxy/oauth2-proxy
-      tag: v7.15.5
-      pullPolicy: IfNotPresent
+      # Old upstream defaults migrate to global.images.oidcProxy. Intentional
+      # custom images remain overrides and must provide refreshed CA stores.
+      repository: ""
+      tag: ""
+      # Empty inherits global.images.oidcProxy.pullPolicy. Explicit legacy
+      # policies (including Never on disconnected nodes) remain supported.
+      pullPolicy: ""
     resources:
       requests:
         cpu: 10m
@@ -2349,7 +2361,7 @@ spiffe:
   helper:
     image:
       repository: ghcr.io/spiffe/spiffe-helper
-      tag: "0.8.0"
+      tag: "0.12.3"
       pullPolicy: IfNotPresent
     # Resources for the spiffe-helper sidecar
     resources:

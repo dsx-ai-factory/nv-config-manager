@@ -77,6 +77,8 @@ pr-build-image:
         NVCM_PR_IMAGE: nv-config-manager-temporal-bootstrap
       - NVCM_PR_TARGET: temporal-ui
         NVCM_PR_IMAGE: nv-config-manager-temporal-ui
+      - NVCM_PR_TARGET: oidc-proxy
+        NVCM_PR_IMAGE: nv-config-manager-oidc-proxy
   before_script:
     - apk add -q make bash git curl coreutils python3
     - docker info

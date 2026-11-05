@@ -1,4 +1,5 @@
 {{- if and .Values.gateway.enabled .Values.oidc.enabled }}
+{{- $globalProxyImage := .Values.global.images.oidcProxy | default dict }}
 {{- $proxyName := include "nv-config-manager.componentName" (dict "root" . "component" "oidc-proxy") }}
 {{- $uiName := include "nv-config-manager.componentName" (dict "root" . "component" "ui") }}
 {{- $renderName := include "nv-config-manager.componentName" (dict "root" . "component" "render") }}
@@ -157,8 +158,8 @@ spec:
       containers:
       {{- range $proxy := $proxies }}
       - name: {{ $proxy.name }}
-        image: "{{ $.Values.oidc.proxy.image.repository }}:{{ $.Values.oidc.proxy.image.tag }}"
-        imagePullPolicy: {{ $.Values.oidc.proxy.image.pullPolicy | default "IfNotPresent" }}
+        image: {{ include "nv-config-manager.oidcProxyImage" $ | quote }}
+        imagePullPolicy: {{ $.Values.oidc.proxy.image.pullPolicy | default $globalProxyImage.pullPolicy | default "Always" }}
         args:
         - --config=/etc/oauth2-proxy/{{ $proxy.name }}.cfg
         env:
