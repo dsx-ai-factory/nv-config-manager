@@ -125,7 +125,7 @@ exclude = [
 [dependency-groups]
 dev = [
     "ipdb>=0.13.13",
-    "python-dotenv>=1.1.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [tool.towncrier]
