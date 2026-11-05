@@ -61,6 +61,14 @@ disabled, a user-managed Temporal endpoint is required instead.
 {{- end }}
 
 {{/*
+Resolve the Temporal history shard count while preserving the legacy fallback
+to the number of History service replicas.
+*/}}
+{{- define "nv-config-manager.temporalShardCount" -}}
+{{- default .Values.temporal.services.history.replicas .Values.temporal.numHistoryShards -}}
+{{- end }}
+
+{{/*
 Render a Temporal TLS server name as a single raw INI value.  Helm's `quote`
 helper produces YAML quotes, which ConfigParser preserves as part of the TLS
 domain name.  Limit the value to DNS-name/IP-literal characters so direct
@@ -1514,6 +1522,29 @@ cannot collapse monitors for different releases or clusters onto one name.
 {{- printf "%s-%s" ($name | trunc 52 | trimSuffix "-") $hash -}}
 {{- else -}}
 {{- $name -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Name of the method-matched rule on the browser HTTPRoutes. Shared so the rule
+and the BackendTrafficPolicy that targets it by sectionName cannot drift apart.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRuleName" -}}
+safe-methods
+{{- end }}
+
+{{/*
+True when the browser routes should carry a separate method-matched rule for
+the safe-method retry. Requires oauth2-proxy to actually be in the request
+path; the rule itself is plain Gateway API, and each controller attaches its
+own policy to it - a BackendTrafficPolicy on Envoy Gateway, a TrafficPolicy on
+kgateway - so it is emitted for both.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRetryEnabled" -}}
+{{- $r := .Values.gateway.retry | default dict -}}
+{{- $sm := $r.safeMethods | default dict -}}
+{{- if and .Values.oidc.enabled $r.enabled $sm.enabled -}}
+true
 {{- end -}}
 {{- end }}
 
