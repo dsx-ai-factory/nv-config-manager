@@ -357,6 +357,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
+    """Import an exported name from its defining module on first access."""
     module = _EXPORT_MODULES.get(name)
     if module is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -368,4 +369,5 @@ def __getattr__(name: str) -> object:
 
 
 def __dir__() -> list[str]:
+    """List every exported name, including those not imported yet."""
     return sorted(__all__)

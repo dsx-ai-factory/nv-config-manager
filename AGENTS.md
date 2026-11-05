@@ -41,7 +41,11 @@ application coverage.
 
 All imports MUST be placed at the top of the file, following standard Python conventions (stdlib, third-party, local). Do NOT place imports inside functions, methods, or conditional blocks.
 
-The only exception is when a top-level import would cause a **circular dependency**. In that case, add a brief comment explaining why.
+The exceptions are:
+
+- A top-level import would cause a **circular dependency**. Add a brief comment explaining why.
+- An import is needed only by type checkers. Put it under `if TYPE_CHECKING:`.
+- A package `__init__.py` loads its exports lazily through a module-level `__getattr__`, as `nv_config_manager_workflows.workflows` does so that importing one workflow module does not import every other one. Keep the eager form of those imports under `if TYPE_CHECKING:` so type checkers still see them.
 
 ```python
 # Correct — imports at the top
