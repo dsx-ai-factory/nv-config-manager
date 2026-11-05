@@ -25,6 +25,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import platform
@@ -41,6 +42,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
+from urllib.parse import urlparse
 
 import yaml
 
@@ -187,6 +189,33 @@ _SKIP_REASON = "Not requested"
 _CI_ENV_VAR = "CI"
 _DOCKER_SYSTEM_PRUNE_COMMAND = ("docker", "system", "prune", "-af")
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR = "NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES"
+_LOCAL_CLUSTER_CONTEXT_PREFIXES = (
+    "kind-",
+    "k3d-",
+    "minikube",
+    "docker-desktop",
+    "rancher-desktop",
+    "orbstack",
+    "colima",
+)
+_LOCAL_API_SERVER_HOSTNAMES = {
+    "localhost",
+    "host.docker.internal",
+    "kubernetes.docker.internal",
+}
+
+
+def _is_local_api_server_host(host: str) -> bool:
+    """Return true for loopback addresses (all of 127.0.0.0/8 and ::1) and local Docker names."""
+    if host in _LOCAL_API_SERVER_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
     ("nv-config-manager-nautobot", "build/nautobot.Dockerfile", "components/nautobot", None),
     ("nv-config-manager-nats-ready", "build/nats-ready.Dockerfile", "components/nats-ready", None),
@@ -202,6 +231,7 @@ _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
         "bootstrap",
     ),
     ("nv-config-manager-temporal-ui", "build/temporal.Dockerfile", ".", "ui"),
+    ("nv-config-manager-oidc-proxy", "build/oidc-proxy.Dockerfile", ".", None),
 )
 
 
@@ -388,6 +418,27 @@ def _kind_preload_images(config: NVConfigManagerInstallConfig) -> list[str]:
         seen.add(image)
         images.append(image)
     return images
+
+
+def _kind_api_server(cluster: str) -> str | None:
+    """Return the API server URL Kind reports for ``cluster``, or None if unavailable."""
+    result = _run(["kind", "get", "kubeconfig", "--name", cluster], check=False)
+    if result.returncode != 0:
+        return None
+    try:
+        kubeconfig = yaml.safe_load(result.stdout) or {}
+    except yaml.YAMLError:
+        return None
+    for entry in kubeconfig.get("clusters") or []:
+        server = (entry.get("cluster") or {}).get("server")
+        if server:
+            return str(server)
+    return None
+
+
+def _normalize_api_server(server: str) -> str:
+    """Normalize an API server URL for comparison."""
+    return server.strip().rstrip("/").lower()
 
 
 def _kind_node_names(cluster: str) -> list[str]:
@@ -1353,6 +1404,8 @@ class Deployer:
         if self.options.load_kind and not shutil.which("kind"):
             raise RuntimeError("kind is required for --load-kind")
 
+        self._validate_local_cluster_target(kubectl_ctx or ctx, server)
+
         self._validate_required_config(step)
         if self.config.secrets.method == SecretsMethod.ESO:
             self._validate_vault_config(step)
@@ -1361,6 +1414,56 @@ class Deployer:
             self._check_inotify_limits(step)
 
         self._finish_step(step)
+
+    def _validate_local_cluster_target(self, context: str, server: str) -> None:
+        """Refuse to send a local-dev deployment to a cluster that is not local.
+
+        ``--load-kind`` and ``images.source: local`` only make sense on a cluster
+        running on this machine. The deployer otherwise follows the current kube
+        context, so a context left pointing at a shared cluster would receive the
+        namespace, secrets, PVCs, and Helm release of a local-dev install.
+        """
+        if self.options.load_kind:
+            expected = f"kind-{self.options.kind_cluster}"
+            if context != expected:
+                raise RuntimeError(
+                    f"--load-kind targets Kind cluster '{self.options.kind_cluster}', but the "
+                    f"current kube context is '{context}'. Refusing to deploy. Run "
+                    f"`kubectl config use-context {expected}` (or set KUBECONFIG to a "
+                    "Kind-only kubeconfig) and retry."
+                )
+            kind_server = _kind_api_server(self.options.kind_cluster)
+            if kind_server is None:
+                raise RuntimeError(
+                    f"--load-kind targets Kind cluster '{self.options.kind_cluster}', but "
+                    "`kind get kubeconfig` could not report its API server. Refusing to deploy. "
+                    "Check that the cluster exists with `kind get clusters` and retry."
+                )
+            if _normalize_api_server(kind_server) != _normalize_api_server(server):
+                raise RuntimeError(
+                    f"Kube context '{context}' points at {server}, but Kind cluster "
+                    f"'{self.options.kind_cluster}' serves its API at {kind_server}. "
+                    "`kind load` and the deployment would target different clusters. "
+                    f"Refusing to deploy. Run `kind export kubeconfig --name "
+                    f"{self.options.kind_cluster}` to restore the context and retry."
+                )
+            return
+        if self.config.images.source != ImageSource.LOCAL:
+            return
+        if os.environ.get(_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR, "").strip().lower() in (
+            _TRUTHY_ENV_VALUES
+        ):
+            return
+        host = (urlparse(server).hostname or "").lower()
+        if context.startswith(_LOCAL_CLUSTER_CONTEXT_PREFIXES) or _is_local_api_server_host(host):
+            return
+        raise RuntimeError(
+            f"images.source is 'local', but the current kube context '{context}' "
+            f"(server: {server}) does not look like a cluster on this machine, so it "
+            "could not pull the locally built images. Refusing to deploy. Switch to a "
+            f"local context, or set {_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR}=1 if this "
+            "cluster really can use local images."
+        )
 
     def _validate_vault_config(self, step: DeployStep) -> None:
         """Validate the Vault connection required for ESO population."""
