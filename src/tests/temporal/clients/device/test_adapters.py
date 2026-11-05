@@ -22,6 +22,7 @@ import pytest
 
 from nv_config_manager.temporal.client.device import (
     AristaConnection,
+    CiscoIosXrConnection,
     CumulusConnection,
     JuniperConnection,
     MellanoxConnection,
@@ -45,6 +46,7 @@ _ADAPTERS = [
     pytest.param(NVOSConnection, 443, id="nvos"),
     pytest.param(MellanoxConnection, 22, id="mellanox"),
     pytest.param(JuniperConnection, 830, id="juniper"),
+    pytest.param(CiscoIosXrConnection, 830, id="cisco-xr"),
     pytest.param(MockNetworkConnection, 443, id="mock"),
 ]
 
