@@ -42,7 +42,9 @@ The installer uses a custom images.overrides.oidcProxy repository. Verify
 that the image provides refreshed CA stores; an unrefreshed image bypasses
 the emSign CA mitigation. Repository-only overrides retain the upstream
 compatibility image/tag. To use the CA-refreshed wrapper, set its repository
-and release tag explicitly in the installer override, then regenerate Helm values.
+and release tag explicitly in the installer override. Clear the legacy
+oidc.proxy.image.repository and oidc.proxy.image.tag settings, then
+regenerate Helm values so global.images.oidcProxy selects the wrapper.
 {{- else }}
 WARNING: Selected OIDC proxy image bypasses the project CA wrapper.
 

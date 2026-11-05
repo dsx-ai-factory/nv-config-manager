@@ -187,6 +187,28 @@ def test_custom_mirror_keeps_its_historical_tag() -> None:
             True,
             "mirror.example/wrapper:1.4.2",
         ),
+        (
+            {
+                "global.images.oidcProxy.repository": "mirror.example/wrapper",
+                "global.images.oidcProxy.tag": "1.4.2",
+                "global.images.oidcProxy.installerImageOverride": True,
+                "oidc.proxy.image.repository": "mirror.example/legacy",
+                "oidc.proxy.image.tag": "v7.15.5",
+            },
+            True,
+            "mirror.example/legacy:v7.15.5",
+        ),
+        (
+            {
+                "global.images.oidcProxy.repository": "mirror.example/wrapper",
+                "global.images.oidcProxy.tag": "1.4.2",
+                "global.images.oidcProxy.installerImageOverride": True,
+                "oidc.proxy.image.repository": "",
+                "oidc.proxy.image.tag": "",
+            },
+            True,
+            "mirror.example/wrapper:1.4.2",
+        ),
     ],
 )
 def test_custom_image_warning_is_visible_in_helm_notes(
@@ -229,7 +251,10 @@ def test_custom_image_warning_is_visible_in_helm_notes(
         assert "Verify CA stores" in rendered["text"]
         assert "custom images.overrides.oidcProxy repository" in rendered["text"]
         assert "compatibility image/tag" in rendered["text"]
+        assert "Clear the legacy" in rendered["text"]
+        assert "oidc.proxy.image.repository and oidc.proxy.image.tag" in rendered["text"]
         assert "regenerate Helm values" in rendered["text"]
+        assert "global.images.oidcProxy selects the wrapper" in rendered["text"]
     if expected_image:
         assert rendered["image"] == expected_image
 
