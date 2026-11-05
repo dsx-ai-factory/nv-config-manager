@@ -77,21 +77,31 @@ def redact_device_secrets(config_text: str) -> str:
     return redact_iosxr_secrets(redact_junos_secrets(config_text))
 
 
-# Fields of workflow inputs and stage data that carry a device configuration diff.
-_DIFF_FIELDS = frozenset({"diff", "diff_content", "approved_diff", "invalid_diff"})
+# Fields of workflow inputs and stage data that carry a device configuration or a diff of it.
+_CONFIG_FIELDS = frozenset(
+    {
+        "diff",
+        "diff_content",
+        "approved_diff",
+        "invalid_diff",
+        "intended_config",
+        "running_config",
+        "configuration",
+    }
+)
 
 
 def redact_diff_fields(value: Any) -> Any:
-    """Return a copy of ``value`` with the secrets in its diff fields redacted.
+    """Return a copy of ``value`` with the secrets in its configuration and diff fields redacted.
 
     For what an API returns about a workflow: the stored stage data and workflow input keep the
-    raw diff, which the apply step compares exactly, while the copy sent out does not carry
-    credentials. Only string values of the diff fields (at any depth) change.
+    raw text, which the apply step compares exactly, while the copy sent out does not carry
+    credentials. Only string values of those fields (at any depth) change.
     """
     if isinstance(value, dict):
         return {
             key: redact_device_secrets(item)
-            if key in _DIFF_FIELDS and isinstance(item, str)
+            if key in _CONFIG_FIELDS and isinstance(item, str)
             else redact_diff_fields(item)
             for key, item in value.items()
         }

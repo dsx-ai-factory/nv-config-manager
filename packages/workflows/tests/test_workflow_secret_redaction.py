@@ -254,6 +254,8 @@ def test_redact_diff_fields_redacts_diffs_at_any_depth_and_leaves_the_original_a
         "diff": secret_line,
         "approved_diff": secret_line,
         "diff_group": {"diff_content": secret_line, "devices": [{"diff": secret_line, "n": 1}]},
+        "intended_config": "username ops\n secret 10 $6$new$bbbb\nhostname r1\n",
+        "running_config": " secret 10 $6$old$aaaa",
         "display": "kept as is",
         "other": [secret_line],
         "count": 3,
@@ -265,6 +267,8 @@ def test_redact_diff_fields_redacts_diffs_at_any_depth_and_leaves_the_original_a
     assert result["approved_diff"] == "+   secret 10 <redacted>"
     assert result["diff_group"]["diff_content"] == "+   secret 10 <redacted>"
     assert result["diff_group"]["devices"][0] == {"diff": "+   secret 10 <redacted>", "n": 1}
+    assert result["intended_config"] == "username ops\n secret 10 <redacted>\nhostname r1\n"
+    assert result["running_config"] == " secret 10 <redacted>"
     assert result["display"] == "kept as is"
     assert result["other"] == [secret_line]  # not a diff field
     assert result["count"] == 3

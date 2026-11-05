@@ -1949,7 +1949,10 @@ async def test_workflow_detail_redacts_device_secrets_in_diffs(mock_redis, mock_
         description="Retrieve the configuration diff.",
         requires_approval=False,
         state="COMPLETE",
-        input={"approved_diff": secret_line},
+        input={
+            "approved_diff": secret_line,
+            "intended_config": "username ops\n secret 10 $6$new$bbbb\n",
+        },
         output={"approved": True, "diff": secret_line, "display": "shown"},
         depends_on=[],
         retryable=True,
@@ -2003,3 +2006,4 @@ async def test_workflow_detail_redacts_device_secrets_in_diffs(mock_redis, mock_
     assert body["stages"][0]["output"]["diff"] == "+   secret 10 <redacted>"
     assert body["stages"][0]["output"]["display"] == "shown"
     assert body["stages"][0]["input"]["approved_diff"] == "+   secret 10 <redacted>"
+    assert body["stages"][0]["input"]["intended_config"] == "username ops\n secret 10 <redacted>\n"

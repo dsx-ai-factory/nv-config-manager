@@ -469,12 +469,18 @@ def test_action_maps_a_refusal_to_a_non_retryable_error_and_a_drop_to_a_retryabl
     assert manager.timeout == 30
 
 
-def test_an_action_with_no_reply_is_a_non_retryable_timeout_not_a_dropped_session() -> None:
+def test_an_action_with_no_reply_is_a_timeout_that_is_final_only_for_changing_actions() -> None:
     session, manager = _session()
     manager.dispatch.side_effect = TimeoutExpiredError("no reply")
 
-    with pytest.raises(NetworkDeviceException, match="timed out") as timed_out:
-        session.action("urn:x", "ztp-initiate", read_timeout=5)
+    with pytest.raises(NetworkDeviceException, match="timed out") as read:
+        session.action("urn:x", "a-read", read_timeout=5)
+    with pytest.raises(NetworkDeviceException, match="timed out") as write:
+        session.action("urn:x", "ztp-initiate", read_timeout=5, timeout_is_final=True)
+    with pytest.raises(NetworkDeviceException, match="timed out") as rollback:
+        session.rollback("last 1")
 
-    assert timed_out.value.non_retryable
+    assert not read.value.non_retryable
+    assert write.value.non_retryable
+    assert rollback.value.non_retryable
     assert manager.timeout == 30

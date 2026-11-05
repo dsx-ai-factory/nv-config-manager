@@ -211,6 +211,7 @@ class FakeSession:
         params: dict[str, str] | None = None,
         *,
         read_timeout: float = 0,
+        timeout_is_final: bool = False,
     ) -> str:
         self.actions.append((namespace, name, params))
         if self.action_error:
@@ -350,7 +351,7 @@ def test_arp_skips_malformed_and_all_zero_macs_and_accepts_other_mac_formats() -
 
 def test_operational_read_errors_are_network_device_errors() -> None:
     session = FakeSession()
-    session.get = MagicMock(side_effect=SSHError("reset"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    session.get = MagicMock(side_effect=SSHError("reset"))  # type: ignore[method-assign]
     connection, _ = _connection(session)
 
     with pytest.raises(NetworkDeviceException, match="reset"):
@@ -512,7 +513,7 @@ def test_apply_does_not_confirm_when_a_fresh_login_fails() -> None:
     session = FakeSession()
     connection, _ = _connection(session)
     approved = connection.perform_candidate_diff(CHANGED)
-    connection._open_session = MagicMock(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    connection._open_session = MagicMock(  # type: ignore[method-assign]
         side_effect=NetworkDeviceException("All passwords failed")
     )
 
@@ -541,7 +542,7 @@ def test_apply_does_not_confirm_when_the_verification_diff_cannot_be_read() -> N
     session, probe = FakeSession(), FakeSession({"show clock": "ok"})
     connection, _ = _connection(session, probe)
     approved = connection.perform_candidate_diff(CHANGED)
-    session.remaining_diff = MagicMock(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    session.remaining_diff = MagicMock(  # type: ignore[method-assign]
         side_effect=NetworkDeviceException("reply has no <response> element")
     )
 
@@ -572,7 +573,7 @@ def test_an_unexpected_error_in_the_fresh_login_check_is_wrapped_and_not_retryab
     session = FakeSession()
     connection, _ = _connection(session)
     approved = connection.perform_candidate_diff(CHANGED)
-    connection._open_session = MagicMock(side_effect=KeyError("boom"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    connection._open_session = MagicMock(side_effect=KeyError("boom"))  # type: ignore[method-assign]
 
     with pytest.raises(NetworkDeviceException, match="not confirmed") as raised:
         connection.commit_candidate_config(CHANGED, approved)
@@ -701,8 +702,31 @@ def test_the_verification_diff_gets_only_what_is_left_of_the_commit_timer(
 
     left = 100.0 - connection._CONFIRM_MARGIN_SECONDS
     assert session.timeouts["remaining_diff"] == left
-    assert session.timeouts["confirm"] == 100.0  # the confirming commit gets what is left
+    # the confirming commit gets what is left, less the reserve
+    assert session.timeouts["confirm"] == 100.0 - connection._CONFIRM_RESERVE_SECONDS
     assert session.confirmed == 1
+
+
+def test_a_confirmation_answered_after_the_commit_timer_is_not_reported_as_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    connection, _ = _connection(session, probe)
+    approved = connection.perform_candidate_diff(CHANGED)
+    now = [1000.0]
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
+    fast_confirm = session.confirm
+
+    def slow_confirm(*, timeout: float) -> None:
+        fast_confirm(timeout=timeout)
+        now[0] += connection._COMMIT_CONFIRM_SECONDS + 1  # the reply came after the timer ended
+
+    monkeypatch.setattr(session, "confirm", slow_confirm)
+
+    with pytest.raises(NetworkDeviceException, match="answered after the commit timer") as raised:
+        connection.commit_candidate_config(CHANGED, approved)
+
+    assert raised.value.non_retryable
 
 
 def test_apply_counts_the_commit_reply_delay_against_the_commit_timer(
@@ -897,7 +921,7 @@ def test_execute_ztp_treats_a_dropped_session_as_success() -> None:
 
 def test_execute_ztp_fails_when_the_session_cannot_be_opened() -> None:
     connection, _ = _connection(FakeSession())
-    connection._open_session = MagicMock(  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    connection._open_session = MagicMock(  # type: ignore[method-assign]
         side_effect=NetworkDeviceException("All passwords failed")
     )
 
@@ -991,11 +1015,11 @@ def test_default_port_is_the_netconf_port() -> None:
 def test_open_session_reports_all_passwords_failed_and_unreachable_hosts() -> None:
     settings: DeviceConnectionSettings = {"username": USERNAME, "passwords": ["a"], "mock": False}
     connection = CiscoIosXrConnection(HOST, settings=settings)
-    connection._netconf_connect = MagicMock(side_effect=AuthenticationError("denied"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    connection._netconf_connect = MagicMock(side_effect=AuthenticationError("denied"))  # type: ignore[method-assign]
     with pytest.raises(NetworkDeviceException, match="All passwords failed"):
         connection._open_session()
 
-    connection._netconf_connect = MagicMock(side_effect=SSHError("connection refused"))  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    connection._netconf_connect = MagicMock(side_effect=SSHError("connection refused"))  # type: ignore[method-assign]
     with pytest.raises(NetworkDeviceException, match="Cannot open a NETCONF session") as excinfo:
         connection._open_session()
     assert "user guide" in str(excinfo.value)
@@ -1007,7 +1031,7 @@ def test_open_session_refuses_a_router_without_candidate_or_confirmed_commit(mis
     connection = CiscoIosXrConnection(HOST, settings=settings)
     manager = _fake_manager()
     manager.server_capabilities = {":candidate", ":confirmed-commit"} - {missing}
-    connection._netconf_connect = MagicMock(return_value=manager)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    connection._netconf_connect = MagicMock(return_value=manager)  # type: ignore[method-assign]
 
     with pytest.raises(NetworkDeviceException, match=missing) as excinfo:
         connection._open_session()

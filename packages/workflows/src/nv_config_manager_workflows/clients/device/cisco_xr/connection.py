@@ -157,6 +157,9 @@ class CiscoIosXrConnection(NetworkConnection):
     _COMMIT_CONFIRM_SECONDS = COMMIT_CONFIRM_ROLLBACK_SECONDS
     # Do not send the confirming commit with less than this left on the rollback timer.
     _CONFIRM_MARGIN_SECONDS = 15.0
+    # The confirming commit is cut off this long before the timer ends, so a late reply cannot
+    # mean a commit that reached a router which had already reverted.
+    _CONFIRM_RESERVE_SECONDS = 5.0
 
     # Time budgets. A 12,000-line copy-config took 36 s on a lab router and, once, over 120 s;
     # the whole diff took about 23 s and the whole apply about 50 s through NVCM. Each step
@@ -567,13 +570,24 @@ class CiscoIosXrConnection(NetworkConnection):
                 non_retryable=True,
             )
         try:
-            self._get_session().confirm(timeout=deadline - time.monotonic())
+            self._get_session().confirm(
+                timeout=deadline - time.monotonic() - self._CONFIRM_RESERVE_SECONDS
+            )
         except Exception as error:  # noqa: BLE001 - nothing after the commit may be retried
             raise NetworkDeviceException(
                 f"Commit on {self._host} was not confirmed ({error}); "
                 "the router will roll back when the commit timer expires.",
                 non_retryable=True,
             ) from error
+        # The deadline was taken before the commit was sent, so it is not later than the router's
+        # own. A reply after it cannot be trusted: the router may have reverted first.
+        if time.monotonic() > deadline:
+            raise NetworkDeviceException(
+                f"Commit on {self._host}: the confirmation was answered after the commit timer; "
+                "it may not have taken effect. Run Config Diff: an empty diff means the change "
+                "is in place.",
+                non_retryable=True,
+            )
 
     def _check_fresh_login(self) -> None:
         """Open a second NETCONF session: a successful login proves the account and path survived."""
@@ -608,7 +622,7 @@ class CiscoIosXrConnection(NetworkConnection):
         """
         session = self._get_session()  # a failure to connect or log in is not ZTP success
         try:
-            session.action(ZTP_NS, "ztp-initiate", read_timeout=60)
+            session.action(ZTP_NS, "ztp-initiate", read_timeout=60, timeout_is_final=True)
         except NetworkDeviceException as error:
             if error.non_retryable:
                 raise  # the router refused the action

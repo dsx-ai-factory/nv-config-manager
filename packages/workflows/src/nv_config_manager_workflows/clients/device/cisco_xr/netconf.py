@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any, Protocol
 
@@ -128,8 +128,13 @@ class IosXrSession(Protocol):
         params: dict[str, str] | None = ...,
         *,
         read_timeout: float = ...,
+        timeout_is_final: bool = ...,
     ) -> str:
-        """Invoke a YANG action/RPC (``<name xmlns=namespace>`` with simple leaf inputs); return the reply XML."""
+        """Invoke a YANG action/RPC (``<name xmlns=namespace>`` with simple leaf inputs); return the reply XML.
+
+        With ``timeout_is_final`` a reply that never comes is a non-retryable error: for an action
+        that changes the router, whether it acted is unknown.
+        """
 
     def close(self) -> None:
         """Release the session; never raises."""
@@ -239,7 +244,7 @@ class NetconfIosXrSession:
                 logger.debug("NETCONF cleanup step failed", exc_info=True)
 
     @contextmanager
-    def _within(self, deadline: float, what: str, cap: float | None = None) -> Iterator[None]:
+    def _within(self, deadline: float, what: str, cap: float | None = None) -> Generator[None]:
         """Run one RPC with the time left until ``deadline`` as the session timeout.
 
         A step has one budget shared by all its RPCs (lock, discard, copy, diff), so a slow
@@ -409,6 +414,7 @@ class NetconfIosXrSession:
         params: dict[str, str] | None = None,
         *,
         read_timeout: float = 60.0,
+        timeout_is_final: bool = False,
     ) -> str:
         """Invoke a YANG RPC from an ``-act`` module and return the reply XML."""
         rpc = etree.Element(f"{{{namespace}}}{name}", nsmap={None: namespace})
@@ -424,10 +430,12 @@ class NetconfIosXrSession:
                 f"{name} failed: {_rpc_message(error)}", non_retryable=True
             ) from error
         except TimeoutExpiredError as error:
-            # No reply is not a dropped session: whether the router acted is unknown, so a
-            # caller that treats a dropped session as done must not treat this as done.
+            # No reply is not a dropped session. A read can simply be repeated; for an action that
+            # changes the router, whether it acted is unknown, so it must not be repeated or
+            # treated as done.
             raise NetworkDeviceException(
-                f"{name} timed out after {read_timeout:.0f} s without a reply", non_retryable=True
+                f"{name} timed out after {read_timeout:.0f} s without a reply",
+                non_retryable=timeout_is_final,
             ) from error
         except TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(f"{name} failed: {error}") from error
@@ -444,6 +452,7 @@ class NetconfIosXrSession:
                 "roll-back-configuration-last",
                 {"count": last["count"]},
                 read_timeout=120,
+                timeout_is_final=True,
             )
         else:
             self.action(
@@ -451,6 +460,7 @@ class NetconfIosXrSession:
                 "roll-back-configuration-to",
                 {"commit-id": selector.strip()},
                 read_timeout=120,
+                timeout_is_final=True,
             )
 
     def close(self) -> None:
