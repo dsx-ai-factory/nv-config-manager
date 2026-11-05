@@ -440,8 +440,12 @@ def _build_registry_images(img: Any, *, airgapped: bool = False) -> dict[str, An
         )
         if entry:
             if key == "oidcProxy":
-                # Emit false too, so regenerated wrapper settings clear a reused legacy warning.
-                images[key] = {**entry, "legacyUpstreamOverride": legacy_proxy_repository}
+                # Custom repositories may contain either upstream or CA-refreshed images.
+                # Emit false too, so default wrapper settings clear a reused reminder.
+                images[key] = {
+                    **entry,
+                    "installerImageOverride": bool(override and override.repository),
+                }
             else:
                 images[key] = entry
 

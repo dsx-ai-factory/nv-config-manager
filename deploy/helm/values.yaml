@@ -219,8 +219,8 @@ global:
       repository: ""
       pullPolicy: Always
       digest: ""
-      # Installer provenance for repository-only upstream compatibility overrides.
-      legacyUpstreamOverride: false
+      # Installer provenance: custom images require operators to verify CA stores.
+      installerImageOverride: false
 # =============================================================================
 # Local Development - Mock SSO Authentication
 # =============================================================================

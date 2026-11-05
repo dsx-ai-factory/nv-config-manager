@@ -164,7 +164,7 @@ def test_custom_mirror_keeps_its_historical_tag() -> None:
             {
                 "global.images.oidcProxy.repository": "mirror.example/proxy",
                 "global.images.oidcProxy.tag": "v7.15.5",
-                "global.images.oidcProxy.legacyUpstreamOverride": True,
+                "global.images.oidcProxy.installerImageOverride": True,
             },
             True,
             "mirror.example/proxy:v7.15.5",
@@ -173,17 +173,26 @@ def test_custom_mirror_keeps_its_historical_tag() -> None:
             {
                 "global.images.oidcProxy.repository": "mirror.example/proxy",
                 "global.images.oidcProxy.tag": "v7.15.5",
-                "global.images.oidcProxy.legacyUpstreamOverride": False,
+                "global.images.oidcProxy.installerImageOverride": False,
             },
             False,
             "mirror.example/proxy:v7.15.5",
+        ),
+        (
+            {
+                "global.images.oidcProxy.repository": "mirror.example/wrapper",
+                "global.images.oidcProxy.tag": "1.4.2",
+                "global.images.oidcProxy.installerImageOverride": True,
+            },
+            True,
+            "mirror.example/wrapper:1.4.2",
         ),
     ],
 )
 def test_custom_image_warning_is_visible_in_helm_notes(
     tmp_path: Path, settings: dict[str, str | bool], warn: bool, expected_image: str | None
 ) -> None:
-    """Warn for legacy overrides and global upstream images without changing image pins."""
+    """Warn for installer overrides and known upstream images without changing image pins."""
     if shutil.which("helm") is None:
         pytest.skip("Helm is required")
     (tmp_path / "templates").mkdir()
@@ -215,10 +224,11 @@ def test_custom_image_warning_is_visible_in_helm_notes(
             command.extend(["--set-string", f"{key}={value}"])
     result = subprocess.run(command, check=True, capture_output=True, text=True)
     rendered = yaml.safe_load(result.stdout)["data"]
-    assert ("bypasses the project CA wrapper" in rendered["text"]) is warn
-    if settings.get("global.images.oidcProxy.legacyUpstreamOverride") is True:
-        assert "repository-only images.overrides.oidcProxy" in rendered["text"]
-        assert "upstream image/tag" in rendered["text"]
+    assert ("WARNING:" in rendered["text"]) is warn
+    if settings.get("global.images.oidcProxy.installerImageOverride") is True:
+        assert "Verify CA stores" in rendered["text"]
+        assert "custom images.overrides.oidcProxy repository" in rendered["text"]
+        assert "compatibility image/tag" in rendered["text"]
         assert "regenerate Helm values" in rendered["text"]
     if expected_image:
         assert rendered["image"] == expected_image

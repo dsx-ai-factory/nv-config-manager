@@ -1049,20 +1049,28 @@ class TestImagesInHelmValues:
         image = _gen(config)["global"]["images"]["oidcProxy"]
         assert image["repository"] == "mirror.example/proxy"
         assert image["tag"] == "v7.15.5"
-        assert image["legacyUpstreamOverride"] is True
+        assert image["installerImageOverride"] is True
 
-    @pytest.mark.parametrize("explicit_wrapper", [False, True])
-    def test_wrapper_settings_clear_legacy_oidc_warning(self, explicit_wrapper):
-        """Clear installer compatibility provenance when a wrapper is selected."""
-        overrides = (
-            {"oidcProxy": ImageOverride(repository="mirror.example/wrapper", tag="1.4.2")}
-            if explicit_wrapper
-            else {}
+    @pytest.mark.parametrize("tag", ["v7.15.5", "1.4.2"])
+    def test_tagged_oidc_repository_override_requires_ca_verification(self, tag):
+        """A tag cannot distinguish an upstream mirror from a refreshed custom image."""
+        config = _make_config(
+            images=ImagesConfig(
+                tag="1.4.2",
+                overrides={"oidcProxy": ImageOverride(repository="mirror.example/proxy", tag=tag)},
+            )
         )
-        config = _make_config(images=ImagesConfig(tag="1.4.2", overrides=overrides))
+        image = _gen(config)["global"]["images"]["oidcProxy"]
+        assert image["repository"] == "mirror.example/proxy"
+        assert image["tag"] == tag
+        assert image["installerImageOverride"] is True
+
+    def test_default_wrapper_settings_clear_oidc_image_reminder(self):
+        """Clear installer override provenance when the default wrapper is selected."""
+        config = _make_config(images=ImagesConfig(tag="1.4.2"))
         image = _gen(config)["global"]["images"]["oidcProxy"]
         assert image["tag"] == "1.4.2"
-        assert image["legacyUpstreamOverride"] is False
+        assert image["installerImageOverride"] is False
 
     def test_temporal_server_and_ui_overrides_keep_project_bootstrap(self):
         config = _make_config(

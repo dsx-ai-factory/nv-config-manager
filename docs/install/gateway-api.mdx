@@ -39,6 +39,9 @@ Repository-only installer `images.overrides.oidcProxy` settings retain their
 upstream compatibility image/tag and bypass the emSign CA mitigation unless
 the CA-refreshed wrapper is selected. Set the wrapper repository and its
 release tag explicitly in the installer override, then regenerate Helm values.
+Helm notes remind operators to verify CA stores for all explicit installer
+OIDC image repositories, including overrides with a tag. An explicit tag alone
+does not establish whether the image contains the refreshed CA bundle.
 
 Every route strips inbound identity headers before forwarding, including routes
 that intentionally bypass browser authentication for native API tokens. When
