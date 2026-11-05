@@ -333,3 +333,106 @@ def test_iosxr_snmp_community_value_is_redacted_after_its_type() -> None:
     assert "snmp-server community <redacted> RO\n" in result
     # a community that is itself called "clear" is redacted, not mistaken for the type
     assert result.splitlines()[-1] == "snmp-server community <redacted> RO"
+
+
+def test_iosxr_tacacs_and_radius_keys_are_redacted() -> None:
+    text = (
+        "tacacs-server key 7 0822455D0A16\n"
+        "radius-server key 7 1A2B3C4D5E6F\n"
+        "tacacs-server host 192.0.2.1 port 49 key 7 9F8E7D6C5B4A\n"
+        "radius-server host 192.0.2.2 auth-port 1812 acct-port 1813 key clear RadiusPlain1\n"
+        " server-private 192.0.2.3 port 49 key 7 7C6B5A493827\n"
+        "tacacs-server timeout 5\n"
+        "tacacs-server host 192.0.2.1 key-timeout 30\n"
+        "description tacacs-server key 7 NotASecretLine\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    for leaked in (
+        "0822455D0A16",
+        "1A2B3C4D5E6F",
+        "9F8E7D6C5B4A",
+        "RadiusPlain1",
+        "7C6B5A493827",
+    ):
+        assert leaked not in result
+    assert "tacacs-server key 7 <redacted>\n" in result
+    assert "tacacs-server host 192.0.2.1 port 49 key 7 <redacted>\n" in result
+    assert "key clear <redacted>\n" in result
+    assert " server-private 192.0.2.3 port 49 key 7 <redacted>\n" in result
+    assert "tacacs-server timeout 5\n" in result
+    assert "tacacs-server host 192.0.2.1 key-timeout 30\n" in result
+    assert "description tacacs-server key 7 NotASecretLine\n" in result
+
+
+def test_iosxr_snmp_host_community_is_redacted_but_not_a_version_3_user() -> None:
+    text = (
+        "snmp-server host 192.0.2.10 traps version 2c CommunityOne udp-port 162\n"
+        "snmp-server host 192.0.2.11 traps encrypted 0A1B2C3D4E5F\n"
+        "snmp-server host 192.0.2.12 informs version 1 clear PlainTwo\n"
+        "snmp-server host 192.0.2.13 traps version 3 priv snmpuser\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    for leaked in ("CommunityOne", "0A1B2C3D4E5F", "PlainTwo"):
+        assert leaked not in result
+    assert "snmp-server host 192.0.2.10 traps version 2c <redacted> udp-port 162\n" in result
+    assert "snmp-server host 192.0.2.11 traps encrypted <redacted>\n" in result
+    assert "snmp-server host 192.0.2.12 informs version 1 clear <redacted>\n" in result
+    assert "snmp-server host 192.0.2.13 traps version 3 priv snmpuser\n" in result
+
+
+def test_iosxr_isis_hello_and_lsp_passwords_are_redacted() -> None:
+    text = (
+        " hello-password hmac-md5 encrypted 1A2B3C4D5E6F\n"
+        " hello-password text clear HelloPlain1 level 1\n"
+        " lsp-password hmac-md5 encrypted 9F8E7D6C5B4A send-only\n"
+        " hello-password keychain ISIS-KEYS\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    for leaked in ("1A2B3C4D5E6F", "HelloPlain1", "9F8E7D6C5B4A"):
+        assert leaked not in result
+    assert " hello-password hmac-md5 encrypted <redacted>\n" in result
+    assert " hello-password text clear <redacted> level 1\n" in result
+    assert " lsp-password hmac-md5 encrypted <redacted> send-only\n" in result
+    assert " hello-password keychain ISIS-KEYS\n" in result
+
+
+def test_iosxr_ldp_neighbor_password_and_ospf_authentication_key_are_redacted() -> None:
+    text = (
+        " neighbor 192.0.2.5 password encrypted 0A1B2C3D4E5F\n"
+        " neighbor 192.0.2.6 password clear LdpPlain1\n"
+        "  authentication-key encrypted 7C6B5A493827\n"
+        '  authentication-key "$9$junosvalue" ## SECRET-DATA\n'
+        "  authentication-key 1 md5 encrypted 5E4D3C2B1A09\n"
+        " neighbor 192.0.2.7 remote-as 65001\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    for leaked in ("0A1B2C3D4E5F", "LdpPlain1", "7C6B5A493827", "5E4D3C2B1A09"):
+        assert leaked not in result
+    assert " neighbor 192.0.2.5 password encrypted <redacted>\n" in result
+    assert " neighbor 192.0.2.6 password clear <redacted>\n" in result
+    assert "  authentication-key encrypted <redacted>\n" in result
+    # no type word: not an IOS XR form, so this pattern leaves it (Junos has its own redaction)
+    assert '  authentication-key "$9$junosvalue" ## SECRET-DATA\n' in result
+    assert "  authentication-key 1 md5 encrypted <redacted>\n" in result
+    assert " neighbor 192.0.2.7 remote-as 65001\n" in result
+
+
+def test_iosxr_prefixed_secret_redaction_is_idempotent() -> None:
+    text = (
+        "tacacs-server key 7 0822455D0A16\n"
+        "snmp-server host 192.0.2.10 traps version 2c CommunityOne\n"
+        " hello-password hmac-md5 encrypted 1A2B3C4D5E6F\n"
+        "  authentication-key encrypted 7C6B5A493827\n"
+    )
+
+    once = redact_iosxr_secrets(text)
+
+    assert redact_iosxr_secrets(once) == once
