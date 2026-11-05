@@ -21,7 +21,7 @@ import gzip
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
@@ -80,7 +80,7 @@ class ArchiveRejectedError(Exception):
 
 
 @contextmanager
-def _rejecting_malformed_records() -> Iterator[None]:
+def _rejecting_malformed_records() -> Generator[None]:
     """Treat a record with a missing or mistyped field as rejected."""
     try:
         yield
