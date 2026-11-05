@@ -134,9 +134,38 @@ def test_custom_mirror_keeps_its_historical_tag() -> None:
     assert all(container["image"] == "custom.example/proxy:v7.15.5" for container in containers)
 
 
-@pytest.mark.parametrize("custom", [False, True])
-def test_custom_image_warning_is_visible_in_helm_notes(tmp_path: Path, custom: bool) -> None:
-    """Warn when an intentional custom image bypasses the project CA wrapper."""
+@pytest.mark.parametrize(
+    ("settings", "warn", "expected_image"),
+    [
+        ({}, False, None),
+        ({"oidc.proxy.image.repository": "mirror.example/custom"}, True, None),
+        (
+            {
+                "global.images.oidcProxy.repository": "quay.io/oauth2-proxy/oauth2-proxy",
+                "global.images.oidcProxy.tag": "v7.15.5",
+            },
+            True,
+            "quay.io/oauth2-proxy/oauth2-proxy:v7.15.5",
+        ),
+        (
+            {
+                "global.images.oidcProxy.repository": "quay.io/oauth2-proxy/oauth2-proxy",
+                "global.images.oidcProxy.digest": "sha256:" + "a" * 64,
+            },
+            True,
+            "quay.io/oauth2-proxy/oauth2-proxy@sha256:" + "a" * 64,
+        ),
+        (
+            {"global.images.oidcProxy.repository": "mirror.example/nv-config-manager-oidc-proxy"},
+            False,
+            None,
+        ),
+    ],
+)
+def test_custom_image_warning_is_visible_in_helm_notes(
+    tmp_path: Path, settings: dict[str, str], warn: bool, expected_image: str | None
+) -> None:
+    """Warn for legacy overrides and global upstream images without changing image pins."""
     if shutil.which("helm") is None:
         pytest.skip("Helm is required")
     (tmp_path / "templates").mkdir()
@@ -149,6 +178,7 @@ def test_custom_image_warning_is_visible_in_helm_notes(tmp_path: Path, custom: b
         + notes
         + "\n{{- end -}}\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: notes\ndata:\n"
         + '  text: |{{ include "reviewed-notes" . | nindent 4 }}\n'
+        + '  image: {{ include "nv-config-manager.oidcProxyImage" . | quote }}\n'
     )
     command = [
         "helm",
@@ -160,11 +190,13 @@ def test_custom_image_warning_is_visible_in_helm_notes(tmp_path: Path, custom: b
         "--set",
         "oidc.enabled=true",
     ]
-    if custom:
-        command.extend(["--set-string", "oidc.proxy.image.repository=mirror.example/custom"])
+    for key, value in settings.items():
+        command.extend(["--set-string", f"{key}={value}"])
     result = subprocess.run(command, check=True, capture_output=True, text=True)
-    rendered = yaml.safe_load(result.stdout)["data"]["text"]
-    assert ("bypasses the project CA wrapper" in rendered) is custom
+    rendered = yaml.safe_load(result.stdout)["data"]
+    assert ("bypasses the project CA wrapper" in rendered["text"]) is warn
+    if expected_image:
+        assert rendered["image"] == expected_image
 
 
 def test_managed_server_authorization_is_separate_from_workflow_rbac() -> None:
