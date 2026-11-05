@@ -26,7 +26,7 @@ dependencies = [
     # Security: Django>=4.2.30 floor (transitive via nautobot, pinned to prevent lockfile regression)
     # (fixes GHSA-frmv-pr5f-9mcr, GHSA-mwm9-4648-f68q, GHSA-gvg8-93h5-g6qq, GHSA-qw25-v68c-qjf3,
     #  GHSA-mvfq-ggxm-9mc5, GHSA-933h-hp56-hf7m)
-    "django>=4.2.30",
+    "django>=5.2.17",
     # Security: Fix libsodium incomplete disallowed inputs (GHSA-mrfv-m5wm-5w6w)
     "pynacl>=1.6.2",
     # Security: Fix urllib3 decompression chain vulnerabilities (GHSA-gm62-xv2j-4w53, GHSA-2xpw-w6gg-jr37, GHSA-38jv-5279-wg99)
