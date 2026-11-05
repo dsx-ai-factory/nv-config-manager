@@ -273,3 +273,63 @@ def test_redact_diff_fields_redacts_diffs_at_any_depth_and_leaves_the_original_a
     assert result["other"] == [secret_line]  # not a diff field
     assert result["count"] == 3
     assert data["diff"] == secret_line  # the stored value is unchanged
+
+
+def test_iosxr_clear_text_bgp_password_is_redacted() -> None:
+    text = (
+        "router bgp 65000\n"
+        " neighbor 192.0.2.1\n"
+        "  password clear MyBgpSecret1\n"
+        "  password encrypted 1A2B3C4D5E6F\n"
+        "  description password clear is not a command here\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    assert "MyBgpSecret1" not in result
+    assert "1A2B3C4D5E6F" not in result
+    assert "  password clear <redacted>\n" in result
+    assert "description password clear is not a command here\n" in result
+
+
+def test_iosxr_snmpv3_auth_and_priv_passwords_are_redacted() -> None:
+    text = (
+        "snmp-server user ops grp v3 auth md5 clear AuthPass123 priv aes 128 clear PrivPass456 SystemOwner\n"
+        "snmp-server user mon grp v3 auth sha encrypted 0A1B2C3D priv des56 encrypted 4D5E6F7A\n"
+        "snmp-server user ro grp v3 auth md5 clear OnlyAuth99\n"
+        "snmp-server group grp v3 priv\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    for leaked in ("AuthPass123", "PrivPass456", "0A1B2C3D", "4D5E6F7A", "OnlyAuth99"):
+        assert leaked not in result
+    assert (
+        "snmp-server user ops grp v3 auth md5 clear <redacted> priv aes 128 clear <redacted> "
+        "SystemOwner\n"
+    ) in result
+    assert (
+        "snmp-server user mon grp v3 auth sha encrypted <redacted> priv des56 encrypted <redacted>\n"
+    ) in result
+    assert "snmp-server group grp v3 priv\n" in result
+
+
+def test_iosxr_snmp_community_value_is_redacted_after_its_type() -> None:
+    text = (
+        "snmp-server community clear topsecretname RO\n"
+        "snmp-server community 7 08224D5A0A16 RW\n"
+        "snmp-server community encrypted 1A2B3C4D5E6F RO SystemOwner\n"
+        "snmp-server community plainname RO\n"
+        "snmp-server community clear RO\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    for leaked in ("topsecretname", "08224D5A0A16", "1A2B3C4D5E6F", "plainname"):
+        assert leaked not in result
+    assert "snmp-server community clear <redacted> RO\n" in result
+    assert "snmp-server community 7 <redacted> RW\n" in result
+    assert "snmp-server community encrypted <redacted> RO SystemOwner\n" in result
+    assert "snmp-server community <redacted> RO\n" in result
+    # a community that is itself called "clear" is redacted, not mistaken for the type
+    assert result.splitlines()[-1] == "snmp-server community <redacted> RO"

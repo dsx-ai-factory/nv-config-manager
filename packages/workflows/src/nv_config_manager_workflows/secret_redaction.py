@@ -42,7 +42,7 @@ _IOSXR_LEAD = r"[ \t]*[+#-]?[ \t]*"
 _IOSXR_TYPED_SECRET_RE = re.compile(
     rf"^(?P<lead>{_IOSXR_LEAD}(?:username[ \t]+\S+[ \t]+)?)"
     r"(?P<kw>secret|password|key-string(?:[ \t]+password)?|key|shared-secret(?:[ \t]+key)?)"
-    r"[ \t]+(?P<type>\d+|encrypted)(?P<enc>(?:[ \t]+enc-type[ \t]+\d+)?)[ \t]+\S+",
+    r"[ \t]+(?P<type>\d+|encrypted|clear)(?P<enc>(?:[ \t]+enc-type[ \t]+\d+)?)[ \t]+\S+",
     re.MULTILINE,
 )
 # MD5 keys of NTP and routing protocols: ``ntp authentication-key 1 md5 encrypted <hash>``,
@@ -59,9 +59,26 @@ _IOSXR_ATTACHED_TYPE_RE = re.compile(
     rf"^(?P<lead>{_IOSXR_LEAD})(?P<kw>key-string[ \t]+(?:password\d+|clear))[ \t]+\S+",
     re.MULTILINE,
 )
+# ``snmp-server community [clear|encrypted|<n>] <name> [RO|RW] ...``: the community name is the
+# secret and sits after the optional type. A first word counts as the type only when a name
+# follows it, so a community that is itself called ``clear`` is still redacted.
 _IOSXR_COMMUNITY_RE = re.compile(
-    rf"^(?P<lead>{_IOSXR_LEAD})(?P<kw>snmp-server community)[ \t]+\S+", re.MULTILINE
+    rf"^(?P<lead>{_IOSXR_LEAD})(?P<kw>snmp-server community)[ \t]+"
+    r"(?P<type>(?:clear|encrypted|\d+)[ \t]+(?!(?i:ro|rw|view|sdrowner|systemowner|ipv4|ipv6)\b))?\S+",
+    re.MULTILINE,
 )
+# SNMPv3 users carry two secrets on one line: ``snmp-server user <name> <group> v3 auth md5 clear
+# <password> priv aes 128 clear <password>``. The type (clear, encrypted or a number) stays.
+_IOSXR_SNMP_USER_RE = re.compile(rf"^{_IOSXR_LEAD}snmp-server[ \t]+user[ \t][^\n]*$", re.MULTILINE)
+_IOSXR_SNMP_AUTH_RE = re.compile(r"(?P<head>\bauth[ \t]+\S+[ \t]+(?:clear|encrypted|\d+)[ \t]+)\S+")
+_IOSXR_SNMP_PRIV_RE = re.compile(
+    r"(?P<head>\bpriv[ \t]+(?:aes[ \t]+\d+|\S+)[ \t]+(?:clear|encrypted|\d+)[ \t]+)\S+"
+)
+
+
+def _redact_snmp_user(match: re.Match[str]) -> str:
+    line = _IOSXR_SNMP_AUTH_RE.sub(r"\g<head><redacted>", match.group(0))
+    return _IOSXR_SNMP_PRIV_RE.sub(r"\g<head><redacted>", line)
 
 
 def redact_iosxr_secrets(config_text: str) -> str:
@@ -69,7 +86,8 @@ def redact_iosxr_secrets(config_text: str) -> str:
     redacted = _IOSXR_TYPED_SECRET_RE.sub(r"\g<lead>\g<kw> \g<type>\g<enc> <redacted>", config_text)
     redacted = _IOSXR_MD5_RE.sub(r"\g<lead> \g<type><redacted>", redacted)
     redacted = _IOSXR_ATTACHED_TYPE_RE.sub(r"\g<lead>\g<kw> <redacted>", redacted)
-    return _IOSXR_COMMUNITY_RE.sub(r"\g<lead>\g<kw> <redacted>", redacted)
+    redacted = _IOSXR_SNMP_USER_RE.sub(_redact_snmp_user, redacted)
+    return _IOSXR_COMMUNITY_RE.sub(r"\g<lead>\g<kw> \g<type><redacted>", redacted)
 
 
 def redact_device_secrets(config_text: str) -> str:
