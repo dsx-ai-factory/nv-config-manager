@@ -584,6 +584,13 @@ class DHCPConfig(BaseModel):
     kea_multi_threading: KeaMultiThreadingConfig = Field(default_factory=KeaMultiThreadingConfig)
 
 
+class TemporalDeploymentConfig(BaseModel):
+    """Optional sizing for the installer-managed Temporal server."""
+
+    history_replicas: int = Field(default=0, ge=0)
+    num_history_shards: int = Field(default=0, ge=0)
+
+
 class RedfishVendorCreds(BaseModel):
     """Per-vendor Redfish/BMC credentials."""
 
@@ -968,6 +975,7 @@ NV_CONFIG_MANAGER_IMAGE_KEYS: list[tuple[str, str]] = [
     ("temporalServer", "nv-config-manager-temporal"),
     ("temporalBootstrap", "nv-config-manager-temporal-bootstrap"),
     ("temporalUi", "nv-config-manager-temporal-ui"),
+    ("oidcProxy", "nv-config-manager-oidc-proxy"),
 ]
 
 # Image override keys accepted by the installer. The second field is the
@@ -995,7 +1003,7 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("temporalUi", "temporalio/ui"),
     ("nautobotNginx", "docker.io/nginxinc/nginx-unprivileged"),
     ("spiffeHelper", "ghcr.io/spiffe/spiffe-helper"),
-    ("oidcProxy", "quay.io/oauth2-proxy/oauth2-proxy"),
+    ("oidcProxy", "nvcr.io/nvidian/cfa/nv-config-manager-oidc-proxy"),
     ("templatePluginInstaller", "docker.io/library/python"),
     ("dcimProviderInstaller", "docker.io/library/python"),
     ("envoyGateway", "docker.io/envoyproxy/gateway"),
@@ -1123,6 +1131,7 @@ class NVConfigManagerInstallConfig(BaseModel):
     dcim: DCIMConfig = Field(default_factory=DCIMConfig)
     services: ServicesConfig = Field(default_factory=ServicesConfig)
     dhcp: DHCPConfig = Field(default_factory=DHCPConfig)
+    temporal: TemporalDeploymentConfig = Field(default_factory=TemporalDeploymentConfig)
     external_services: ExternalServicesConfig = Field(default_factory=ExternalServicesConfig)
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
@@ -1162,6 +1171,18 @@ class NVConfigManagerInstallConfig(BaseModel):
             )
             raise ValueError(msg)
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_temporal_deployment(self) -> NVConfigManagerInstallConfig:
+        """Allow sizing overrides only for the installer-managed Temporal server."""
+        configured = self.temporal.history_replicas or self.temporal.num_history_shards
+        managed_server = self.services.temporal and not self.external_services.temporal.address
+        if configured and not managed_server:
+            raise ValueError(
+                "Temporal sizing requires an enabled, managed Temporal server; "
+                "remove temporal overrides or clear external_services.temporal.address"
+            )
         return self
 
     # -- Serialization helpers -----------------------------------------------
@@ -1204,6 +1225,7 @@ def _prune_inactive_sections(data: dict[str, Any]) -> None:
     _prune_sso(_as_dict(data.get("sso")))
     _prune_spiffe(_as_dict(data.get("spiffe")))
     _prune_services(_as_dict(data.get("services")))
+    _prune_temporal(data)
     _prune_external_services(_as_dict(data.get("external_services")))
     _prune_infrastructure(_as_dict(data.get("infrastructure")))
     _prune_images(_as_dict(data.get("images")))
@@ -1288,6 +1310,12 @@ def _prune_spiffe(spiffe: dict[str, Any]) -> None:
 def _prune_services(services: dict[str, Any]) -> None:
     if services.get("nautobot", True):
         services.pop("external_nautobot_url", None)
+
+
+def _prune_temporal(data: dict[str, Any]) -> None:
+    temporal = _as_dict(data.get("temporal"))
+    if not temporal.get("history_replicas") and not temporal.get("num_history_shards"):
+        data.pop("temporal", None)
 
 
 def _prune_external_services(external_services: dict[str, Any]) -> None:

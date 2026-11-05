@@ -8,9 +8,9 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.11,<3.12"
 dependencies = [
     # Remove compromised emSign CA trust (GHSA-6q48-6c7w-9gw2).
-    "certifi>=2026.10.19",
-    # Stay on Nautobot 2.x; 2.4.43 permits the patched cryptography 50.x release.
-    "nautobot==2.4.43",
+    "certifi>=2026.10.23",
+    # Stay on Nautobot 2.x with patched GitPython, Pillow, and REST Framework dependencies.
+    "nautobot==2.4.45",
     "nautobot-fsus>=3.0.1",
     "nautobot-broker-nats",
     "nautobot-firewall-models>=2.2.0",

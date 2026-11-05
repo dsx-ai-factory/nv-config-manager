@@ -31,5 +31,7 @@ yq -i '
   .global.images.temporalBootstrap.repository = strenv(NVCM_IMAGE_REPOSITORY) + "/nv-config-manager-temporal-bootstrap" |
   .global.images.temporalBootstrap.tag = strenv(NVCM_IMAGE_TAG) |
   .global.images.temporalUi.repository = strenv(NVCM_IMAGE_REPOSITORY) + "/nv-config-manager-temporal-ui" |
-  .global.images.temporalUi.tag = strenv(NVCM_IMAGE_TAG)
+  .global.images.temporalUi.tag = strenv(NVCM_IMAGE_TAG) |
+  .global.images.oidcProxy.repository = strenv(NVCM_IMAGE_REPOSITORY) + "/nv-config-manager-oidc-proxy" |
+  .global.images.oidcProxy.tag = strenv(NVCM_IMAGE_TAG)
 ' "$values_file"
