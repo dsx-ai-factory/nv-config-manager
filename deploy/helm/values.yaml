@@ -219,6 +219,8 @@ global:
       repository: ""
       pullPolicy: Always
       digest: ""
+      # Installer provenance for repository-only upstream compatibility overrides.
+      legacyUpstreamOverride: false
 # =============================================================================
 # Local Development - Mock SSO Authentication
 # =============================================================================

@@ -36,8 +36,9 @@ An explicit legacy `oidc.proxy.image.pullPolicy` still takes precedence,
 including `Never` for preloaded disconnected installs.
 The upstream binary pin is maintained in `build/oidc-proxy.Dockerfile`.
 Repository-only installer `images.overrides.oidcProxy` settings retain their
-historical upstream tag. Set the wrapper's tag explicitly when using such an
-override to mirror the project image.
+upstream compatibility image/tag and bypass the emSign CA mitigation unless
+the CA-refreshed wrapper is selected. Set the wrapper repository and its
+release tag explicitly in the installer override, then regenerate Helm values.
 
 Every route strips inbound identity headers before forwarding, including routes
 that intentionally bypass browser authentication for native API tokens. When

@@ -1049,6 +1049,20 @@ class TestImagesInHelmValues:
         image = _gen(config)["global"]["images"]["oidcProxy"]
         assert image["repository"] == "mirror.example/proxy"
         assert image["tag"] == "v7.15.5"
+        assert image["legacyUpstreamOverride"] is True
+
+    @pytest.mark.parametrize("explicit_wrapper", [False, True])
+    def test_wrapper_settings_clear_legacy_oidc_warning(self, explicit_wrapper):
+        """Clear installer compatibility provenance when a wrapper is selected."""
+        overrides = (
+            {"oidcProxy": ImageOverride(repository="mirror.example/wrapper", tag="1.4.2")}
+            if explicit_wrapper
+            else {}
+        )
+        config = _make_config(images=ImagesConfig(tag="1.4.2", overrides=overrides))
+        image = _gen(config)["global"]["images"]["oidcProxy"]
+        assert image["tag"] == "1.4.2"
+        assert image["legacyUpstreamOverride"] is False
 
     def test_temporal_server_and_ui_overrides_keep_project_bootstrap(self):
         config = _make_config(

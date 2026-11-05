@@ -439,7 +439,11 @@ def _build_registry_images(img: Any, *, airgapped: bool = False) -> dict[str, An
             airgapped=airgapped,
         )
         if entry:
-            images[key] = entry
+            if key == "oidcProxy":
+                # Emit false too, so regenerated wrapper settings clear a reused legacy warning.
+                images[key] = {**entry, "legacyUpstreamOverride": legacy_proxy_repository}
+            else:
+                images[key] = entry
 
     for key, (source_repository, default_tag) in _GLOBAL_IMAGE_DEFAULTS.items():
         entry = _build_image_entry(
