@@ -1933,3 +1933,77 @@ def test_cors_middleware_not_configured_when_section_missing(custom_ini):
     # but won't have CORS headers
     response = client.get("/healthcheck")
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+@patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
+async def test_workflow_detail_redacts_device_secrets_in_diffs(mock_redis, mock_client):
+    """The detail response does not carry secrets from stage or batch diffs; the stages keep them."""
+    mock_redis.return_value.get_cached_result.return_value = None
+    mock_redis.from_config.return_value.get_cached_query = AsyncMock(return_value=None)
+    mock_redis.from_config.return_value.cache_query = AsyncMock()
+    secret_line = "+   secret 10 $6$new$bbbb"
+    stage = Stage(
+        name="perform_configuration_diff",
+        description="Retrieve the configuration diff.",
+        requires_approval=False,
+        state="COMPLETE",
+        input={
+            "approved_diff": secret_line,
+            "intended_config": "username ops\n secret 10 $6$new$bbbb\n",
+        },
+        output={"approved": True, "diff": secret_line, "display": "shown"},
+        depends_on=[],
+        retryable=True,
+        traceback=None,
+        state_history=[
+            {"state": "NOT_STARTED", "time": "1970-01-01T00:00:00+00:00"},
+            {"state": "IN_PROGRESS", "time": "1970-01-01T00:00:00+00:00"},
+            {"state": "COMPLETE", "time": "1970-01-01T00:00:01+00:00"},
+        ],
+    )
+
+    class MockHandle(WorkflowHandle):
+        _id = "mockid"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def describe(self):
+            mock_description = MagicMock()
+            mock_description.search_attributes = {
+                "User": ["test"],
+                "ReadRoles": ["ngc-cfa"],
+                "ExecuteRoles": ["ngc-cfa"],
+            }
+            mock_description.status = WorkflowExecutionStatus.RUNNING
+            mock_description.start_time = datetime.fromisoformat("1970-01-01T00:00:00+00:00")
+            mock_description.close_time = None
+            mock_description.workflow_type = "BatchDeployWorkflow"
+            return mock_description
+
+        async def query(self, name: str):
+            if name == "pending_approval":
+                return False
+            if name == "input":
+                return {"diff_group": {"diff_content": secret_line, "devices": []}}
+            if name == "compressed_stages":
+                return StageMixin.compress_stages([stage])
+
+    mock_client.return_value.get_workflow_handle = MockHandle
+
+    client = TestClient(app)
+    rsp = client.get(
+        f"/v1/workflow/{uuid4()}",
+        headers={"X-Auth-Request-Email": "test@nvidia.com", "X-AUTH-REQUEST-GROUPS": "ngc-cfa"},
+    )
+
+    assert rsp.status_code == 200
+    body = rsp.json()
+    assert "$6$new$bbbb" not in rsp.text
+    assert body["workflow_input"]["diff_group"]["diff_content"] == "+   secret 10 <redacted>"
+    assert body["stages"][0]["output"]["diff"] == "+   secret 10 <redacted>"
+    assert body["stages"][0]["output"]["display"] == "shown"
+    assert body["stages"][0]["input"]["approved_diff"] == "+   secret 10 <redacted>"
+    assert body["stages"][0]["input"]["intended_config"] == "username ops\n secret 10 <redacted>\n"
