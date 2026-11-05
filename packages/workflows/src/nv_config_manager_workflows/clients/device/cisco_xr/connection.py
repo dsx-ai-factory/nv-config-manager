@@ -570,7 +570,7 @@ class CiscoIosXrConnection(NetworkConnection):
                 non_retryable=True,
             )
         try:
-            self._get_session().confirm(
+            acknowledged_at = self._get_session().confirm(
                 timeout=deadline - time.monotonic() - self._CONFIRM_RESERVE_SECONDS
             )
         except Exception as error:  # noqa: BLE001 - nothing after the commit may be retried
@@ -580,8 +580,9 @@ class CiscoIosXrConnection(NetworkConnection):
                 non_retryable=True,
             ) from error
         # The deadline was taken before the commit was sent, so it is not later than the router's
-        # own. A reply after it cannot be trusted: the router may have reverted first.
-        if time.monotonic() > deadline:
+        # own. An acknowledgment after it cannot be trusted: the router may have reverted first.
+        # The time is the one the session took when the reply arrived, not after its cleanup.
+        if acknowledged_at > deadline:
             raise NetworkDeviceException(
                 f"Commit on {self._host}: the confirmation was answered after the commit timer; "
                 "it may not have taken effect. Run Config Diff: an empty diff means the change "

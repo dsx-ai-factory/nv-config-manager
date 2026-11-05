@@ -417,6 +417,24 @@ def test_confirm_runs_under_the_given_timeout_and_the_session_timeout_is_restore
     assert manager.timeout == 30
 
 
+def test_confirm_returns_the_time_of_the_acknowledgment_not_of_the_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, manager = _session()
+    now = [100.0]
+    monkeypatch.setattr(netconf.time, "monotonic", lambda: now[0])
+
+    def slow_cleanup() -> None:
+        now[0] = 500.0  # releasing the candidate takes a long time
+
+    manager.discard_changes.side_effect = slow_cleanup
+
+    acknowledged_at = session.confirm(timeout=20)
+
+    assert acknowledged_at == 100.0
+    assert now[0] == 500.0  # the cleanup did run, after the reading was taken
+
+
 def test_a_failed_confirm_is_an_error() -> None:
     session, manager = _session()
     manager.commit.side_effect = SSHError("session dropped")

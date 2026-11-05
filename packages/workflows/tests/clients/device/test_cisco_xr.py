@@ -195,11 +195,12 @@ class FakeSession:
     def discard(self) -> None:
         self.discarded += 1
 
-    def confirm(self, *, timeout: float) -> None:
+    def confirm(self, *, timeout: float) -> float:
         self.timeouts["confirm"] = timeout
         if self.confirm_error:
             raise self.confirm_error
         self.confirmed += 1
+        return xr_connection.time.monotonic()  # when the router acknowledged
 
     def rollback(self, selector: str) -> None:
         self.rollbacks.append(selector)
@@ -717,9 +718,9 @@ def test_a_confirmation_answered_after_the_commit_timer_is_not_reported_as_confi
     monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
     fast_confirm = session.confirm
 
-    def slow_confirm(*, timeout: float) -> None:
-        fast_confirm(timeout=timeout)
+    def slow_confirm(*, timeout: float) -> float:
         now[0] += connection._COMMIT_CONFIRM_SECONDS + 1  # the reply came after the timer ended
+        return fast_confirm(timeout=timeout)
 
     monkeypatch.setattr(session, "confirm", slow_confirm)
 
@@ -727,6 +728,28 @@ def test_a_confirmation_answered_after_the_commit_timer_is_not_reported_as_confi
         connection.commit_candidate_config(CHANGED, approved)
 
     assert raised.value.non_retryable
+
+
+def test_a_slow_cleanup_after_an_in_time_confirmation_does_not_make_it_uncertain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, probe = FakeSession(), FakeSession({"show clock": "ok"})
+    connection, _ = _connection(session, probe)
+    approved = connection.perform_candidate_diff(CHANGED)
+    now = [1000.0]
+    monkeypatch.setattr(xr_connection.time, "monotonic", lambda: now[0])
+    fast_confirm = session.confirm
+
+    def confirm_then_slow_cleanup(*, timeout: float) -> float:
+        acknowledged_at = fast_confirm(timeout=timeout)  # acknowledged inside the window
+        now[0] += connection._COMMIT_CONFIRM_SECONDS + 1  # discard and unlock run past its end
+        return acknowledged_at
+
+    monkeypatch.setattr(session, "confirm", confirm_then_slow_cleanup)
+
+    connection.commit_candidate_config(CHANGED, approved)
+
+    assert session.confirmed == 1
 
 
 def test_apply_counts_the_commit_reply_delay_against_the_commit_timer(

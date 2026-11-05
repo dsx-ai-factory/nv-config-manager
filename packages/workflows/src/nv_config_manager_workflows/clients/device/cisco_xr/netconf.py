@@ -112,10 +112,12 @@ class IosXrSession(Protocol):
     def discard(self) -> None:
         """Discard the loaded candidate and release the lock; never raises."""
 
-    def confirm(self, *, timeout: float) -> None:
+    def confirm(self, *, timeout: float) -> float:
         """Confirm a pending trial commit, cancelling its rollback timer.
 
         ``timeout`` is the most the confirming commit may wait: what is left of the timer.
+        Returns the ``time.monotonic()`` reading taken when the router acknowledged the
+        commit, before the candidate is discarded and unlocked.
         """
 
     def rollback(self, selector: str) -> None:
@@ -395,17 +397,20 @@ class NetconfIosXrSession:
         """Discard the loaded candidate and release the lock; never raises."""
         self._discard_and_unlock()
 
-    def confirm(self, *, timeout: float) -> None:
+    def confirm(self, *, timeout: float) -> float:
         """Confirm the trial commit with a confirming ``<commit/>`` from the same session."""
         previous = self._session.timeout
         self._session.timeout = timeout
         try:
             self._session.commit()
+            # read before the cleanup below: unlocking can be slow and is not part of the answer
+            acknowledged_at = time.monotonic()
         except TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(f"Failed to confirm commit: {error}") from error
         finally:
             self._session.timeout = previous
         self._discard_and_unlock()
+        return acknowledged_at
 
     def action(
         self,
