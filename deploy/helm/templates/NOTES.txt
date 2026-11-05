@@ -27,9 +27,13 @@ approved Temporal shard migration procedure before changing this value.
 {{- end -}}
 {{- end -}}
 
-{{- $globalProxy := .Values.global.images.oidcProxy | default dict -}}
+{{- $gateway := .Values.gateway | default dict -}}
+{{- $oidc := .Values.oidc | default dict -}}
+{{- if and $gateway.enabled $oidc.enabled -}}
+{{- $images := .Values.global.images | default dict -}}
+{{- $globalProxy := $images.oidcProxy | default dict -}}
 {{- $upstreamProxy := eq ($globalProxy.repository | default "") "quay.io/oauth2-proxy/oauth2-proxy" -}}
-{{- if and .Values.gateway.enabled .Values.oidc.enabled (or (include "nv-config-manager.oidcProxyCustomImage" .) $upstreamProxy) }}
+{{- if or (include "nv-config-manager.oidcProxyCustomImage" .) $upstreamProxy }}
 
 WARNING: Selected OIDC proxy image bypasses the project CA wrapper.
 
@@ -37,4 +41,5 @@ The selected image must provide refreshed CA stores; keeping an unrefreshed
 image opts out of the emSign mitigation. To use the project wrapper, clear
 the legacy repository/tag and configure global.images.oidcProxy with the
 mirrored wrapper's release tag or digest.
+{{- end }}
 {{- end }}

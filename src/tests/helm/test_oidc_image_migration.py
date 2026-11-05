@@ -199,6 +199,41 @@ def test_custom_image_warning_is_visible_in_helm_notes(
         assert rendered["image"] == expected_image
 
 
+@pytest.mark.parametrize(
+    "settings",
+    [
+        (),
+        ("gateway.enabled=true", "oidc.enabled=false"),
+        ("gateway.enabled=false", "oidc.enabled=true"),
+    ],
+)
+def test_disabled_oidc_notes_accept_minimal_chart_values(
+    tmp_path: Path, settings: tuple[str, ...]
+) -> None:
+    """Render the shard-warning test's minimal chart without unrelated image defaults."""
+    if shutil.which("helm") is None:
+        pytest.skip("Helm is required")
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "Chart.yaml").write_text("apiVersion: v2\nname: notes-test\nversion: 1.0.0\n")
+    for filename in ("_helpers.tpl", "NOTES.txt"):
+        shutil.copyfile(CHART / "templates" / filename, tmp_path / "templates" / filename)
+    command = [
+        "helm",
+        "template",
+        "test",
+        str(tmp_path),
+        "--values",
+        str(CHART / "values-ci.yaml"),
+        "--set",
+        "temporal.enabled=true",
+        "--set",
+        "temporal.server.enabled=true",
+    ]
+    for setting in settings:
+        command.extend(["--set", setting])
+    subprocess.run(command, check=True, capture_output=True, text=True)
+
+
 def test_managed_server_authorization_is_separate_from_workflow_rbac() -> None:
     """Keep managed Temporal gRPC authorization separate from workflow RBAC."""
     documents = render(
