@@ -289,6 +289,16 @@ spec:
       metricRelabelings:
         {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
       {{- end }}
+    {{- if or .Values.networkZtp.ingress.nlb .Values.networkZtp.ingress.cilium .Values.networkZtp.ingress.metallb }}
+    - port: http-lb
+      path: /metrics
+      interval: {{ $scrapeInterval }}
+      scrapeTimeout: {{ $scrapeTimeout }}
+      {{- if .Values.global.customLabels }}
+      metricRelabelings:
+        {{- include "nv-config-manager.podMonitorMetricRelabelings" . | nindent 8 }}
+      {{- end }}
+    {{- end }}
     - port: sftp-metrics
       path: /metrics
       interval: {{ $scrapeInterval }}
