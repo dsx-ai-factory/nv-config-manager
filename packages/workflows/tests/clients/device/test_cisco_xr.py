@@ -195,7 +195,8 @@ class FakeSession:
     def discard(self) -> None:
         self.discarded += 1
 
-    def confirm(self) -> None:
+    def confirm(self, *, timeout: float) -> None:
+        self.timeouts["confirm"] = timeout
         if self.confirm_error:
             raise self.confirm_error
         self.confirmed += 1
@@ -700,6 +701,7 @@ def test_the_verification_diff_gets_only_what_is_left_of_the_commit_timer(
 
     left = 100.0 - connection._CONFIRM_MARGIN_SECONDS
     assert session.timeouts["remaining_diff"] == left
+    assert session.timeouts["confirm"] == 100.0  # the confirming commit gets what is left
     assert session.confirmed == 1
 
 

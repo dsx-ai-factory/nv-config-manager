@@ -18,6 +18,7 @@ import pytest
 
 from nv_config_manager_workflows.secret_redaction import (
     redact_device_secrets,
+    redact_diff_fields,
     redact_iosxr_secrets,
     redact_junos_secrets,
 )
@@ -231,3 +232,40 @@ def test_iosxr_clear_and_untyped_md5_keys_are_redacted() -> None:
     assert " message-digest-key 2 md5 <redacted>\n" in result
     assert "ntp authentication-key 3 md5 7 <redacted>\n" in result
     assert "hostname r1\n" in result
+
+
+def test_iosxr_md5_redaction_leaves_other_lines_that_mention_md5_alone() -> None:
+    text = (
+        "description check md5 checksum\n"
+        "ntp authentication-key 1 md5 encrypted 1A2B3C4D5E6F\n"
+        " message-digest-key 2 md5 7 0822455D0A16\n"
+    )
+
+    result = redact_iosxr_secrets(text)
+
+    assert "description check md5 checksum\n" in result
+    assert "1A2B3C4D5E6F" not in result
+    assert "0822455D0A16" not in result
+
+
+def test_redact_diff_fields_redacts_diffs_at_any_depth_and_leaves_the_original_alone() -> None:
+    secret_line = "+   secret 10 $6$new$bbbb"
+    data = {
+        "diff": secret_line,
+        "approved_diff": secret_line,
+        "diff_group": {"diff_content": secret_line, "devices": [{"diff": secret_line, "n": 1}]},
+        "display": "kept as is",
+        "other": [secret_line],
+        "count": 3,
+    }
+
+    result = redact_diff_fields(data)
+
+    assert result["diff"] == "+   secret 10 <redacted>"
+    assert result["approved_diff"] == "+   secret 10 <redacted>"
+    assert result["diff_group"]["diff_content"] == "+   secret 10 <redacted>"
+    assert result["diff_group"]["devices"][0] == {"diff": "+   secret 10 <redacted>", "n": 1}
+    assert result["display"] == "kept as is"
+    assert result["other"] == [secret_line]  # not a diff field
+    assert result["count"] == 3
+    assert data["diff"] == secret_line  # the stored value is unchanged

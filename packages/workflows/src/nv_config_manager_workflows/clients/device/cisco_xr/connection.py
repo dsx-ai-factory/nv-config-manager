@@ -567,7 +567,7 @@ class CiscoIosXrConnection(NetworkConnection):
                 non_retryable=True,
             )
         try:
-            self._get_session().confirm()
+            self._get_session().confirm(timeout=deadline - time.monotonic())
         except Exception as error:  # noqa: BLE001 - nothing after the commit may be retried
             raise NetworkDeviceException(
                 f"Commit on {self._host} was not confirmed ({error}); "
@@ -604,7 +604,7 @@ class CiscoIosXrConnection(NetworkConnection):
         """Start IOS XR ZTP so the router re-fetches its configuration.
 
         The NETCONF session usually ends while the router acts on it; that is success,
-        as it is for the Junos zeroize.
+        as it is for the Junos zeroize. A timeout with no reply is not: it is an error.
         """
         session = self._get_session()  # a failure to connect or log in is not ZTP success
         try:

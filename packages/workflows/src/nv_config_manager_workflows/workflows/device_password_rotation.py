@@ -279,7 +279,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         )
 
         if not diff_validation.is_valid:
-            invalid_diff_content = (
+            invalid_diff_content = redact_device_secrets(
                 "\n".join(diff_validation.invalid_lines) if diff_validation.invalid_lines else diff
             )
 
@@ -287,7 +287,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
             error_message += (
                 f"{diff_validation.error_message or 'Diff contains non-password changes.'}\n\n"
             )
-            error_message += f"Diff:\n{diff}"
+            error_message += f"Diff:\n{redact_device_secrets(diff)}"
 
             raise DiffValidationError(
                 message=error_message,

@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from lxml import etree  # type: ignore[import-untyped]  # ty: ignore[unresolved-import]
-from ncclient.operations import RPCError  # type: ignore[import-untyped]
+from ncclient.operations import RPCError, TimeoutExpiredError  # type: ignore[import-untyped]
 from ncclient.transport.errors import SSHError  # type: ignore[import-untyped]
 
 from nv_config_manager_workflows.clients.device.cisco_xr import netconf
@@ -400,10 +400,21 @@ def test_discard_releases_the_lock_and_never_raises() -> None:
 def test_confirm_sends_a_confirming_commit_and_releases_the_lock() -> None:
     session, manager = _session()
 
-    session.confirm()
+    session.confirm(timeout=20)
 
     manager.commit.assert_called_once_with()
     manager.unlock.assert_called_once_with("candidate")
+
+
+def test_confirm_runs_under_the_given_timeout_and_the_session_timeout_is_restored() -> None:
+    session, manager = _session()
+    seen: list[float] = []
+    manager.commit.side_effect = lambda **_: seen.append(manager.timeout)
+
+    session.confirm(timeout=20)
+
+    assert seen == [20]
+    assert manager.timeout == 30
 
 
 def test_a_failed_confirm_is_an_error() -> None:
@@ -411,7 +422,7 @@ def test_a_failed_confirm_is_an_error() -> None:
     manager.commit.side_effect = SSHError("session dropped")
 
     with pytest.raises(NetworkDeviceException, match="confirm"):
-        session.confirm()
+        session.confirm(timeout=20)
 
 
 def _action_xml(manager: MagicMock) -> tuple[str, dict[str, str]]:
@@ -455,4 +466,15 @@ def test_action_maps_a_refusal_to_a_non_retryable_error_and_a_drop_to_a_retryabl
     with pytest.raises(NetworkDeviceException, match="reset") as dropped:
         session.action("urn:x", "do-it", read_timeout=5)
     assert not dropped.value.non_retryable
+    assert manager.timeout == 30
+
+
+def test_an_action_with_no_reply_is_a_non_retryable_timeout_not_a_dropped_session() -> None:
+    session, manager = _session()
+    manager.dispatch.side_effect = TimeoutExpiredError("no reply")
+
+    with pytest.raises(NetworkDeviceException, match="timed out") as timed_out:
+        session.action("urn:x", "ztp-initiate", read_timeout=5)
+
+    assert timed_out.value.non_retryable
     assert manager.timeout == 30

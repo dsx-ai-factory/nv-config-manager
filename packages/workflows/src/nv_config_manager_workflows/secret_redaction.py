@@ -20,6 +20,7 @@ read back from a device for that broader audience must be redacted first.
 """
 
 import re
+from typing import Any
 
 # Junos encodes schema-marked secret leaves into a quoted
 # ``$<format>$<data>`` value at commit time. Match the value shape instead of a
@@ -45,9 +46,11 @@ _IOSXR_TYPED_SECRET_RE = re.compile(
     re.MULTILINE,
 )
 # MD5 keys of NTP and routing protocols: ``ntp authentication-key 1 md5 encrypted <hash>``,
-# ``message-digest-key 1 md5 7 <hash>``, ``md5 clear <key>`` or a bare ``md5 <key>``.
+# ``message-digest-key 1 md5 7 <hash>``, ``md5 clear <key>`` or a bare ``md5 <key>``. Only
+# these key commands match, so a description or other text that mentions md5 is left alone.
 _IOSXR_MD5_RE = re.compile(
-    rf"^(?P<lead>{_IOSXR_LEAD}\S[^\n]*?[ \t]md5)[ \t]+(?P<type>(?:\d+|encrypted|clear)[ \t]+)?\S+",
+    rf"^(?P<lead>{_IOSXR_LEAD}(?:ntp[ \t]+)?(?:authentication-key|message-digest-key)[ \t]+\S+[ \t]+md5)"
+    r"[ \t]+(?P<type>(?:\d+|encrypted|clear)[ \t]+)?\S+",
     re.MULTILINE,
 )
 # Newer releases write the type attached to the keyword: ``key-string password7 <hash>``,
@@ -72,3 +75,26 @@ def redact_iosxr_secrets(config_text: str) -> str:
 def redact_device_secrets(config_text: str) -> str:
     """Redact the secrets of every supported platform from config or diff text."""
     return redact_iosxr_secrets(redact_junos_secrets(config_text))
+
+
+# Fields of workflow inputs and stage data that carry a device configuration diff.
+_DIFF_FIELDS = frozenset({"diff", "diff_content", "approved_diff", "invalid_diff"})
+
+
+def redact_diff_fields(value: Any) -> Any:
+    """Return a copy of ``value`` with the secrets in its diff fields redacted.
+
+    For what an API returns about a workflow: the stored stage data and workflow input keep the
+    raw diff, which the apply step compares exactly, while the copy sent out does not carry
+    credentials. Only string values of the diff fields (at any depth) change.
+    """
+    if isinstance(value, dict):
+        return {
+            key: redact_device_secrets(item)
+            if key in _DIFF_FIELDS and isinstance(item, str)
+            else redact_diff_fields(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_diff_fields(item) for item in value]
+    return value

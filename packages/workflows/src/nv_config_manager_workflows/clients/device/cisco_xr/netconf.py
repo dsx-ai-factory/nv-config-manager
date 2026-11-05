@@ -112,8 +112,11 @@ class IosXrSession(Protocol):
     def discard(self) -> None:
         """Discard the loaded candidate and release the lock; never raises."""
 
-    def confirm(self) -> None:
-        """Confirm a pending trial commit, cancelling its rollback timer."""
+    def confirm(self, *, timeout: float) -> None:
+        """Confirm a pending trial commit, cancelling its rollback timer.
+
+        ``timeout`` is the most the confirming commit may wait: what is left of the timer.
+        """
 
     def rollback(self, selector: str) -> None:
         """Roll back with ``last <n>`` or a commit id (commits at once)."""
@@ -387,12 +390,16 @@ class NetconfIosXrSession:
         """Discard the loaded candidate and release the lock; never raises."""
         self._discard_and_unlock()
 
-    def confirm(self) -> None:
+    def confirm(self, *, timeout: float) -> None:
         """Confirm the trial commit with a confirming ``<commit/>`` from the same session."""
+        previous = self._session.timeout
+        self._session.timeout = timeout
         try:
             self._session.commit()
         except TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(f"Failed to confirm commit: {error}") from error
+        finally:
+            self._session.timeout = previous
         self._discard_and_unlock()
 
     def action(
@@ -415,6 +422,12 @@ class NetconfIosXrSession:
             # The router answered and refused: retrying cannot help.
             raise NetworkDeviceException(
                 f"{name} failed: {_rpc_message(error)}", non_retryable=True
+            ) from error
+        except TimeoutExpiredError as error:
+            # No reply is not a dropped session: whether the router acted is unknown, so a
+            # caller that treats a dropped session as done must not treat this as done.
+            raise NetworkDeviceException(
+                f"{name} timed out after {read_timeout:.0f} s without a reply", non_retryable=True
             ) from error
         except TRANSPORT_ERRORS as error:
             raise NetworkDeviceException(f"{name} failed: {error}") from error

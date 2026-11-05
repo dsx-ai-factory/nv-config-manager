@@ -222,7 +222,9 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
                 ),
             )
 
-        markdown = f"Configuration Diff\n```\n{redact_device_secrets(diff)}\n```"
+        # the diff is returned as the stage output and the workflow result, so both are redacted
+        diff = redact_device_secrets(diff)
+        markdown = f"Configuration Diff\n```\n{diff}\n```"
         return ConfigDiffWorkflow.PerformDiffStageOutput(diff=diff, has_diff=True, display=markdown)
 
     @run_nv_config_manager_workflow
