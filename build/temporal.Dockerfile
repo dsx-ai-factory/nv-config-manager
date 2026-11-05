@@ -29,7 +29,7 @@ COPY components/temporal/cmd/ ./cmd/
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/temporal-bootstrap ./cmd/temporal-bootstrap
 
 # Every runtime COPY of an upstream executable must come through this stage.
-# Require a security-patched compiler from either supported Go release series.
+# Require a security-patched compiler, allowing later stable Go release series.
 FROM bootstrap-builder AS checked-upstream
 COPY --from=server-upstream /usr/local/bin/temporal-server /checked/temporal-server
 COPY --from=admin-tools-upstream /usr/local/bin/temporal /checked/temporal
@@ -39,10 +39,15 @@ RUN set -eu; \
         actual="$(go version -m "$binary" | head -n 1)"; \
         version="${actual##* }"; \
         version="${version%%-X:*}"; \
-        case "$version" in \
-            go1.26.*) patch="${version#go1.26.}"; minimum=10 ;; \
-            go1.27.*) patch="${version#go1.27.}"; minimum=3 ;; \
-            *) echo "$binary: unsupported compiler ($version)" >&2; exit 1 ;; \
+        printf '%s\n' "$version" | grep -Eq '^go1\.[0-9]+\.[0-9]+$' || \
+            { echo "$binary: unsupported compiler ($version)" >&2; exit 1; }; \
+        release="${version#go1.}"; \
+        minor="${release%%.*}"; patch="${release#*.}"; \
+        case "$minor" in \
+            26) minimum=10 ;; \
+            27) minimum=3 ;; \
+            *) [ "$minor" -gt 27 ] 2>/dev/null || \
+                { echo "$binary: unsupported compiler ($version)" >&2; exit 1; }; minimum=0 ;; \
         esac; \
         [ "$patch" -ge "$minimum" ] 2>/dev/null || \
             { echo "$binary: compiler $version requires Go 1.26.10+ or 1.27.3+" >&2; exit 1; }; \
