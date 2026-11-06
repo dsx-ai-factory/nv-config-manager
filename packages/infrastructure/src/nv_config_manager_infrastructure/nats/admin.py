@@ -18,7 +18,10 @@ import nats.errors
 from nats.js.errors import APIError
 
 CONSUMER_ACK_WAIT_SECONDS = 360
-CONSUMER_MAX_DELIVER = -1
+# Bounded so that a message which can never win its per-device lock stops
+# circulating. Lock contention naks count as delivery attempts, so this has to
+# stay well above the retry depth a healthy render needs.
+CONSUMER_MAX_DELIVER = 1000
 
 
 def is_nats_permissions_error(exc: Exception) -> bool:
