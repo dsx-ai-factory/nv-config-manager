@@ -39,6 +39,7 @@ SECRETS = SecretsContribution(
             helm_key="nautobot",
             path_suffix="nautobot",
             label="Nautobot",
+            after="",
             keys={
                 "token": "token",
                 "readOnlyToken": "read_only_token",
@@ -59,6 +60,8 @@ SECRETS = SecretsContribution(
             helm_key="nautobotApp",
             path_suffix="nautobot-app",
             label="Nautobot App (admin/django)",
+            k8s_after="postgres",
+            k8s_label="Nautobot App",
             keys={
                 "adminPassword": "admin_password",
                 "djangoSecretKey": "django_secret_key",

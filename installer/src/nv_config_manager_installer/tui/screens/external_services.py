@@ -33,7 +33,7 @@ from nv_config_manager_installer.schema import (
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
 _W_DCIM_PROVIDER = "#ext-dcim-provider"
-_W_DCIM_LOCAL = "#ext-dcim-local"
+_W_DCIM_EXTERNAL = "#ext-dcim-external"
 _W_DCIM_SERVER = "#ext-dcim-server"
 _W_DCIM_PANEL = "#ext-dcim-panel"
 _W_EXT_NATS = "#ext-nats-enabled"
@@ -98,19 +98,24 @@ class ExternalServicesScreen(Container):
         yield Label("External Services", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
         yield Label(
-            "Select the DCIM provider, then override in-cluster services with external "
-            "instances. Leave overrides disabled to use the default in-cluster deployments."
+            "Override in-cluster services with external instances. "
+            "Leave disabled to use the default in-cluster deployments."
         )
 
         # ── DCIM provider ──────────────────────────────────────────────────
         options = [(p.metadata.display_name, name) for name, p in self._providers.items()]
         if dcim.provider not in self._providers:
             options.append((f"{dcim.provider} (not installed)", dcim.provider))
-        yield Label("DCIM Provider", classes="field-label")
-        yield Select(options, value=dcim.provider, allow_blank=False, id="ext-dcim-provider")
-        yield LabeledSwitch("Deploy in cluster", value=dcim.local, id="ext-dcim-local")
+        # The provider choice is shown only when there is more than one to pick.
+        with Container(id="ext-dcim-provider-row") as row:
+            row.display = len(options) > 1
+            yield Label("DCIM Provider", classes="field-label")
+            yield Select(options, value=dcim.provider, allow_blank=False, id="ext-dcim-provider")
+        title = self._display_name(dcim.provider)
+        yield Label(title, classes="field-label", id="ext-dcim-title")
+        yield LabeledSwitch(f"Use external {title}", value=not dcim.local, id="ext-dcim-external")
         with Container(id="ext-dcim-fields"):
-            yield Label("DCIM endpoint", classes="field-label")
+            yield Label(f"{title} endpoint", classes="field-label", id="ext-dcim-server-label")
             yield Input(
                 value=dcim.server,
                 placeholder=self._server_placeholder(dcim.provider),
@@ -249,12 +254,16 @@ class ExternalServicesScreen(Container):
                 placeholder=_PG_HOST_PLACEHOLDER,
                 id="ext-pg-dhcp",
             )
-            yield Label("DCIM host", classes="field-label")
+            yield Label(f"{title} host", classes="field-label", id="ext-pg-dcim-label")
             yield Input(
                 value=pg.dcim_host,
                 placeholder=_PG_HOST_PLACEHOLDER,
                 id="ext-pg-dcim",
             )
+
+    def _display_name(self, name: str) -> str:
+        provider = self._provider(name)
+        return provider.metadata.display_name if provider else name
 
     def _server_placeholder(self, name: str) -> str:
         provider = self._provider(name)
@@ -275,15 +284,20 @@ class ExternalServicesScreen(Container):
 
     def _apply_provider_capabilities(self, name: str) -> None:
         provider = self._provider(name)
-        local_switch = self.query_one(_W_DCIM_LOCAL, LabeledSwitch)
+        title = self._display_name(name)
+        external_switch = self.query_one(_W_DCIM_EXTERNAL, LabeledSwitch)
         if provider is not None:
             if not provider.metadata.supports_local:
-                local_switch.value = False
+                external_switch.value = True
             elif not provider.metadata.supports_external:
-                local_switch.value = True
-            local_switch.disabled = not (
+                external_switch.value = False
+            external_switch.disabled = not (
                 provider.metadata.supports_local and provider.metadata.supports_external
             )
+        external_switch.set_label(f"Use external {title}")
+        self.query_one("#ext-dcim-title", Label).update(title)
+        self.query_one("#ext-dcim-server-label", Label).update(f"{title} endpoint")
+        self.query_one("#ext-pg-dcim-label", Label).update(f"{title} host")
         self.query_one(_W_DCIM_SERVER, Input).placeholder = self._server_placeholder(name)
         self._toggle_dcim_fields()
 
@@ -308,7 +322,7 @@ class ExternalServicesScreen(Container):
 
     def on_labeled_switch_changed(self, event: LabeledSwitch.Changed) -> None:
         sid = event.labeled_switch.id
-        if sid == "ext-dcim-local":
+        if sid == "ext-dcim-external":
             self._toggle_dcim_fields()
         elif sid == "ext-nats-enabled":
             self._toggle_nats_fields()
@@ -322,8 +336,8 @@ class ExternalServicesScreen(Container):
             self._toggle_pg_fields()
 
     def _toggle_dcim_fields(self) -> None:
-        self.query_one("#ext-dcim-fields").display = not self.query_one(
-            _W_DCIM_LOCAL, LabeledSwitch
+        self.query_one("#ext-dcim-fields").display = self.query_one(
+            _W_DCIM_EXTERNAL, LabeledSwitch
         ).value
 
     @staticmethod
@@ -369,7 +383,7 @@ class ExternalServicesScreen(Container):
     def write_to_config(self, config: NVConfigManagerInstallConfig) -> None:
         name = self._selected_provider_name()
         self._switch_provider(config, name)
-        local = self.query_one(_W_DCIM_LOCAL, LabeledSwitch).value
+        local = not self.query_one(_W_DCIM_EXTERNAL, LabeledSwitch).value
         server = self.query_one(_W_DCIM_SERVER, Input).value.strip()
         config.dcim.local = local
         config.dcim.server = "" if local else server
@@ -434,7 +448,7 @@ class ExternalServicesScreen(Container):
                 self.query_one(_W_DCIM_PROVIDER, Select).value = config.dcim.provider
             except InvalidSelectValueError:
                 pass  # provider is not installed; keep the current selection
-            self.query_one(_W_DCIM_LOCAL, LabeledSwitch).value = config.dcim.local
+            self.query_one(_W_DCIM_EXTERNAL, LabeledSwitch).value = not config.dcim.local
             self.query_one(_W_DCIM_SERVER, Input).value = config.dcim.server
             self._apply_provider_capabilities(config.dcim.provider)
             self._mount_provider_panel(config.dcim.provider)

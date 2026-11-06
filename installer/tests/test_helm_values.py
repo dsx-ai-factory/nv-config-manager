@@ -996,7 +996,7 @@ class TestGenerateHelmValues:
             "localServer": "http://nautobot-nv-config-manager",
         }
         assert values["cnpg"]["nautobot"] == {"enabled": True, "enablePDB": False}
-        assert values["nautobotNats"]["accounts"]["nautobot"]["enabled"] is True
+        assert "accounts" not in values["nautobotNats"]
 
 
 class TestImagesInHelmValues:

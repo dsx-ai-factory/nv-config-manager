@@ -70,7 +70,6 @@ def build_values(config: NVConfigManagerInstallConfig, settings: NautobotSetting
         "nautobot": _build_nautobot(config, settings),
         "externalServices": {"nautobot": external},
         "cnpg": {"nautobot": cnpg_cluster_values(config, local)},
-        "nautobotNats": {"accounts": {"nautobot": {"enabled": True}}},
     }
     pg = config.external_services.postgres
     if pg.enabled and pg.dcim_host:

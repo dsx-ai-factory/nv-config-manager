@@ -32,7 +32,10 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from nv_config_manager_installer.providers.errors import InstallerProviderError
-from nv_config_manager_installer.providers.registry import get_installer_provider
+from nv_config_manager_installer.providers.registry import (
+    discover_installer_providers,
+    get_installer_provider,
+)
 
 if TYPE_CHECKING:
     from nv_config_manager_installer.providers.api import DCIMInstallerProvider, SecretGroupSpec
@@ -203,6 +206,25 @@ def database_secret_keys(database: str) -> dict[str, str]:
     return {f"{prefix}User": f"{database}_user", f"{prefix}Password": f"{database}_password"}
 
 
+def _installed_group_defaults(name: str, group_type: type[BaseModel]) -> list[dict[str, Any]]:
+    """Return the defaults any installed provider gives group *name*.
+
+    Configurations saved for one provider carry its defaults, so these are not
+    user content when a different provider is selected.
+    """
+    defaults: list[dict[str, Any]] = []
+    for provider in discover_installer_providers().values():
+        for spec in provider.secrets.groups:
+            if spec.name != name:
+                continue
+            defaults.append(group_type(enabled=spec.enabled_default).model_dump())  # type: ignore[call-arg]
+            if group_type is VaultPathConfig:
+                defaults.append(
+                    VaultPathConfig(enabled=spec.enabled_default, keys=dict(spec.keys)).model_dump()
+                )
+    return defaults
+
+
 def _settle_unknown_groups(
     model: BaseModel,
     specs: Mapping[str, SecretGroupSpec],
@@ -218,10 +240,12 @@ def _settle_unknown_groups(
     for name in sorted(set(extras) - set(specs)):
         raw = extras[name]
         value = raw if isinstance(raw, group_type) else group_type.model_validate(raw or {})
-        if value.model_dump() in (
+        defaults = [
             group_type().model_dump(),
             group_type(enabled=False).model_dump(),  # type: ignore[call-arg]
-        ):
+            *_installed_group_defaults(name, group_type),
+        ]
+        if value.model_dump() in defaults:
             del extras[name]
         else:
             unknown.append(name)

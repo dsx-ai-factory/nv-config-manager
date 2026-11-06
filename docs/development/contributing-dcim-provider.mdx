@@ -377,7 +377,9 @@ attributes:
 - `secrets`: `SecretsContribution` with `SecretGroupSpec` groups exposed as
   `secrets.k8s.<name>` and `secrets.vault.paths.<name>`, extra CNPG
   `databases`, and extra NATS Secret names. A provider without groups uses
-  the generic `dcim` and `nats` groups.
+  the generic `dcim` and `nats` groups. `after` names the core group a card
+  follows in the wizard (`""` places it first); `k8s_after` and `k8s_label`
+  override placement and label for the Kubernetes-mode card.
 - `images`: `ImageContribution` with local builds, first-party image keys, and
   override keys.
 - `tui`: `TUIContribution` with wizard sections inserted after an anchor
@@ -393,7 +395,9 @@ attributes:
   each requirement to `uv run --with` and each directory to `--find-links`.
   The `/plugin-wheels` wheelhouse in the provider's package image is a
   suitable source, since it already carries the provider, the DCIM SDK, and
-  their dependencies.
+  their dependencies. Values the provider already used in `pre_deploy`, such
+  as an API token or NATS password, are returned from `install_secrets` as
+  `secrets.k8s` group values so the box's deploy reuses them.
 
 Runtime hooks default to no-ops. The deployer passes itself to deploy hooks as
 a `ProviderDeployContext` (`config`, `options`, `callback`, `k8s`,
@@ -405,7 +409,7 @@ step and Secret helpers):
   `align_openbao_tokens`.
 - Helm: `helm_values`, deep-merged over the installer-generated values.
 - Deploy: `deploy_steps`, `detect_existing_state`, `create_secrets`,
-  `pre_helm_install`, `post_helm_install`, `post_gateway`, `post_restart`,
+  `setup_content`, `pre_helm_install`, `post_helm_install`, `post_gateway`, `post_restart`,
   `refresh_caches_needed`, `integration_test_env`.
 - Summary: `endpoints`, `bootstrap_secret_hints`.
 
@@ -457,7 +461,9 @@ class ExampleInstallerProvider(DCIMInstallerProvider):
 deploys its in-cluster stack from `pre_helm_install` and sets `dcim.server` to
 the in-cluster endpoint. When it is false, `dcim.server` is required and must
 point at an existing instance. `supports_local` and `supports_external` in the
-metadata gate the "Deploy in cluster" switch in the TUI. An empty
+metadata gate the "Use external" switch in the TUI, and validation rejects a
+`dcim.local` value the provider does not support. A `SecretGroupSpec` with
+`local_only` gets no Vault values when the DCIM is external. An empty
 `dcim.token_secret_name`, `dcim.event_stream`, or `dcim.event_subject` uses
 the metadata default. The core Helm values always emit disabled Nautobot
 stubs (`nautobot.enabled: false`, `cnpg.nautobot.enabled: false`,

@@ -311,6 +311,9 @@ class TestStepSequencing:
                     after={"helm-install": (("provider-post", "Provider post"),)},
                 )
 
+            def setup_content(self, ctx) -> None:
+                calls.append("provider-content")
+
             def pre_helm_install(self, ctx) -> None:
                 calls.append("provider-pre")
 
@@ -349,8 +352,6 @@ class TestStepSequencing:
             "_install_crds",
             "_create_namespace",
             "_create_secrets",
-            "_populate_vault",
-            "_setup_templates_pvc",
             "_setup_ztp_pvc",
             "_generate_values",
             "_patch_gateway",
@@ -359,16 +360,60 @@ class TestStepSequencing:
             "_run_integration_tests",
         ):
             monkeypatch.setattr(deployer, method_name, lambda: None)
+        monkeypatch.setattr(deployer, "_populate_vault", lambda: calls.append("vault"))
+        monkeypatch.setattr(deployer, "_setup_templates_pvc", lambda: calls.append("templates"))
         monkeypatch.setattr(deployer, "_collect_endpoints", lambda: [])
 
         assert deployer.run() is True
         assert calls == [
+            "vault",
+            "provider-content",
+            "templates",
             "provider-pre",
             "helm",
             "provider-post",
             "provider-gateway",
             "provider-restart",
         ]
+
+    def test_nautobot_jobs_pvc_runs_in_its_listed_position(self, monkeypatch, tmp_path):
+        """The jobs PVC step executes where the Deploy screen lists it."""
+        calls: list[str] = []
+        deployer = Deployer(_make_config(), DeployOptions(), RecordingCallback())
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer.find_project_root", lambda _explicit: tmp_path
+        )
+        monkeypatch.setattr(deployer, "_validate_project_paths", lambda _root: None)
+        for method_name, step_id in (
+            ("_check_prerequisites", "prereqs"),
+            ("_detect_existing_state", None),
+            ("_build_images", "build-images"),
+            ("_load_kind", "load-kind"),
+            ("_install_crds", "install-crds"),
+            ("_create_namespace", "create-namespace"),
+            ("_create_secrets", "create-secrets"),
+            ("_populate_vault", "populate-vault"),
+            ("_setup_templates_pvc", "setup-templates-pvc"),
+            ("_setup_ztp_pvc", "setup-ztp-pvc"),
+            ("_generate_values", "generate-values"),
+            ("_helm_install", "helm-install"),
+            ("_patch_gateway", "patch-gateway"),
+            ("_restart_render_service", "restart-render"),
+            ("_refresh_caches", "refresh-cache"),
+            ("_run_integration_tests", "run-tests"),
+        ):
+            monkeypatch.setattr(
+                deployer, method_name, lambda s=step_id: calls.append(s) if s else None
+            )
+        provider = deployer.provider
+        monkeypatch.setattr(provider, "setup_content", lambda _ctx: calls.append("setup-jobs-pvc"))
+        monkeypatch.setattr(provider, "post_gateway", lambda _ctx: calls.append("restart-nautobot"))
+        monkeypatch.setattr(provider, "post_restart", lambda _ctx: calls.append("run-jobs"))
+        monkeypatch.setattr(deployer, "_collect_endpoints", lambda: [])
+
+        assert deployer.run() is True
+        listed = [s.id for s in deployer.steps if s.id in calls]
+        assert calls == listed
 
     @patch("nv_config_manager_installer.deployer.shutil.which", return_value=None)
     def test_prereqs_fail_when_kubectl_missing(self, mock_which):
@@ -1631,7 +1676,7 @@ class TestPvcContentUpload:
 
         deployer._k8s.copy_to_pod.side_effect = capture_tarball
 
-        deployer.provider.pre_helm_install(deployer)
+        deployer.provider.setup_content(deployer)
 
         assert "__init__.py" in uploaded_members
         assert "mock_topology/__init__.py" in uploaded_members
@@ -2228,7 +2273,7 @@ class TestK8sClientIntegration:
         deployer = Deployer(config, DeployOptions(), callback)
         deployer._k8s = _mock_k8s()
 
-        deployer.provider.pre_helm_install(deployer)
+        deployer.provider.setup_content(deployer)
 
         deployer._k8s.ensure_pvc.assert_called_once_with(
             "nautobot-custom-jobs",
@@ -2250,7 +2295,7 @@ class TestK8sClientIntegration:
         deployer = Deployer(_make_config(), DeployOptions(), callback)
         deployer._k8s = _mock_k8s()
 
-        deployer.provider.pre_helm_install(deployer)
+        deployer.provider.setup_content(deployer)
 
         assert dict(callback.step_updates)["setup-jobs-pvc"] == StepStatus.SKIPPED
         deployer._k8s.ensure_pvc.assert_not_called()

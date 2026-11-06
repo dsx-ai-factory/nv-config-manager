@@ -97,6 +97,13 @@ def generate_air_sim_install_config(
     settings = provider_hooks.install_settings(cfg) if provider_hooks is not None else {}
     if settings:
         dcim["settings"] = settings
+    seeded = provider_hooks.install_secrets(cfg) if provider_hooks is not None else {}
+    secrets: dict[str, Any] = {
+        "method": "kubernetes",
+        "config_manager_service_username": NVCM_SECRETS["nvcm_user"],
+    }
+    if seeded:
+        secrets["k8s"] = {group: {"values": dict(values)} for group, values in seeded.items()}
 
     network_secrets = [
         {
@@ -119,10 +126,7 @@ def generate_air_sim_install_config(
             "mock_devices": False,
             "size": cfg.size,
         },
-        "secrets": {
-            "method": "kubernetes",
-            "config_manager_service_username": NVCM_SECRETS["nvcm_user"],
-        },
+        "secrets": secrets,
         "network_secrets": network_secrets,
         "git_tokens": [],
         "sites": [{"name": site_name}],

@@ -36,7 +36,7 @@ _ATTRIBUTION_WORKLOADS = (
     ("Deployment", "test-nv-config-manager-temporal-api", "api"),
     ("Deployment", "test-nv-config-manager-temporal-nv-config-manager-worker", "worker"),
     ("Deployment", "test-nv-config-manager-render-api", "api"),
-    ("Deployment", "test-nv-config-manager-render-consumer-dcim", "consumer"),
+    ("Deployment", "test-nv-config-manager-render-consumer-nautobot", "consumer"),
     ("Deployment", "test-nv-config-manager-render-consumer-device", "consumer"),
     ("Job", "test-nv-config-manager-render-template-updater", "template-updater"),
 )
@@ -186,7 +186,7 @@ def test_nautobot_renders_backup_scheduler_deployment() -> None:
     assert deployment is not None
     assert deployment["spec"]["replicas"] == 1
     pod_spec = deployment["spec"]["template"]["spec"]
-    assert "wait-for-dcim" in {container["name"] for container in pod_spec["initContainers"]}
+    assert "wait-for-nautobot" in {container["name"] for container in pod_spec["initContainers"]}
     scheduler = _scheduler_container(deployment)
     assert scheduler["command"] == ["nv-config-manager-temporal-scheduler"]
     assert _environment(scheduler)["NVCM_ENABLED_SCHEDULERS"] == "builtin.backup"
@@ -253,7 +253,7 @@ def test_enabling_a_plugin_scheduler_keeps_the_builtin_default() -> None:
     deployment = _scheduler_deployment(_render(f"{_FIXTURE_ENABLED}=true"))
 
     assert _selected_schedulers(deployment) == "builtin.backup,fixture.cleanup"
-    assert "wait-for-dcim" in _init_container_names(deployment)
+    assert "wait-for-nautobot" in _init_container_names(deployment)
 
 
 def test_non_nautobot_default_renders_no_scheduler_deployment() -> None:
@@ -335,7 +335,7 @@ def test_null_requirement_keeps_the_dcim_wait_for_builtin_backup() -> None:
     deployment = _scheduler_deployment(_render(f"{_BACKUP_REQUIREMENT}=null"))
 
     assert _selected_schedulers(deployment) == "builtin.backup"
-    assert "wait-for-dcim" in _init_container_names(deployment)
+    assert "wait-for-nautobot" in _init_container_names(deployment)
 
 
 def test_scheduler_entry_must_be_a_map() -> None:

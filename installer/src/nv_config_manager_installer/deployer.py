@@ -1342,6 +1342,7 @@ class Deployer:
             self._create_namespace()
             self._create_secrets()
             self._populate_vault()
+            self.provider.setup_content(self)
             self._setup_templates_pvc()
             self._setup_ztp_pvc()
             self._generate_values()

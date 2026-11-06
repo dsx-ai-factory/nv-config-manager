@@ -256,6 +256,10 @@ def build_openbao_secret_data(
         "nats": {"password": value("nats", "password") or _generate_nats_config_password()},
     }
     groups.update(provider.openbao_groups(config, value))
+    if not config.dcim.local:
+        for spec in provider.secrets.groups:
+            if spec.local_only:
+                groups.pop(spec.name, None)
     for database in application_databases(provider):
         user_key, password_key = database_secret_keys(database)
         groups["postgres"][user_key] = value("postgres", user_key) or database

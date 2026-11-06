@@ -96,7 +96,7 @@ renderService:
     nodeSelector: null
     affinity: null
   consumers:
-    nautobot:
+    dcim:
       replicas: 1
       resources:
         requests:

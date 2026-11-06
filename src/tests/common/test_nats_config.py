@@ -136,7 +136,7 @@ def test_dcim_change_explicit_config_takes_precedence_over_legacy_fallbacks():
 
 def test_dcim_api_prefix_and_consumer_name_defaults():
     assert nats_dcim_api_prefix(_config()) == "$JS.API"
-    assert nats_dcim_consumer_name(_config()) == "nv-config-manager-nautobot"
+    assert nats_dcim_consumer_name(_config()) == "nv-config-manager-dcim"
 
 
 def test_dcim_api_prefix_and_consumer_name_use_legacy_nautobot_fallbacks():

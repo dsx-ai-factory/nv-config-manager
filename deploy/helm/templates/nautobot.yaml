@@ -227,6 +227,9 @@ spec:
         - |
           set -e
           NV_CONFIG_MANAGER_SERVER="nats://${NATS_USER}:${NATS_PASSWORD}@{{ $natsName }}:4222"
+          {{- if .Values.nautobotNats.accounts.nautobot.enabled }}
+          NAUTOBOT_SERVER="nats://${NAUTOBOT_USER}:${NAUTOBOT_PASSWORD}@{{ $natsName }}:4222"
+          {{- end }}
           CONFIG_MANAGER_STREAM="{{ .Values.externalServices.nats.streams.configManager.name }}"
           CONFIG_MANAGER_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.configManager.subjects }}"
           DCIM_STREAM="{{ include "nv-config-manager.dcimStream" . }}"
@@ -309,10 +312,12 @@ spec:
           value: {{ .Values.externalServices.nats.streams.configManager.name | quote }}
         - name: NV_CONFIG_MANAGER_NATS_STREAM_SUBJECTS
           value: {{ join "," .Values.externalServices.nats.streams.configManager.subjects | quote }}
+        {{- if not (include "nv-config-manager.dcimIsReference" .) }}
         - name: DCIM_NATS_STREAM_NAME
           value: {{ include "nv-config-manager.dcimStream" . | quote }}
         - name: DCIM_NATS_STREAM_SUBJECTS
           value: {{ include "nv-config-manager.dcimSubjects" . | quote }}
+        {{- end }}
         # Deprecated aliases retained for one release.
         - name: NAUTOBOT_NATS_STREAM_NAME
           value: {{ include "nv-config-manager.dcimStream" . | quote }}

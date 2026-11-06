@@ -141,7 +141,7 @@ renderService:
       device:
         minReplicas: 1
         maxReplicas: 2
-      nautobot:
+      dcim:
         minReplicas: 1
         maxReplicas: 2
 

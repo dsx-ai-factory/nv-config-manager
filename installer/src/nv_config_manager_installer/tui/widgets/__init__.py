@@ -67,6 +67,12 @@ class LabeledSwitch(Horizontal):
         yield Static(self._label_text, classes="labeled-switch--label")
         yield Switch(value=self._initial_value, animate=False)
 
+    def set_label(self, label: str) -> None:
+        """Replace the label text."""
+        self._label_text = label
+        if self.is_mounted:
+            self.query_one(".labeled-switch--label", Static).update(label)
+
     def on_switch_changed(self, event: Switch.Changed) -> None:
         event.stop()
         self.post_message(self.Changed(self, event.value))

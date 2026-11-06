@@ -31,9 +31,11 @@ from nv_config_manager_installer.air_sim.installer_config import (
     generate_air_sim_install_config,
 )
 from nv_config_manager_installer.air_sim.prebuilt_configs import load_prebuilt_config
-from nv_config_manager_installer.air_sim.provider import AirInstallerPackages
+from nv_config_manager_installer.air_sim.provider import AirInstallerPackages, AirProviderHooks
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.providers.nautobot.air import NautobotAirHooks, build_content_jobs
+from nv_config_manager_installer.schema import NVConfigManagerInstallConfig
+from nv_config_manager_installer.secrets import generate_secrets
 
 
 def test_install_config_uses_mock_topology_with_paired_template_plugin() -> None:
@@ -82,6 +84,28 @@ def test_install_config_without_provider_hooks_has_no_settings() -> None:
     )
 
     assert install_config["dcim"] == {"provider": "nautobot-2x", "local": True}
+    assert "k8s" not in install_config["secrets"]
+
+
+class _SeedingHooks(AirProviderHooks):
+    def install_secrets(self, cfg: SimConfig) -> dict[str, dict[str, str]]:
+        return {"dcim": {"token": "shared-token"}, "nats": {"password": "sharedNatsPassword1"}}
+
+
+def test_install_config_carries_provider_seeded_secret_values() -> None:
+    cfg = SimConfig(mock_blueprint="air_trial", deployment_name="demo")
+
+    install_config = generate_air_sim_install_config(
+        cfg, site_name="air-demo", lb_allowed_prefixes=[], provider_hooks=_SeedingHooks()
+    )
+
+    assert install_config["secrets"]["method"] == "kubernetes"
+    assert install_config["secrets"]["k8s"] == {
+        "dcim": {"values": {"token": "shared-token"}},
+        "nats": {"values": {"password": "sharedNatsPassword1"}},
+    }
+    loaded = NVConfigManagerInstallConfig.model_validate(install_config)
+    assert generate_secrets(loaded)["nats_password"] == "sharedNatsPassword1"
 
 
 def test_build_content_jobs_appends_extra_jobs() -> None:

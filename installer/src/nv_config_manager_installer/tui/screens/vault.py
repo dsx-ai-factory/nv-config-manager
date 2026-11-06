@@ -27,7 +27,7 @@ from textual.widgets import Button, Input, Label, RadioButton, RadioSet
 from nv_config_manager_installer.k8s import K8sClient
 from nv_config_manager_installer.openbao import OpenBaoClient, OpenBaoError
 from nv_config_manager_installer.providers.api import DCIMInstallerProvider
-from nv_config_manager_installer.providers.registry import installed_provider
+from nv_config_manager_installer.providers.registry import installed_provider, provider_display_name
 from nv_config_manager_installer.schema import (
     GitTokenEntry,
     K8sSecretGroup,
@@ -62,8 +62,8 @@ _LABEL_API_TOKEN = "API Token"
 _VAULT_PRESENT_SENTINEL = "vault-value-present"
 
 # Writable secret values shared by Kubernetes and Vault modes. Provider groups
-# are inserted after ``network``; the generic ``dcim``/``nats`` cards are shown
-# only for providers that do not declare their own credential groups.
+# are placed by ``SecretGroupSpec.after``; the generic ``dcim``/``nats`` cards are
+# shown only for providers that do not declare their own credential groups.
 _CORE_K8S_GROUPS: list[tuple[str, str, bool, list[tuple[str, str]]]] = [
     (
         "dcim",
@@ -152,48 +152,65 @@ _CORE_K8S_GROUPS: list[tuple[str, str, bool, list[tuple[str, str]]]] = [
 ]
 
 
+_K8sGroup = tuple[str, str, bool, list[tuple[str, str]]]
+_PathGroup = tuple[str, str, dict[str, str]]
+
+
 def _database_fields(database: str) -> list[tuple[str, str]]:
     user_key, password_key = database_secret_keys(database)
     label = database.replace("_", " ").title()
     return [(user_key, f"{label} DB User"), (password_key, f"{label} DB Password")]
 
 
-def k8s_groups(
-    provider: DCIMInstallerProvider | None,
-) -> list[tuple[str, str, bool, list[tuple[str, str]]]]:
+def _place[T](core: list[tuple[str, T]], provider: list[tuple[str, T]]) -> list[T]:
+    """Interleave provider cards after the core group each names ("" = first)."""
+    known = {name for name, _item in core}
+    placed = [item for after, item in provider if after == ""]
+    for name, item in core:
+        placed.append(item)
+        placed.extend(p_item for after, p_item in provider if after == name)
+    placed.extend(item for after, item in provider if after and after not in known)
+    return placed
+
+
+def k8s_groups(provider: DCIMInstallerProvider | None) -> list[_K8sGroup]:
     """Return ``(field, label, optional, fields)`` cards for core and provider groups."""
     provider_groups = list(provider.secrets.groups) if provider is not None else []
     databases = tuple(provider.secrets.databases) if provider is not None else ()
-    groups: list[tuple[str, str, bool, list[tuple[str, str]]]] = []
+    core: list[tuple[str, _K8sGroup]] = []
     for field_name, label, optional, fields in _CORE_K8S_GROUPS:
         if field_name in {"dcim", "nats"} and provider_groups:
             continue
         if field_name == "postgres":
             fields = [*fields, *(f for db in databases for f in _database_fields(db))]
-        groups.append((field_name, label, optional, list(fields)))
-        if field_name == "network":
-            groups.extend(
-                (spec.name, spec.label, spec.optional, list(spec.fields))
-                for spec in provider_groups
-            )
-    return groups
+        core.append((field_name, (field_name, label, optional, list(fields))))
+    extra: list[tuple[str, _K8sGroup]] = [
+        (
+            spec.after if spec.k8s_after is None else spec.k8s_after,
+            (spec.name, spec.k8s_label or spec.label, spec.optional, list(spec.fields)),
+        )
+        for spec in provider_groups
+    ]
+    return _place(core, extra)
 
 
-def path_groups(provider: DCIMInstallerProvider | None) -> list[tuple[str, str, dict[str, str]]]:
+def path_groups(provider: DCIMInstallerProvider | None) -> list[_PathGroup]:
     """Return ``(field, label, default_keys)`` vault path cards for core and provider groups."""
     defaults = (
         {field: keys for field, _helm_key, _suffix, keys in vault_path_groups(provider)}
         if provider is not None
         else {}
     )
-    groups: list[tuple[str, str, dict[str, str]]] = []
-    for field_name, label in _CORE_PATH_GROUPS:
-        groups.append((field_name, label, dict(defaults.get(field_name, {}))))
-        if field_name == "network" and provider is not None:
-            groups.extend(
-                (spec.name, spec.label, dict(spec.keys)) for spec in provider.secrets.groups
-            )
-    return groups
+    provider_groups = list(provider.secrets.groups) if provider is not None else []
+    core: list[tuple[str, _PathGroup]] = [
+        (field_name, (field_name, label, dict(defaults.get(field_name, {}))))
+        for field_name, label in _CORE_PATH_GROUPS
+        if not (field_name in {"dcim", "nats"} and provider_groups)
+    ]
+    extra: list[tuple[str, _PathGroup]] = [
+        (spec.after, (spec.name, spec.label, dict(spec.keys))) for spec in provider_groups
+    ]
+    return _place(core, extra)
 
 
 class _K8sSecretCard(Vertical):
@@ -691,7 +708,7 @@ class SecretsScreen(Container):
         yield Label("Git Repository Tokens", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
         yield Label(
-            "Tokens for DCIM git repository sync (e.g. Prismo). "
+            f"Tokens for {provider_display_name(self._config)} git repository sync (e.g. Prismo). "
             "Each is written to a Kubernetes Secret or its configured Vault path.",
         )
         yield Button("+ Add Git Token", id="add-gt", classes="add-button")

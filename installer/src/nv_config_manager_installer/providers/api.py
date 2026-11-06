@@ -84,7 +84,13 @@ class SecretGroupSpec:
     fields: tuple[tuple[str, str], ...] = ()
     enabled_default: bool = True
     optional: bool = False
+    # Values are written only when the DCIM runs in the cluster (dcim.local).
     local_only: bool = False
+    # Wizard placement: the core group this card follows ("" places it first).
+    after: str = "network"
+    # Placement and label for the Kubernetes-mode card; None/"" reuse after/label.
+    k8s_after: str | None = None
+    k8s_label: str = ""
 
 
 @dataclass(frozen=True)
@@ -251,6 +257,9 @@ class DCIMInstallerProvider:
 
     def create_secrets(self, ctx: ProviderDeployContext, step: DeployStep) -> None:
         """Create provider-owned Kubernetes Secrets."""
+
+    def setup_content(self, ctx: ProviderDeployContext) -> None:
+        """Load provider content once Vault is populated, before the core content PVCs."""
 
     def pre_helm_install(self, ctx: ProviderDeployContext) -> None:
         """Run provider steps before the umbrella Helm release."""

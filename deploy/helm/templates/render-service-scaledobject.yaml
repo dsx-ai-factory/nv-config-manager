@@ -34,11 +34,12 @@ so the two cannot disagree about which Prometheus KEDA queries.
 {{- if $autoscaling.consumers }}
 {{- range $consumerType := list "device" "template" "dcim" }}
 {{- $isDcim := eq $consumerType "dcim" }}
-{{- /* The deprecated consumers.nautobot values are honored for the dcim consumer. */ -}}
-{{- $consumerConfig := index $autoscaling.consumers $consumerType }}
+{{- /* The deprecated consumers.nautobot values are merged over the dcim consumer. */ -}}
+{{- $consumerConfig := index $autoscaling.consumers $consumerType | default dict }}
 {{- if and $isDcim $autoscaling.consumers.nautobot }}
-{{- $consumerConfig = $autoscaling.consumers.nautobot }}
+{{- $consumerConfig = mergeOverwrite (deepCopy $consumerConfig) (deepCopy $autoscaling.consumers.nautobot) }}
 {{- end }}
+{{- $workloadType := ternary (include "nv-config-manager.dcimConsumerSuffix" $) $consumerType $isDcim }}
 {{- $streamName := ternary (include "nv-config-manager.dcimStream" $) $.Values.externalServices.nats.streams.configManager.name $isDcim }}
 {{- $consumerName := ternary (include "nv-config-manager.dcimConsumerName" $) (include "nv-config-manager.configManagerConsumerName" $) $isDcim }}
 {{- if $consumerConfig.enabled }}
@@ -55,16 +56,16 @@ natsMetricsLabels to identify the NATS exporter using the backend's label names.
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ $serviceName }}-consumer-{{ $consumerType }}
+  name: {{ $serviceName }}-consumer-{{ $workloadType }}
   namespace: {{ $namespace }}
   labels:
     app: {{ $serviceName }}
-    component: consumer-{{ $consumerType }}
+    component: consumer-{{ $workloadType }}
     app.kubernetes.io/name: nv-config-manager
     app.kubernetes.io/component: render-service-autoscaling
 spec:
   scaleTargetRef:
-    name: {{ $serviceName }}-consumer-{{ $consumerType }}
+    name: {{ $serviceName }}-consumer-{{ $workloadType }}
 {{- /*
   Not `default 1`: sprig treats 0 as empty, so an explicit minReplicas: 0 would
   silently become 1 and scale-to-zero -- the one mode pollingInterval and

@@ -26,6 +26,7 @@ from textual.containers import Container
 from textual.widgets import Button, Input, Label, RadioButton, Select
 
 from nv_config_manager_installer.deployer import Deployer, DeployOptions
+from nv_config_manager_installer.providers import registry
 from nv_config_manager_installer.providers.api import (
     DCIMInstallerProvider,
     DeployStepsContribution,
@@ -58,6 +59,7 @@ from nv_config_manager_installer.tui.app import NVConfigManagerInstallerApp
 from nv_config_manager_installer.tui.screens.cluster import ClusterScreen
 from nv_config_manager_installer.tui.screens.deploy import DeployScreen
 from nv_config_manager_installer.tui.screens.network_secrets import NetworkSecretsScreen
+from nv_config_manager_installer.tui.screens.vault import k8s_groups, path_groups
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
 
@@ -310,7 +312,7 @@ async def test_external_services_separates_dcim_and_nats() -> None:
         screen = app._screens["external_services"]
 
         assert screen.query_one("#ext-dcim-provider", Select).value == BUILT_IN_NAUTOBOT_PROVIDER
-        screen.query_one("#ext-dcim-local", LabeledSwitch).value = True
+        screen.query_one("#ext-dcim-external", LabeledSwitch).value = False
         screen.query_one("#ext-nats-enabled", LabeledSwitch).value = True
         screen.query_one("#ext-nats-server", Input).value = "nats://nats.example.com:4222"
         screen.query_one("#ext-nats-auth-method").value = NATSAuthMethod.JWT.value
@@ -334,7 +336,9 @@ async def test_external_services_keeps_external_provider_on_save() -> None:
         app.switch_section("external_services")
         screen = app._screens["external_services"]
         assert screen.query_one("#ext-dcim-provider", Select).value == "synthetic"
-        assert screen.query_one("#ext-dcim-local", LabeledSwitch).disabled is True
+        external = screen.query_one("#ext-dcim-external", LabeledSwitch)
+        assert external.disabled is True
+        assert external.value is True
 
         screen.write_to_config(config)
 
@@ -342,6 +346,53 @@ async def test_external_services_keeps_external_provider_on_save() -> None:
         assert config.dcim.local is False
         assert config.dcim.server == "https://synthetic.example"
         assert "ingest_data" not in app._screens
+
+
+@pytest.mark.asyncio
+async def test_external_services_matches_reference_layout_with_one_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With only Nautobot installed, the DCIM controls read as they did before providers."""
+    entry_points = registry._entry_points_for_group
+    monkeypatch.setattr(
+        registry,
+        "_entry_points_for_group",
+        lambda: tuple(ep for ep in entry_points() if ep.name != "synthetic"),
+    )
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("external_services")
+        screen = app._screens["external_services"]
+
+        assert screen.query_one("#ext-dcim-provider-row").display is False
+        assert str(screen.query_one("#ext-dcim-title", Label).render()) == "Nautobot"
+        external = screen.query_one("#ext-dcim-external", LabeledSwitch)
+        assert external.value is False
+        assert external._label_text == "Use external Nautobot"
+        assert str(screen.query_one("#ext-pg-dcim-label", Label).render()) == "Nautobot host"
+
+
+@pytest.mark.asyncio
+async def test_external_services_labels_follow_selected_provider() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("external_services")
+        screen = app._screens["external_services"]
+        assert screen.query_one("#ext-dcim-provider-row").display is True
+
+        screen.query_one("#ext-dcim-provider", Select).value = "synthetic"
+        await pilot.pause(0.1)
+
+        assert str(screen.query_one("#ext-dcim-title", Label).render()) == "Synthetic DCIM"
+        external = screen.query_one("#ext-dcim-external", LabeledSwitch)
+        assert external._label_text == "Use external Synthetic DCIM"
+        assert external.value is True
+        assert screen.query_one("#ext-dcim-fields").display is True
+        await pilot.pause(0.3)  # let the provider-dependent screens finish rebuilding
 
 
 @pytest.mark.asyncio
@@ -800,3 +851,41 @@ async def test_app_secrets_jwt_presence_guidance_requires_environment_token(monk
         await app.workers.wait_for_complete()
         status = app._screens["secrets"].query_one("#vault-presence-status")
         assert "JWT presence checks require VAULT_TOKEN or OPENBAO_TOKEN" in str(status.render())
+
+
+def test_nautobot_secret_cards_keep_reference_order() -> None:
+    """Nautobot's cards sit where the pre-provider wizard showed them."""
+    provider = NautobotInstallerProvider()
+
+    assert [label for _f, label, _o, _k in k8s_groups(provider)] == [
+        "Nautobot",
+        "Redis",
+        "PostgreSQL",
+        "Nautobot App",
+        "Network / Device Credentials",
+        "Slack",
+        "Jira",
+        "CNPG Backup S3",
+        "ZTP S3",
+    ]
+    assert [label for _f, label, _k in path_groups(provider)] == [
+        "Nautobot",
+        "Redis",
+        "PostgreSQL",
+        "Network/Device Creds",
+        "Nautobot App (admin/django)",
+        "OIDC / SSO",
+        "Redfish Credentials",
+        "BMC Credentials JSON",
+        "Slack",
+        "Jira",
+        "CNPG Backup S3",
+        "ZTP S3",
+    ]
+
+
+def test_generic_dcim_and_nats_cards_shown_without_provider_groups() -> None:
+    provider = registry.get_installer_provider("synthetic")
+
+    assert [f for f, *_ in k8s_groups(provider)][:2] == ["dcim", "nats"]
+    assert [f for f, *_ in path_groups(provider)][:2] == ["dcim", "nats"]

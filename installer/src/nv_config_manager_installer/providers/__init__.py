@@ -40,6 +40,7 @@ from nv_config_manager_installer.providers.registry import (
     discover_installer_providers,
     get_installer_provider,
     installed_provider,
+    installer_provider_errors,
     resolve_provider,
 )
 
@@ -64,6 +65,7 @@ __all__ = [
     "TUIContribution",
     "discover_installer_providers",
     "get_installer_provider",
+    "installer_provider_errors",
     "installed_provider",
     "resolve_provider",
 ]

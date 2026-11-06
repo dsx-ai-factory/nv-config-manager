@@ -20,8 +20,17 @@ from textual.app import ComposeResult
 from textual.containers import Container
 from textual.widgets import Label
 
+from nv_config_manager_installer.providers.registry import provider_display_name
 from nv_config_manager_installer.schema import NVConfigManagerInstallConfig
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
+
+
+def _services_hint(config: NVConfigManagerInstallConfig) -> str:
+    return (
+        "Enable or disable each service. "
+        "Template Plugins and OS Images panels configure per-service storage and scheduling. "
+        f"{provider_display_name(config)} is configured in External Services."
+    )
 
 
 class ServicesScreen(Container):
@@ -35,11 +44,7 @@ class ServicesScreen(Container):
         svc = self._config.services
         yield Label("Services", classes="section-title")
         yield Label("─" * 40, classes="section-divider")
-        yield Label(
-            "Enable or disable each service. "
-            "Template Plugins and OS Images panels configure per-service storage and scheduling. "
-            "The DCIM provider is configured in External Services.",
-        )
+        yield Label(_services_hint(self._config), id="svc-hint")
 
         yield LabeledSwitch("Render Service", value=svc.render, id="svc-render")
         yield LabeledSwitch("ZTP Service", value=svc.ztp, id="svc-ztp")
@@ -55,6 +60,7 @@ class ServicesScreen(Container):
         config.services.config_store = self.query_one("#svc-config-store", LabeledSwitch).value
 
     def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
+        self.query_one("#svc-hint", Label).update(_services_hint(config))
         svc = config.services
         self.query_one("#svc-render", LabeledSwitch).value = svc.render
         self.query_one("#svc-ztp", LabeledSwitch).value = svc.ztp

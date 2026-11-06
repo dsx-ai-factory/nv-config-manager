@@ -39,7 +39,7 @@ DEFAULT_CONFIG_MANAGER_DEVICE_CHANGE_SUBJECT = "nv-config-manager.devicechange"
 DEFAULT_CONFIG_MANAGER_ARCHIVE_SUBJECT = "nv-config-manager.workflow.result"
 DEFAULT_NAUTOBOT_NATS_STREAM = "nautobot"
 DEFAULT_NAUTOBOT_NATS_SUBJECT = "nautobot"
-DEFAULT_DCIM_CONSUMER_NAME = "nv-config-manager-nautobot"
+DEFAULT_DCIM_CONSUMER_NAME = "nv-config-manager-dcim"
 
 # Must match the stream settings nats-ready applies (the embedded configs in
 # components/nats-ready, or natsReady.streamMaxBytes with the nats CLI) so a

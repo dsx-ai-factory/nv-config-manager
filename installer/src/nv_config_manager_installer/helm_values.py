@@ -162,6 +162,8 @@ def _build_nlb_service_values(nlb: NLBServiceConfig) -> dict[str, Any]:
 
 
 _DEFAULT_IMAGE_REGISTRY = "nvcr.io/nvidian/cfa"
+# Chart Secret holding the legacy nautobot NATS user password.
+_NAUTOBOT_NATS_SECRET = "nats-nautobot"
 
 _GLOBAL_IMAGE_DEFAULTS: dict[str, tuple[str, str]] = {
     "httpEcho": ("docker.io/hashicorp/http-echo", "1.0"),
@@ -1052,8 +1054,11 @@ def build_values(
         "enabled": not config.external_services.nats.enabled,
         "jetstream": {"enabled": True},
         "natsReady": {"enabled": True, "useNatsCli": True},
-        "accounts": {"nautobot": {"enabled": False}},
     }
+    # The chart enables the legacy nautobot NATS user by default; keep it only
+    # for a provider that owns its password Secret.
+    if _NAUTOBOT_NATS_SECRET not in provider.secrets.nats_secret_names:
+        values["nautobotNats"]["accounts"] = {"nautobot": {"enabled": False}}
 
     values["cnpg"] = _build_cnpg(config)
 

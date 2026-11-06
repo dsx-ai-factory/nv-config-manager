@@ -371,7 +371,8 @@ class attributes:
 - `air`: DSX Air launch status, `AirProviderHooks`, population panel, and Air
   settings model. An external provider returns `AirInstallerPackages` from
   `installer_packages` so the Air box's installer run can load it
-  (`uv run --with`/`--find-links`).
+  (`uv run --with`/`--find-links`), and seeds `secrets.k8s` values it already
+  used from `install_secrets`.
 
 Runtime hooks default to no-ops, so a provider implements only the stages it
 owns. The deployer passes itself as the `ProviderDeployContext` (config,
@@ -383,9 +384,9 @@ options, callback, `k8s`, `secrets_state`, `is_rerun`, NATS user and URL,
   `align_openbao_tokens`.
 - Helm: `helm_values`, deep-merged over the installer-generated values.
 - Deploy: `deploy_steps` (steps spliced before or after core step ids),
-  `detect_existing_state`, `create_secrets`, `pre_helm_install`,
-  `post_helm_install`, `post_gateway`, `post_restart`, `refresh_caches_needed`,
-  `integration_test_env`.
+  `detect_existing_state`, `create_secrets`, `setup_content`,
+  `pre_helm_install`, `post_helm_install`, `post_gateway`, `post_restart`,
+  `refresh_caches_needed`, `integration_test_env`.
 - Summary: `endpoints`, `bootstrap_secret_hints`.
 
 Core Helm values always emit disabled reference-provider stubs
@@ -427,9 +428,9 @@ instances. Leave overrides disabled to use the default in-cluster deployments.
 
 | Field | Description |
 |-------|-------------|
-| DCIM Provider | Select from installed providers (`nvcm-installer providers list`); stored as `dcim.provider` |
-| Deploy in cluster | Toggle for `dcim.local`; deploys the provider's in-cluster stack. Disabled when the provider supports only one mode |
-| DCIM endpoint | `dcim.server`; required when not deploying in cluster |
+| DCIM Provider | Select from installed providers (`nvcm-installer providers list`); stored as `dcim.provider`. Shown only when more than one provider is installed |
+| Use external <provider> | Inverse of `dcim.local`; off deploys the provider's in-cluster stack. Disabled when the provider supports only one mode |
+| <provider> endpoint | `dcim.server`; required when the provider is external |
 | Provider fields | Optional panel supplied by the selected provider |
 
 Switching providers resets `dcim.settings`, `dcim.token_secret_name`,

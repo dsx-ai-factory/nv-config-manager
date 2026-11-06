@@ -20,6 +20,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Input, Label, RadioButton, RadioSet
 
+from nv_config_manager_installer.providers.registry import provider_display_name
 from nv_config_manager_installer.schema import DeploySize, NVConfigManagerInstallConfig, SiteConfig
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
@@ -70,6 +71,11 @@ class _CustomLabelRow(Horizontal):
             self.query_one(f"#{prefix}-key", Input).value.strip(),
             self.query_one(f"#{prefix}-value", Input).value.strip(),
         )
+
+
+def _sites_hint(config: NVConfigManagerInstallConfig) -> str:
+    name = provider_display_name(config)
+    return f"Each name must match the slug of the corresponding {name} Location."
 
 
 class ClusterScreen(Container):
@@ -145,8 +151,9 @@ class ClusterScreen(Container):
         yield Label("─" * 40, classes="section-divider")
         yield Label("Data centers managed by this NVIDIA Config Manager deployment.")
         yield Label(
-            "Each name must match the slug of the corresponding DCIM location.",
+            _sites_hint(self._config),
             classes="field-label-compact",
+            id="cluster-sites-hint",
         )
         yield Label(
             "Sites are used to scope per-site network secrets (device login, BGP passwords, etc.).",
@@ -252,6 +259,7 @@ class ClusterScreen(Container):
         """Refresh widget values from the config model."""
         self._config = config
         c = config.cluster
+        self.query_one("#cluster-sites-hint", Label).update(_sites_hint(config))
         self._custom_label_items = list(c.custom_labels.items())
         self.query_one("#cluster-hostname", Input).value = c.hostname
         self.query_one("#cluster-environment", Input).value = c.environment

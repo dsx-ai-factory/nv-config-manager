@@ -147,17 +147,18 @@ spec:
     component: api
 ---
 # Render Service - DCIM Consumer Deployment
-{{- /* The deprecated consumers.nautobot values are honored when present. */}}
-{{- $dcimConsumer := .Values.renderService.consumers.nautobot | default .Values.renderService.consumers.dcim }}
-{{- $dcimAutoscaling := .Values.renderService.autoscaling.consumers.nautobot | default .Values.renderService.autoscaling.consumers.dcim }}
+{{- /* The deprecated consumers.nautobot values are merged over consumers.dcim. */}}
+{{- $dcimConsumer := mergeOverwrite (deepCopy (.Values.renderService.consumers.dcim | default dict)) (deepCopy (.Values.renderService.consumers.nautobot | default dict)) }}
+{{- $dcimAutoscaling := mergeOverwrite (deepCopy (.Values.renderService.autoscaling.consumers.dcim | default dict)) (deepCopy (.Values.renderService.autoscaling.consumers.nautobot | default dict)) }}
+{{- $dcimSuffix := include "nv-config-manager.dcimConsumerSuffix" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ $renderName }}-consumer-dcim
+  name: {{ $renderName }}-consumer-{{ $dcimSuffix }}
   namespace: {{ .Values.global.namespace }}
   labels:
     app: {{ $renderName }}
-    component: consumer-dcim
+    component: consumer-{{ $dcimSuffix }}
     app.kubernetes.io/name: nv-config-manager
     app.kubernetes.io/component: render-service
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -168,13 +169,13 @@ spec:
   selector:
     matchLabels:
       app: {{ $renderName }}
-      component: consumer-dcim
+      component: consumer-{{ $dcimSuffix }}
   {{- include "nv-config-manager.deploymentStrategy" (dict "root" .) | nindent 2 }}
   template:
     metadata:
       labels:
         app: {{ $renderName }}
-        component: consumer-dcim
+        component: consumer-{{ $dcimSuffix }}
         {{- include "nv-config-manager.spiffe.podLabels" . | nindent 8 }}
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:

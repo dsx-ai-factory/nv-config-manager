@@ -621,6 +621,60 @@ class TestNVConfigManagerInstallConfig:
         assert "nautobot_app" not in switched.secrets.k8s.model_dump()
         assert "nautobot" not in switched.secrets.vault.paths.model_dump()
 
+    def test_config_saved_before_providers_loads_for_another_provider(self):
+        """A pre-provider config wrote Nautobot's Vault key maps for every provider."""
+        config = NVConfigManagerInstallConfig.model_validate(
+            {
+                "dcim": {"provider": "synthetic", "server": "https://dcim"},
+                "services": {"nautobot": False, "external_nautobot_url": ""},
+                "secrets": {
+                    "method": "eso",
+                    "vault": {
+                        "server": "https://vault",
+                        "paths": {
+                            "dcim": {"enabled": True},
+                            "nautobot": {
+                                "enabled": True,
+                                "path": "",
+                                "keys": {
+                                    "token": "token",
+                                    "readOnlyToken": "read_only_token",
+                                    "natsPassword": "nats_password",
+                                    "natsSysPassword": "nats_sys_password",
+                                    "natsNautobotPassword": "nats_nautobot_password",
+                                },
+                            },
+                            "nautobot_app": {
+                                "enabled": True,
+                                "path": "",
+                                "keys": {
+                                    "adminPassword": "admin_password",
+                                    "djangoSecretKey": "django_secret_key",
+                                    "superuserApiToken": "superuser_api_token",
+                                },
+                            },
+                        },
+                    },
+                    "k8s": {
+                        "nautobot": {"enabled": True, "values": {}},
+                        "nautobot_app": {"enabled": True, "values": {}},
+                    },
+                },
+            }
+        )
+
+        assert "nautobot" not in config.secrets.vault.paths.model_dump()
+        assert "nautobot_app" not in config.secrets.k8s.model_dump()
+
+    def test_customised_vault_path_of_another_provider_is_rejected(self):
+        with pytest.raises(ValueError, match="Unknown secret group.*nautobot"):
+            NVConfigManagerInstallConfig.model_validate(
+                {
+                    "dcim": {"provider": "synthetic", "local": False, "server": "https://dcim"},
+                    "secrets": {"vault": {"paths": {"nautobot": {"path": "custom/nb"}}}},
+                }
+            )
+
 
 class TestImagesConfig:
     def test_defaults(self):

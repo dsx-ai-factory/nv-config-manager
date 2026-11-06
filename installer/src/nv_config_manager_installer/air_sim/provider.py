@@ -77,6 +77,14 @@ class AirProviderHooks:
         """Return the ``dcim.settings`` block for the generated installer config."""
         return {}
 
+    def install_secrets(self, cfg: SimConfig) -> dict[str, dict[str, str]]:
+        """Return ``secrets.k8s`` group values for the generated installer config.
+
+        Lets values a provider already used in ``pre_deploy`` (an API token, a
+        NATS password) reach the box's deploy instead of being generated again.
+        """
+        return {}
+
     def prepare_images(self, cfg: SimConfig, log: Callable[[str], None]) -> None:
         """Build or pull provider-owned images before the simulation is created."""
 

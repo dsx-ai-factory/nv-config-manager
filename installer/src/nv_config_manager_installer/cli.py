@@ -44,6 +44,7 @@ from nv_config_manager_installer.providers.api import DCIMInstallerProvider
 from nv_config_manager_installer.providers.errors import InstallerProviderError
 from nv_config_manager_installer.providers.registry import (
     discover_installer_providers,
+    installer_provider_errors,
     resolve_provider,
 )
 from nv_config_manager_installer.pvc_updater import (
@@ -86,11 +87,9 @@ def providers_command() -> None:
 @providers_command.command("list")
 def providers_list() -> None:
     """List installed DCIM installer providers."""
-    try:
-        providers = discover_installer_providers()
-    except InstallerProviderError as exc:
-        raise click.ClickException(str(exc)) from exc
-    if not providers:
+    providers = discover_installer_providers()
+    errors = installer_provider_errors()
+    if not providers and not errors:
         click.echo("No DCIM installer providers are installed.")
         return
     for name, provider in sorted(providers.items()):
@@ -104,6 +103,8 @@ def providers_list() -> None:
             f"{name:<16} {meta.display_name:<16} api={','.join(meta.supported_api_versions)} "
             f"modes={'/'.join(modes)}  module={type(provider).__module__}"
         )
+    for name, error in sorted(errors.items()):
+        click.echo(f"{name:<16} unavailable: {error}", err=True)
 
 
 @main.command()

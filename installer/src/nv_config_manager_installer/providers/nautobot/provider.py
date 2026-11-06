@@ -152,7 +152,7 @@ class NautobotInstallerProvider(DCIMInstallerProvider):
     def create_secrets(self, ctx: ProviderDeployContext, step: DeployStep) -> None:
         deploy.create_secrets(ctx, step)
 
-    def pre_helm_install(self, ctx: ProviderDeployContext) -> None:
+    def setup_content(self, ctx: ProviderDeployContext) -> None:
         deploy.setup_jobs_pvc(ctx)
 
     def post_gateway(self, ctx: ProviderDeployContext) -> None:
