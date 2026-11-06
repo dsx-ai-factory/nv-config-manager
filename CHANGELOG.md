@@ -8,19 +8,50 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+## 1.4.2
+
+Changes since 1.4.1, prepared against `1.4.2-rc.2`. Release promotion is pending.
+
 ### Added
 
+- Added [Cisco IOS XR support](docs/user-guides/cisco-ios-xr/index.mdx)
+  over NETCONF for configuration backup and deployment, cable validation,
+  password rotation, and diagnostics. Rescue configuration and OS image
+  installation are not supported.
+- Added [Arista EOS zero-touch provisioning](docs/network-ztp/configuration.mdx)
+  and [password rotation](docs/temporal/workflows/device-password-rotation.mdx).
+  EOS provisioning requires a matching boot-script template and a reachable
+  ZTP SFTP endpoint for the intended configuration.
+- Added [workflow plugin images](docs/temporal/temporal-deployment.mdx#workflow-plugins)
+  with startup validation and Helm-managed API access rules.
+- Added installer `cluster.custom_labels` for Kubernetes resources and exported
+  metrics. Configure them in the TUI's **Cluster** screen or in
+  [installer YAML](docs/install/configuration-samples.mdx#custom-deployment-labels).
+- Added separate controls for Temporal History replicas and persisted shards.
+  [Pin an existing cluster's shard count](docs/temporal/temporal-deployment.mdx#history-shards-and-replicas)
+  before scaling replicas.
 - DHCP container probes (liveness, readiness, startup) are now configurable per
   container (`kea`, `healthcheck`, `api`, `confgen`) through
-  `networkDhcp.probes` in the Helm values. Any Kubernetes probe field can be
-  set, probes can be disabled with `enabled: false`, and off-by-default probes
-  can be enabled. Defaults render exactly as before.
+  [`networkDhcp.probes`](docs/dhcp/index.mdx#configure-container-probes)
+  in Helm values. Existing probe defaults are preserved.
 
 ### Changed
-- Updated the
- managed Temporal server and bootstrap tools from 1.30.8 to 1.31.4.
+
+- Updated the managed Temporal server and bootstrap tools from 1.30.7 in
+  1.4.1 to 1.31.5, through the intermediate 1.30.8 update.
   The frontend init container upgrades PostgreSQL core/visibility schemas to
-  1.19/1.14; see the [upgrade and rollback notes](docs/temporal/temporal-deployment.mdx#upgrading-from-temporal-1308-to-1314).
+  1.19/1.14. Review the [upgrade and rollback notes](docs/temporal/temporal-deployment.mdx#upgrading-from-temporal-1308-to-1315)
+  before upgrading an existing deployment.
+- Direct Vault lookups from `load_secret` now require `VAULT_ADDR`. Set
+  `VAULT_NAMESPACE` when needed. File-backed secret loading, including
+  ESO-synced configuration secrets, is unchanged. Review
+  [local template testing](docs/render/template-expansion.mdx#local-plugin-testing)
+  when upgrading.
+- Short workflow attribution identities can use the optional
+  [`global.defaultUserDomain`](docs/temporal/temporal-deployment.mdx#workflow-attribution-domain)
+  fallback. Authenticated email identities retain their own domain.
+- Updated the bundled Nautobot image to 2.4.45 and refreshed CA trust in runtime
+  images. Custom OIDC proxy images must provide refreshed CA stores.
 
 ### Fixed
 
@@ -31,12 +62,33 @@ version before the selected release candidate is promoted.
   `images.source: local` check for clusters that can use locally built images.
 - Installer content hashes no longer depend on wall-clock time, preventing
   unchanged jobs and templates from being detected as changed across runs.
-- The AIR Hyper-reach fixture now installs its LLDP host in a chassis DeviceBay
-  and advertises the chassis name, enabling parent-chassis validation in simulation.
+- Gateway retries recover requests that never reached a backend during endpoint
+  changes. Browser-proxy HTTP 502 retries are limited to GET and HEAD. Review the
+  [retry settings](docs/install/gateway-api.mdx#gateway-retries) for controller and
+  shared-Gateway behavior.
+- DHCP readiness compares the running Kea configuration with the desired
+  configuration hash, so readiness reflects whether configuration has converged.
+- MCP starts when DHCP is not deployed. DHCP requests report that the service
+  is unavailable while other MCP capabilities remain usable. Workflow response
+  redaction also preserves pagination metadata.
+- The Configs page opens a device when you select its row outside action buttons.
 - `temporal.gateway.devUi.allowedGroups` is now enforced by the OIDC proxy. It
   was previously ignored, so every authenticated user could open Temporal Web
   and act on any workflow. Deployments that set it will start returning 403 to
   users outside the listed groups.
+
+## 1.4.1
+
+### Added
+
+- Added Hyper-reach cable validation and its AIR demonstration. These features
+  were backported to the 1.4.1 release branch.
+
+### Fixed
+
+- The AIR Hyper-reach fixture installs its LLDP host in a chassis DeviceBay and
+  advertises the chassis name, enabling parent-chassis validation in simulation.
+  The accompanying documentation and report examples use the chassis identity.
 
 ## 1.4.0
 
