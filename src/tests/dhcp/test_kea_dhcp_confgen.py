@@ -14,6 +14,7 @@
 # limitations under the License.
 import ipaddress
 import json
+import logging
 import os
 from copy import deepcopy
 from unittest.mock import patch
@@ -27,6 +28,9 @@ from nv_config_manager.dhcp.kea import KeaClient
 from nv_config_manager.dhcp.kea_dhcp_confgen import (
     DhcpConfigGenerationError,
     _format_options_for_kea,
+    _generate_automatic_dhcp_subnets_and_reservations,
+    _generate_config_candidate,
+    _generate_reservations,
     generate_config,
     inject_lease_db_config,
 )
@@ -92,6 +96,18 @@ class MockRedisClient(RedisClient):
     async def save_kea_config(self, config: dict, version: int) -> None:
         """Store the config for future reference."""
         self._config = config
+
+
+class TrackingRedisClient(MockRedisClient):
+    """Track whether generation reached subnet-ID preservation."""
+
+    def __init__(self):
+        super().__init__()
+        self.load_called = False
+
+    async def load_kea_config(self, version: int) -> dict:
+        self.load_called = True
+        return await super().load_kea_config(version)
 
 
 async def _wait_for_status(kea_client: KeaClient):
@@ -371,6 +387,247 @@ class MockFailingNautobotClient(MockNautobotClient):
             return []
 
 
+class MockMultipleGenerationErrorsClient(MockNautobotClient):
+    """Mock independent failures across the config-generation stages."""
+
+    async def load_auto_dhcp_subnets(
+        self, family: int = 4, is_aggregate_managed: bool | None = None
+    ):
+        subnets = [
+            {
+                "prefix": ipaddress.ip_network(prefix),
+                "gateway": ipaddress.ip_address(gateway),
+                "pool_ips": [],
+                "option_candidates": [],
+                "reservations": [
+                    {
+                        "address": ipaddress.ip_address(address),
+                        "mac_address": None,
+                        "serial": None,
+                        "device_name": device_name,
+                        "interface_name": "eth0",
+                        "interface_role": "management",
+                        "device_id": device_id,
+                    }
+                ],
+            }
+            for prefix, gateway, address, device_name, device_id in [
+                (
+                    "192.0.2.0/24",
+                    "192.0.2.1",
+                    "192.0.2.10",
+                    "invalid-device-a",
+                    "invalid-device-a-id",
+                ),
+                (
+                    "198.51.100.0/24",
+                    "198.51.100.1",
+                    "198.51.100.10",
+                    "invalid-device-b",
+                    "invalid-device-b-id",
+                ),
+            ]
+        ]
+        subnets.extend(
+            [
+                {
+                    "prefix": ipaddress.ip_network("203.0.113.0/25"),
+                    "gateway": ipaddress.ip_address("203.0.113.1"),
+                    "pool_ips": [ipaddress.ip_address("203.0.113.10")],
+                    "option_candidates": [
+                        {
+                            "address": ipaddress.ip_address("203.0.113.10"),
+                            "mac_address": None,
+                            "serial": None,
+                            "device_name": "invalid-option-candidate",
+                            "interface_name": "eth0",
+                            "interface_role": "management",
+                            "device_id": "invalid-option-candidate-id",
+                        }
+                    ],
+                    "reservations": [],
+                },
+                {
+                    "prefix": ipaddress.ip_network("203.0.113.128/25"),
+                    "gateway": ipaddress.ip_address("203.0.113.129"),
+                    "pool_ips": [],
+                    "option_candidates": [],
+                    "reservations": [
+                        {
+                            "address": ipaddress.ip_address("203.0.113.140"),
+                            "mac_address": "00:11:22:33:44:aa",
+                            "serial": None,
+                            "device_name": "invalid-subnet-config",
+                            "interface_name": "eth0",
+                            "interface_role": "management",
+                            "device_id": "invalid-subnet-config-id",
+                        }
+                    ],
+                },
+                {
+                    "prefix": ipaddress.ip_network("10.0.0.0/24"),
+                    "gateway": ipaddress.ip_address("10.0.0.1"),
+                    "pool_ips": [],
+                    "option_candidates": [],
+                    "reservations": [
+                        {
+                            "address": ipaddress.ip_address("10.0.0.10"),
+                            "mac_address": "00:11:22:33:44:55",
+                            "serial": None,
+                            "device_name": "duplicate-identifier-seed",
+                            "interface_name": "eth0",
+                            "interface_role": "management",
+                            "device_id": "duplicate-identifier-seed-id",
+                        },
+                        {
+                            "address": ipaddress.ip_address("10.0.0.11"),
+                            "mac_address": "00:11:22:33:44:55",
+                            "serial": None,
+                            "device_name": "duplicate-identifier-device",
+                            "interface_name": "eth0",
+                            "interface_role": "management",
+                            "device_id": "duplicate-identifier-device-id",
+                        },
+                    ],
+                },
+            ]
+        )
+        return subnets
+
+    async def load_dhcp_contexts(self, is_aggregate_managed: bool | None = None):
+        return {
+            "invalid-option-candidate-id": {
+                "dhcp": {
+                    "options": {
+                        "interface_roles": {
+                            "management": {
+                                "reservation_options": {
+                                    "boot-file-name": "http://boot.example.com/boot"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "invalid-subnet-config-id": {
+                "dhcp": {
+                    "options": {
+                        "interface_roles": {
+                            "management": {"subnet_config": {"subnet": "203.0.113.0/25"}}
+                        }
+                    }
+                }
+            },
+        }
+
+
+class MockConflictingItemMutationClient(MockNautobotClient):
+    """Mock a conflicting item whose unique option must not leak forward."""
+
+    async def load_auto_dhcp_subnets(
+        self, family: int = 4, is_aggregate_managed: bool | None = None
+    ):
+        return [
+            {
+                "prefix": ipaddress.ip_network("100.64.0.0/24"),
+                "gateway": ipaddress.ip_address("100.64.0.1"),
+                "pool_ips": [],
+                "option_candidates": [],
+                "reservations": [
+                    {
+                        "address": ipaddress.ip_address(f"100.64.0.{address_suffix}"),
+                        "mac_address": f"00:11:22:33:44:{address_suffix:02x}",
+                        "serial": None,
+                        "device_name": device_id,
+                        "interface_name": "eth0",
+                        "interface_role": "management",
+                        "device_id": device_id,
+                    }
+                    for address_suffix, device_id in [
+                        (10, "baseline-device"),
+                        (11, "conflicting-device"),
+                        (12, "following-device"),
+                    ]
+                ],
+            }
+        ]
+
+    async def load_dhcp_contexts(self, is_aggregate_managed: bool | None = None):
+        def context(subnet_options):
+            return {
+                "dhcp": {
+                    "options": {
+                        "interface_roles": {"management": {"subnet_options": subnet_options}}
+                    }
+                }
+            }
+
+        return {
+            "baseline-device": context({"ntp-servers": "10.0.0.1"}),
+            "conflicting-device": context(
+                {
+                    "ntp-servers": "10.0.0.2",
+                    "domain-name-servers": "10.0.0.53",
+                }
+            ),
+            "following-device": context({"domain-name-servers": "10.0.0.54"}),
+        }
+
+
+class MockCollectedThenUnexpectedClient(MockNautobotClient):
+    """Return a domain error followed by malformed provider data."""
+
+    async def load_auto_dhcp_subnets(
+        self, family: int = 4, is_aggregate_managed: bool | None = None
+    ):
+        return [
+            {
+                "prefix": ipaddress.ip_network("192.0.2.0/25"),
+                "gateway": ipaddress.ip_address("192.0.2.1"),
+                "pool_ips": [],
+                "option_candidates": [],
+                "reservations": [
+                    {
+                        "address": ipaddress.ip_address("192.0.2.10"),
+                        "mac_address": None,
+                        "serial": None,
+                        "device_name": "domain-error-device",
+                        "interface_name": "eth0",
+                        "interface_role": "management",
+                        "device_id": "domain-error-device-id",
+                    }
+                ],
+            },
+            {
+                "prefix": ipaddress.ip_network("192.0.2.128/25"),
+                "gateway": ipaddress.ip_address("192.0.2.129"),
+                "option_candidates": [],
+                "reservations": [],
+            },
+        ]
+
+    async def load_dhcp_contexts(self, is_aggregate_managed: bool | None = None):
+        return {}
+
+
+class MockConflictThenUnexpectedClient(MockConflictingItemMutationClient):
+    """Return an option conflict followed by malformed provider data."""
+
+    async def load_auto_dhcp_subnets(
+        self, family: int = 4, is_aggregate_managed: bool | None = None
+    ):
+        subnets = await super().load_auto_dhcp_subnets(family, is_aggregate_managed)
+        return [
+            *subnets,
+            {
+                "prefix": ipaddress.ip_network("192.0.2.0/25"),
+                "gateway": ipaddress.ip_address("192.0.2.1"),
+                "option_candidates": [],
+                "reservations": [],
+            },
+        ]
+
+
 @pytest.mark.asyncio
 async def test_auto_dhcp_subnets_graphql_error():
     """Test that GraphQL query failures cause config generation to fail."""
@@ -405,6 +662,50 @@ async def test_auto_dhcp_subnets_invalid_data():
         await generate_config(
             MockFailingNautobotClient("invalid_data"), MockRedisClient(), version=4
         )
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_flushes_previously_collected_domain_errors(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Fail-fast exceptions do not suppress domain errors already encountered."""
+    expected_error = (
+        "Reservation for domain-error-device on interface eth0 with address "
+        "192.0.2.10 has no MAC address or serial"
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(KeyError, match="pool_ips"):
+        await generate_config(
+            MockCollectedThenUnexpectedClient("https://nautobot.example.com/", "dummy"),
+            MockRedisClient(),
+            version=4,
+        )
+
+    assert [
+        record.getMessage() for record in caplog.records if record.levelno == logging.ERROR
+    ] == [expected_error]
+
+
+@pytest.mark.asyncio
+async def test_unexpected_error_flushes_previously_collected_option_conflicts(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Fail-fast exceptions do not suppress option conflicts already encountered."""
+    expected_error = (
+        "Subnet 100.64.0.0/24 reservation for 100.64.0.11 conflicts with existing "
+        "option ntp-servers: 10.0.0.1 != 10.0.0.2"
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(KeyError, match="pool_ips"):
+        await generate_config(
+            MockConflictThenUnexpectedClient("https://nautobot.example.com/", "dummy"),
+            MockRedisClient(),
+            version=4,
+        )
+
+    assert [
+        record.getMessage() for record in caplog.records if record.levelno == logging.ERROR
+    ] == [expected_error]
 
 
 @pytest.mark.asyncio
@@ -529,6 +830,162 @@ async def test_duplicate_client_id_error():
             MockRedisClient(),
             version=4,
         )
+
+
+@pytest.mark.asyncio
+async def test_config_generation_logs_all_domain_errors_before_failing(
+    caplog: pytest.LogCaptureFixture,
+):
+    """Independent config errors are all logged before generation fails."""
+    expected_errors = [
+        (
+            "Reservation for invalid-device-a on interface eth0 with address "
+            "192.0.2.10 has no MAC address or serial"
+        ),
+        (
+            "Reservation for invalid-device-b on interface eth0 with address "
+            "198.51.100.10 has no MAC address or serial"
+        ),
+        (
+            "Reservation for invalid-option-candidate on interface eth0 with address "
+            "203.0.113.10 has no MAC address or serial"
+        ),
+        "Cannot override subnet config subnet with 203.0.113.0/25",
+        (
+            "Duplicate DHCP reservation: device 'duplicate-identifier-device' "
+            "(identifier: 00:11:22:33:44:55) has multiple reserved IPs with the same "
+            "client-id or hw-address. Kea allows only one reservation per identifier. "
+            "Use dhcp-pool only (not dhcp-reserve) for interfaces that don't need "
+            "per-device options, or ensure each interface has a unique MAC address."
+        ),
+    ]
+
+    with caplog.at_level(logging.ERROR), pytest.raises(DhcpConfigGenerationError) as exc_info:
+        await generate_config(
+            MockMultipleGenerationErrorsClient("https://nautobot.example.com/", "dummy"),
+            MockRedisClient(),
+            version=4,
+        )
+
+    assert all(message in str(exc_info.value) for message in expected_errors)
+    assert "(5 config generation error(s) total)" in str(exc_info.value)
+    assert [
+        record.getMessage() for record in caplog.records if record.getMessage() in expected_errors
+    ] == expected_errors
+
+
+@pytest.mark.asyncio
+async def test_config_generation_finishes_valid_candidate_before_failing():
+    """The private candidate retains valid state and excludes invalid records."""
+    redis_client = TrackingRedisClient()
+    errors: list[str] = []
+
+    candidate = await _generate_config_candidate(
+        MockFailingNautobotClient("reservation_without_mac"),
+        errors,
+        redis_client=redis_client,
+        version=4,
+    )
+
+    assert redis_client.load_called
+    assert len(errors) == 1
+    assert "has no MAC address or serial" in errors[0]
+    assert "test-device" not in {
+        reservation["hostname"] for reservation in candidate["Dhcp4"]["reservations"]
+    }
+    assert candidate["Dhcp4"]["subnet4"]
+
+
+@pytest.mark.asyncio
+async def test_failed_subnet_does_not_retain_its_reservations():
+    """Reservations are committed only when their containing subnet is valid."""
+    client = MockMultipleGenerationErrorsClient("https://nautobot.example.com/", "dummy")
+    errors: list[str] = []
+
+    subnets, reservations = await _generate_automatic_dhcp_subnets_and_reservations(
+        client,
+        await client.load_dhcp_contexts(),
+        errors,
+        version=4,
+    )
+
+    assert "203.0.113.128/25" not in {subnet["subnet"] for subnet in subnets}
+    assert "invalid-subnet-config" not in {reservation["hostname"] for reservation in reservations}
+
+
+@pytest.mark.asyncio
+async def test_conflicting_item_does_not_leak_option_state(
+    caplog: pytest.LogCaptureFixture,
+):
+    """An invalid item's unique options do not cause later false conflicts."""
+    expected_error = (
+        "Subnet 100.64.0.0/24 reservation for 100.64.0.11 conflicts with existing "
+        "option ntp-servers: 10.0.0.1 != 10.0.0.2"
+    )
+    leaked_state_error = (
+        "Subnet 100.64.0.0/24 reservation for 100.64.0.12 conflicts with existing "
+        "option domain-name-servers: 10.0.0.53 != 10.0.0.54"
+    )
+
+    with caplog.at_level(logging.ERROR), pytest.raises(DhcpConfigGenerationError) as exc_info:
+        await generate_config(
+            MockConflictingItemMutationClient("https://nautobot.example.com/", "dummy"),
+            MockRedisClient(),
+            version=4,
+        )
+
+    assert expected_error in str(exc_info.value)
+    assert leaked_state_error not in str(exc_info.value)
+    assert "(1 config generation error(s) total)" in str(exc_info.value)
+    assert [
+        record.getMessage() for record in caplog.records if "conflicts with" in record.message
+    ] == [expected_error]
+
+
+@pytest.mark.asyncio
+async def test_conflicting_subnet_is_excluded_from_retained_candidate():
+    """A subnet with ambiguous shared options contributes no partial state."""
+    client = MockConflictingItemMutationClient("https://nautobot.example.com/", "dummy")
+    errors: list[str] = []
+
+    subnets, reservations = await _generate_automatic_dhcp_subnets_and_reservations(
+        client,
+        await client.load_dhcp_contexts(),
+        errors,
+        version=4,
+    )
+
+    assert subnets == []
+    assert reservations == []
+    assert len(errors) == 1
+    assert "conflicts with existing option ntp-servers" in errors[0]
+
+
+def test_duplicate_identifier_group_is_excluded_from_retained_candidate():
+    """No reservation wins arbitrarily when an identifier is duplicated."""
+    duplicate_reservations = [
+        {
+            "hostname": hostname,
+            "hw-address": "00:11:22:33:44:55",
+            "ip-address": address,
+        }
+        for hostname, address in [
+            ("duplicate-a", "10.0.0.10"),
+            ("duplicate-b", "10.0.0.11"),
+        ]
+    ]
+    errors: list[str] = []
+
+    reservations = _generate_reservations(
+        [],
+        errors,
+        auto_subnet_reservations=duplicate_reservations,
+        version=4,
+    )
+
+    assert reservations == []
+    assert len(errors) == 1
+    assert "Duplicate DHCP reservation" in errors[0]
 
 
 @pytest.mark.asyncio
@@ -1390,7 +1847,7 @@ async def test_subnet_option_conflicts_logged_and_raised():
         calls = [str(c) for c in mock_log.error.call_args_list]
         assert any("conflicts with existing option" in c for c in calls)
         assert any("ntp-servers" in c for c in calls)
-        assert "conflict(s) total" in str(exc_info.value)
+        assert "config generation error(s) total" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
