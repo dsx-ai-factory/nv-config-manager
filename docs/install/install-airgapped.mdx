@@ -321,7 +321,9 @@ installer config, pass the target directly:
 
 Both `--namespace` and `--release-name` are required when the config path is
 omitted. Flags override the corresponding settings when a config is supplied;
-the config file is not rewritten.
+the config file is not rewritten. For client-credentials authentication, a
+nonempty `client_id` in the selected OIDC Secret takes precedence over the
+client ID from flags or config.
 
 The installer executes the integration tests already included in the deployed
 Config Manager image, inside the ZTP pod's `sftp` container. No cloned
@@ -362,11 +364,12 @@ pod. `--oidc-issuer-url` overrides either issuer URL in an existing config.
 `--sso` enables authentication without a config; `--no-sso` explicitly disables
 it. With a config, its SSO setting is retained unless either flag is supplied.
 
-For SSO without `--oidc-token-file`, the installer reads the existing `oidc-client-secret` Kubernetes Secret's
-`client-secret` field and uses `--oidc-client-id` or `sso.client_id` from the
-config. Operators do
-not need to extract or copy its value. Configure the client's `sso.client_id`
-and realm's `sso.issuer_url`. If Keycloak has an internal cluster address, set
+For SSO without `--oidc-token-file`, the installer reads the selected OIDC
+Secret, `oidc-client-secret` by default. It uses the Secret's nonempty
+`client_id`, if present; otherwise, it uses `--oidc-client-id` or
+`sso.client_id` from the config. It reads `client-secret` or `client_secret`
+from the Secret. Operators do not need to extract or copy the secret value.
+Configure the realm's `sso.issuer_url`. If Keycloak has an internal cluster address, set
 `sso.internal_issuer` to that realm URL so the ZTP pod can reach it.
 
 The Keycloak client must have **Client authentication** and **Service accounts

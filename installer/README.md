@@ -203,7 +203,9 @@ nvcm-installer test \
 ```
 
 Without a config, both target flags are required. With a config, flags override
-its corresponding settings without rewriting it. `--oidc-issuer-url` selects
+its corresponding settings without rewriting it. A nonempty `client_id` in the
+selected OIDC Secret takes precedence over `--oidc-client-id` or the config's
+client ID. `--oidc-issuer-url` selects
 the realm URL reachable from the test pod, overriding any configured internal
 issuer. `--sso`/`--no-sso` override the config's authentication mode; without a
 config, SSO is disabled unless `--sso` is supplied. Existing credential-Secret
@@ -217,8 +219,10 @@ is required. The caller needs permission to list pods, read `nautobot-admin`,
 and exec into the ZTP pod. Exit status is zero only when pytest succeeds;
 setup, collection, execution, and test failures return nonzero.
 
-With SSO enabled and no token file, the runner reads `client-secret` from the existing
-`oidc-client-secret` Secret and uses `--oidc-client-id` or `sso.client_id`. Keycloak must enable
+With SSO enabled and no token file, the runner reads the selected OIDC Secret,
+`oidc-client-secret` by default. It uses the Secret's nonempty `client_id`, if
+present; otherwise, it uses `--oidc-client-id` or `sso.client_id`. The secret
+value comes from `client-secret` or `client_secret`. Keycloak must enable
 service accounts for the client and issue
 the audience and roles required by the tested APIs and workflows; browser/PKCE
 configuration alone is insufficient. `sso.internal_issuer`, when set, supplies
