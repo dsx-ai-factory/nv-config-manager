@@ -78,6 +78,7 @@ dependencies = [
     "netaddr>=0.10.1",
     "types-netaddr>=1.3.0.20250822",
     # SSH/SFTP
+    # Security: Remove SHA-1 RSA signatures (GHSA-r374-rxx8-8654).
     "paramiko>=5.0.0",
     # Security: Fix libsodium incomplete disallowed inputs (GHSA-mrfv-m5wm-5w6w)
     "pynacl>=1.6.2",
