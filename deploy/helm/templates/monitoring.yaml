@@ -202,18 +202,22 @@
 {{- end }}{{- /* end hasIngress check */}}
 
 {{- /*
-  Bundled NATS has no HTTPRoute, so the exporter probes the in-cluster
-  monitoring endpoint. Set monitoring.probes.nats.target when the exporter
-  cannot resolve cluster-local service names.
+  Bundled NATS is probed at /healthz on its gateway route when the gateway is
+  enabled, so exporters outside the cluster can reach it; otherwise through
+  the in-cluster monitoring endpoint.
 */}}
 {{- $natsProbe := .Values.monitoring.probes.nats | default dict }}
 {{- if include "nv-config-manager.natsProbeEnabled" . }}
+{{- $natsTarget := printf "http://%s.%s.svc:8222/healthz" $natsName $namespace }}
+{{- with include "nv-config-manager.natsGatewayHostname" . }}
+{{- $natsTarget = printf "%s://%s/healthz" $probeScheme . }}
+{{- end }}
 {{ include "nv-config-manager.blackboxProbe" (dict
     "root" .
     "name" $natsName
     "component" "nats"
     "scheme" $probeScheme
-    "target" ($natsProbe.target | default (printf "http://%s.%s.svc:8222/healthz" $natsName $namespace))) }}
+    "target" ($natsProbe.target | default $natsTarget)) }}
 {{- end }}
 
 {{- if and .Values.monitoring.podMonitors .Values.monitoring.podMonitors.enabled }}
