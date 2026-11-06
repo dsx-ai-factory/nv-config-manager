@@ -39,6 +39,7 @@ from nv_config_manager.common.config.nats import (
     ensure_local_streams,
     nats_connection,
 )
+from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 
 TEST_SERVER = "nats://nats.example.local:4222"
 
@@ -431,7 +432,7 @@ async def test_consumer_binds_existing_durable_with_configured_api_prefix():
     assert config.deliver_policy == DeliverPolicy.NEW
     assert config.ack_policy == AckPolicy.EXPLICIT
     assert config.ack_wait == 360
-    assert config.max_deliver == -1
+    assert config.max_deliver == CONSUMER_MAX_DELIVER
 
 
 @pytest.mark.asyncio

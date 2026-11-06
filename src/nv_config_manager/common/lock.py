@@ -32,6 +32,7 @@ from nv_config_manager.common.config.environment import is_local_environment
 
 log = logging.getLogger(__name__)
 
+LOCK_TIMEOUT_SECONDS = 180
 
 # Module-level Redis client for lock operations
 _lock_redis_client: RedisClient | None = None
@@ -53,7 +54,7 @@ def _get_lock_redis_client() -> RedisClient | None:
 
 async def create_lock(
     name: str,
-    timeout: int = 180,
+    timeout: int = LOCK_TIMEOUT_SECONDS,
     blocking: bool = True,
     blocking_timeout: int | None = None,
 ) -> AsyncRedisLock | _FakeLock:
