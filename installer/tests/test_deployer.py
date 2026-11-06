@@ -1684,6 +1684,42 @@ class TestStandaloneIntegrationTests:
             assert deployer.run_integration_tests() is False
             client.return_value.exec_command_streaming.assert_not_called()
 
+    @pytest.mark.parametrize("include_ready", [True, False])
+    def test_pod_selection_skips_ineligible_pods(self, include_ready):
+        """Select a later eligible pod, or return no pod when every candidate is ineligible."""
+
+        def pod(name, *, phase="Running", deleting=False, ready=True, container="sftp"):
+            """Create the pod metadata and container readiness used by selection."""
+            return SimpleNamespace(
+                metadata=SimpleNamespace(
+                    name=name, deletion_timestamp=object() if deleting else None
+                ),
+                status=SimpleNamespace(
+                    phase=phase,
+                    container_statuses=(
+                        None if ready is None else [SimpleNamespace(name=container, ready=ready)]
+                    ),
+                ),
+            )
+
+        candidates = [
+            pod("terminating", deleting=True),
+            pod("pending", phase="Pending"),
+            pod("unready-sftp", ready=False),
+            pod("missing-container-status", ready=None),
+            pod("ready-other-container", container="http-api"),
+        ]
+        if include_ready:
+            candidates.append(pod("ready-sftp"))
+        deployer = Deployer(_make_config(), DeployOptions())
+        deployer._k8s = MagicMock()
+        deployer._k8s.v1.list_namespaced_pod.return_value.items = candidates
+
+        assert deployer._find_ztp_pod("test-ns") == ("ready-sftp" if include_ready else "")
+        deployer._k8s.v1.list_namespaced_pod.assert_called_once_with(
+            "test-ns", label_selector="app=nv-config-manager-ztp"
+        )
+
     def test_script_reads_credentials_from_stdin(self):
         """Generated exec arguments contain only code and non-secret connection settings."""
         deployer = Deployer(_make_config(), DeployOptions())

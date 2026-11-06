@@ -97,7 +97,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--sso",
         action="store_true",
         default=False,
-        help="Authenticate via OIDC PKCE (opens browser). Uses svc-* JWT-only hostnames.",
+        help="Enable OIDC authentication (headless credentials when supplied; browser PKCE otherwise). "
+        "Uses svc-* JWT-only hostnames unless service URL environment variables override them.",
     )
     parser.addoption(
         "--jira-issue-key",
@@ -283,7 +284,7 @@ def dcim_adapter_type(request: pytest.FixtureRequest) -> type[DCIMIntegrationAda
 
 @pytest.fixture(scope="session")
 def sso_enabled(request: pytest.FixtureRequest) -> bool:
-    """Check if SSO (OIDC PKCE) authentication should be used."""
+    """Check if OIDC authentication should be used."""
     return bool(request.config.getoption("--sso"))
 
 
