@@ -21,6 +21,13 @@ only one pod runs migrations at a time in a multi-replica deployment.
 
 The PostgreSQL session-level advisory lock is held for the entire duration
 of the migration process to prevent race conditions.
+
+The advisory lock only serializes pods that start concurrently. During a
+rolling update each pod's init container finishes before the next pod is
+created, so every pod would acquire a free lock. To run migrate, post_upgrade
+and the bootstrap job once per deployment, the lock holder records the
+Helm-provided NAUTOBOT_INIT_FINGERPRINT after a successful run and later pods
+skip that work when it matches and no migrations are pending.
 """
 
 import os
@@ -31,6 +38,7 @@ import time
 import django
 from django.contrib.auth import get_user_model
 from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "nautobot.core.settings")
 django.setup()
@@ -39,6 +47,22 @@ django.setup()
 LOCK_ID = 20250119
 MAX_WAIT = 600
 POLL_INTERVAL = 5
+
+INIT_STATE_NAME = "nautobot-init"
+CREATE_INIT_STATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS nv_config_manager_init_state (
+    name text PRIMARY KEY,
+    fingerprint text NOT NULL,
+    completed_at timestamptz NOT NULL DEFAULT now()
+)
+"""
+SELECT_INIT_FINGERPRINT_SQL = "SELECT fingerprint FROM nv_config_manager_init_state WHERE name = %s"
+UPSERT_INIT_FINGERPRINT_SQL = """
+INSERT INTO nv_config_manager_init_state (name, fingerprint, completed_at)
+VALUES (%s, %s, now())
+ON CONFLICT (name) DO UPDATE
+SET fingerprint = EXCLUDED.fingerprint, completed_at = EXCLUDED.completed_at
+"""
 
 
 def run_cmd(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -140,6 +164,25 @@ def run_bootstrap_job() -> None:
             os.environ["NATS_HOST"] = nats_host
 
 
+def has_pending_migrations() -> bool:
+    """Return True if any migration on disk has not been applied to the database."""
+    executor = MigrationExecutor(connection)
+    return bool(executor.migration_plan(executor.loader.graph.leaf_nodes()))
+
+
+def read_completed_fingerprint(cursor) -> str | None:
+    """Return the fingerprint recorded by the last successful init run, if any."""
+    cursor.execute(CREATE_INIT_STATE_TABLE_SQL)
+    cursor.execute(SELECT_INIT_FINGERPRINT_SQL, [INIT_STATE_NAME])
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def record_completed_fingerprint(cursor, fingerprint: str) -> None:
+    """Record that init completed successfully for this fingerprint."""
+    cursor.execute(UPSERT_INIT_FINGERPRINT_SQL, [INIT_STATE_NAME, fingerprint])
+
+
 def main() -> int:
     print("========================================")
     print("Nautobot Migration Init Container")
@@ -167,9 +210,20 @@ def main() -> int:
         print("=" * 40, flush=True)
 
         try:
-            print("Running database migrations...", flush=True)
-            run_cmd(["nautobot-server", "migrate", "--no-input"])
-            print("Migrations complete!", flush=True)
+            fingerprint = os.environ.get("NAUTOBOT_INIT_FINGERPRINT", "")
+            already_done = (
+                bool(fingerprint) and not has_pending_migrations() and read_completed_fingerprint(cursor) == fingerprint
+            )
+            if already_done:
+                print(
+                    f"Init already completed for fingerprint {fingerprint[:12]} and no migrations are pending; "
+                    "skipping migrate, post_upgrade and bootstrap.",
+                    flush=True,
+                )
+            else:
+                print("Running database migrations...", flush=True)
+                run_cmd(["nautobot-server", "migrate", "--no-input"])
+                print("Migrations complete!", flush=True)
 
             print("Creating superuser if needed...", flush=True)
             username = os.environ.get("NAUTOBOT_SUPERUSER_NAME", "admin")
@@ -194,9 +248,13 @@ def main() -> int:
             print("Creating API token...", flush=True)
             create_api_token()
 
-            print("Running post_upgrade...", flush=True)
-            run_cmd(["nautobot-server", "post_upgrade"])
-            print("Post-upgrade complete!", flush=True)
+            if not already_done:
+                print("Running post_upgrade...", flush=True)
+                run_cmd(["nautobot-server", "post_upgrade"])
+                print("Post-upgrade complete!", flush=True)
+                if fingerprint:
+                    record_completed_fingerprint(cursor, fingerprint)
+                    print(f"Recorded init fingerprint {fingerprint[:12]}.", flush=True)
 
         finally:
             # Release the lock
@@ -207,9 +265,10 @@ def main() -> int:
         print("MIGRATION COMPLETED SUCCESSFULLY", flush=True)
         print("=" * 40, flush=True)
 
-        # Run bootstrap job outside the lock
-        print("Running bootstrap job...", flush=True)
-        run_bootstrap_job()
+        if not already_done:
+            # Run bootstrap job outside the lock
+            print("Running bootstrap job...", flush=True)
+            run_bootstrap_job()
 
         print("All init tasks complete!", flush=True)
         return 0
