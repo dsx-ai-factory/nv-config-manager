@@ -512,6 +512,7 @@ spec:
       - name: api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
         imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+        {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 8) }}
         command: ["nv-config-manager-temporal-api"]
         args: []
         env:
@@ -854,6 +855,7 @@ spec:
       - name: {{ $temporalName }}-web
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.temporalUi) }}"
         imagePullPolicy: {{ .Values.global.images.temporalUi.pullPolicy }}
+        {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 8) }}
         env:
         - name: TEMPORAL_ADDRESS
           value: {{ include "nv-config-manager.temporalGrpcAddress" . | quote }}
