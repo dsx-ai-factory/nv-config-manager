@@ -11,8 +11,12 @@ dependencies = [
     "certifi>=2026.10.19",
     "nv-air-sdk==1.4.0",
     "click>=8.1.7",
+    # Security floor for standalone tool installs (GHSA-65pc-fj4g-8rjx).
+    "idna>=3.15",
     "kubernetes>=32.0.0",
     "pydantic>=2.10.2",
+    # Security floor for standalone tool installs (GHSA-5239-wwwm-4pmq).
+    "pygments>=2.20.0",
     "pyyaml>=6.0.2",
     "requests>=2.33.0",
     "textual>=3.1.0",
