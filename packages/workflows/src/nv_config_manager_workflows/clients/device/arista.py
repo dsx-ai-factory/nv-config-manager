@@ -24,7 +24,7 @@ import sys
 import tarfile
 import time
 from collections.abc import Callable
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 from uuid import uuid4
 
 import pyeapi
@@ -80,6 +80,20 @@ def _unrestored_note(names: list[str]) -> str:
     return "".join(
         f"; flash:{name} may still be at flash:{name}{_ZTP_BACKUP_SUFFIX}" for name in names
     )
+
+
+# What EOS answers to "show system environment power" on a switch without power
+# supplies, such as vEOS 4.34.
+_NO_POWER_SUPPLIES = "no power supplies connected"
+
+
+def _component_state(value: object) -> str:
+    """Return an EOS component status, or "unknown" when EOS leaves it out.
+
+    The validation flags any state other than "ok", but skips an empty one, so a
+    missing status must not come back empty.
+    """
+    return str(value) if value else "unknown"
 
 
 class _PasswordFallbackNode(Node):
@@ -787,3 +801,139 @@ class AristaConnection(NetworkConnection):
         """
         mode = str(self._node.enable("show zerotouch")[0]["result"].get("mode", ""))
         return "success" if mode == "disabled" else mode or "unknown"
+
+    # ------------------------------------------------------------------
+    # Hardware validation. The results use the key names of the NVUE
+    # platform endpoints so the validation workflow's flagging and its
+    # Excel export treat every platform alike: a component is flagged when
+    # its "state" is not "ok", and "actual"/"min"/"max" are reported.
+    # EOS reports no LED state over eAPI, so there is no LED collector; the
+    # workflow lists EOS devices as unsupported in its LED stage.
+    # ------------------------------------------------------------------
+
+    def _environment(self, section: str) -> dict[str, Any]:
+        """Run ``show system environment <section>``.
+
+        A switch without power supplies, such as vEOS, refuses the power section with
+        "There seem to be no power supplies connected."; that means no readings. Any
+        other error, such as a user without permission for the command (1005), is
+        raised so the device is reported as failed rather than as passing.
+        """
+        try:
+            return cast(
+                dict[str, Any],
+                self._node.enable(f"show system environment {section}", encoding="json")[0][
+                    "result"
+                ],
+            )
+        except pyeapi.eapilib.CommandError as exc:
+            if _NO_POWER_SUPPLIES in str(exc.command_error):
+                return {}
+            raise
+
+    def get_platform(self) -> dict[str, str]:
+        """Describe the chassis from ``show version``."""
+        version = self._node.enable("show version", encoding="json")[0]["result"]
+        memory_kib = version.get("memTotal")
+        return {
+            "manufacturer": str(version.get("mfgName", "")),
+            "product-name": str(version.get("modelName", "")),
+            "serial-number": str(version.get("serialNumber", "")),
+            "system-mac": str(version.get("systemMacAddress", "")),
+            "hardware-version": str(version.get("hardwareRevision", "")),
+            "architecture": str(version.get("architecture", "")),
+            "os-version": _ENGINEERING_BUILD.sub("", str(version.get("version", ""))),
+            "memory": f"{int(memory_kib) // 1024} MiB" if memory_kib else "",
+        }
+
+    def get_platform_environment_fan(self) -> dict[str, dict[str, object]]:
+        """Report every fan from ``show system environment cooling``.
+
+        Fan trays are keyed ``Fan<tray>/<fan>``; power-supply fans keep the
+        ``PowerSupply<n>/<fan>`` label EOS gives them.
+        """
+        cooling = self._environment("cooling")
+        fans: dict[str, dict[str, object]] = {}
+        for slot_kind, prefix in (("fanTraySlots", "Fan"), ("powerSupplySlots", "")):
+            for tray in cooling.get(slot_kind) or []:
+                for fan in tray.get("fans") or []:
+                    fans[f"{prefix}{fan.get('label', '')}"] = {
+                        "state": _component_state(fan.get("status")),
+                        "current-speed": fan.get("actualSpeed"),
+                        "configured-speed": fan.get("configuredSpeed"),
+                        "max-speed": fan.get("maxSpeed"),
+                        "direction": str(cooling.get("airflowDirection", "")),
+                    }
+        return fans
+
+    def get_platform_environment_psu(self) -> dict[str, dict[str, object]]:
+        """Report every power supply from ``show system environment power``."""
+        supplies = self._environment("power").get("powerSupplies") or {}
+        return {
+            f"PSU{slot}": {
+                "state": _component_state(supply.get("state")),
+                "model": str(supply.get("modelName", "")),
+                "capacity": supply.get("capacity"),
+                "current": supply.get("inputCurrent"),
+                "voltage": supply.get("inputVoltage"),
+                "power": supply.get("outputPower"),
+            }
+            for slot, supply in supplies.items()
+        }
+
+    def get_platform_environment_voltage(self) -> dict[str, dict[str, object]]:
+        """Report the input and output voltage of every power supply.
+
+        EOS has no rail-voltage command over eAPI; the supplies' input and
+        output voltages are what the switch exposes.
+        """
+        supplies = self._environment("power").get("powerSupplies") or {}
+        rails: dict[str, dict[str, object]] = {}
+        for slot, supply in supplies.items():
+            state = _component_state(supply.get("state"))
+            rails[f"PSU{slot}/input"] = {"state": state, "actual": supply.get("inputVoltage")}
+            rails[f"PSU{slot}/output"] = {"state": state, "actual": supply.get("outputVoltage")}
+        return rails
+
+    def get_platform_inventory(self) -> dict[str, dict[str, object]]:
+        """Report the chassis, power supplies, fan trays and pluggables from ``show inventory``."""
+        inventory = self._node.enable("show inventory", encoding="json")[0]["result"]
+        system = inventory.get("systemInformation") or {}
+        items: dict[str, dict[str, object]] = {
+            "Chassis": {
+                "type": "switch",
+                "model": str(system.get("name", "")),
+                "serial": str(system.get("serialNum", "")),
+                "hardware-version": str(system.get("hardwareRev", "")),
+                "state": "ok",
+            }
+        }
+        for slot, supply in (inventory.get("powerSupplySlots") or {}).items():
+            name = str(supply.get("name", ""))
+            items[f"PSU{slot}"] = {
+                "type": "psu",
+                "model": name,
+                "serial": str(supply.get("serialNum", "")),
+                "hardware-version": "",
+                "state": "not-inserted" if name == "Not Inserted" else "ok",
+            }
+        for slot, tray in (inventory.get("fanTraySlots") or {}).items():
+            items[f"FanTray{slot}"] = {
+                "type": "fan",
+                "model": str(tray.get("name", "")),
+                "serial": str(tray.get("serialNum", "")),
+                "hardware-version": "",
+                "state": "ok",
+            }
+        for slot, transceiver in (inventory.get("xcvrSlots") or {}).items():
+            if not transceiver.get("serialNum"):
+                continue  # Fixed copper ports report the chassis itself here.
+            items[f"Ethernet{slot}"] = {
+                "type": "transceiver",
+                "model": str(transceiver.get("modelName", "")),
+                "manufacturer": str(transceiver.get("mfgName", "")),
+                "serial": str(transceiver.get("serialNum", "")),
+                "hardware-version": str(transceiver.get("hardwareRev", "")),
+                "state": "ok",
+            }
+        return items
