@@ -372,6 +372,72 @@ jobs:
             echo "ERROR: Helm render tests were skipped; helm and chart dependencies must be available"
             exit 1
           fi
+      - name: Installer observability endpoint render
+        run: |
+          set -euo pipefail
+          smoke_dir="$(mktemp -d)"
+          trap 'rm -rf "$smoke_dir"' EXIT
+          cp deploy/configs/ci-integration-test.yaml "$smoke_dir/install.yaml"
+
+          python - "$smoke_dir/install.yaml" <<'PY'
+          from pathlib import Path
+          import sys
+
+          import yaml
+
+          path = Path(sys.argv[1])
+          config = yaml.safe_load(path.read_text())
+          config["infrastructure"]["monitoring"].update(
+              {
+                  "enabled": True,
+                  "observability_enabled": True,
+                  "grafana_url": "https://grafana.example.com/d/overview",
+                  "blackbox_exporter_url": "blackbox-exporter.monitoring.svc:9115",
+              }
+          )
+          path.write_text(yaml.safe_dump(config, sort_keys=False))
+          PY
+
+          uv run --project installer nvcm-installer generate-values \
+            "$smoke_dir/install.yaml" \
+            --output-dir "$smoke_dir/generated" \
+            --chart-dir deploy/helm
+          helm template endpoint-smoke deploy/helm/ \
+            --values "$smoke_dir/generated/values-generated.yaml" \
+            >"$smoke_dir/rendered.yaml"
+
+          python - "$smoke_dir/rendered.yaml" <<'PY'
+          from pathlib import Path
+          import sys
+
+          import yaml
+
+          grafana_url = "https://grafana.example.com/d/overview"
+          blackbox_url = "blackbox-exporter.monitoring.svc:9115"
+          documents = [
+              document
+              for document in yaml.safe_load_all(Path(sys.argv[1]).read_text())
+              if document
+          ]
+          grafana_values = [
+              item.get("value")
+              for document in documents
+              if document.get("kind") == "Deployment"
+              for container in (
+                  document.get("spec", {})
+                  .get("template", {})
+                  .get("spec", {})
+                  .get("containers", [])
+              )
+              for item in container.get("env", [])
+              if item.get("name") == "GRAFANA_URL"
+          ]
+          assert grafana_values == [grafana_url], grafana_values
+
+          probes = [document for document in documents if document.get("kind") == "Probe"]
+          assert probes, "expected at least one rendered Probe"
+          assert {probe["spec"]["prober"]["url"] for probe in probes} == {blackbox_url}
+          PY
       - name: GitLab promotion shared-values tests
         run: uv run python .gitlab/ci/scripts/tests/shared_values_test.py
       - run: helm lint deploy/helm/ --values deploy/helm/values-ci.yaml

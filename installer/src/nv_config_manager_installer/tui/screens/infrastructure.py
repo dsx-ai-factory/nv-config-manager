@@ -146,6 +146,18 @@ class InfraScreen(Container):
             placeholder="monitoring",
             id="monitoring-prometheus-namespace",
         )
+        yield Label("Grafana dashboard URL (optional)", classes="field-label")
+        yield Input(
+            value=infra.monitoring.grafana_url,
+            placeholder="https://grafana.example.com/d/nv-config-manager",
+            id="monitoring-grafana-url",
+        )
+        yield Label("Blackbox exporter address (optional, host:port)", classes="field-label")
+        yield Input(
+            value=infra.monitoring.blackbox_exporter_url,
+            placeholder="blackbox-exporter.monitoring.svc:9115",
+            id="monitoring-blackbox-exporter-url",
+        )
         yield LabeledSwitch(
             "Enable local observability stack (Prometheus + Alloy, dev only)",
             value=infra.monitoring.observability_enabled,
@@ -324,6 +336,15 @@ class InfraScreen(Container):
                 severity="error",
                 markup=False,
             )
+        proposed_monitoring = infra.monitoring.model_copy()
+        proposed_monitoring.grafana_url = self.query_one(
+            "#monitoring-grafana-url", Input
+        ).value.strip()
+        proposed_monitoring.blackbox_exporter_url = self.query_one(
+            "#monitoring-blackbox-exporter-url", Input
+        ).value.strip()
+        infra.monitoring.grafana_url = proposed_monitoring.grafana_url
+        infra.monitoring.blackbox_exporter_url = proposed_monitoring.blackbox_exporter_url
         infra.monitoring.observability_enabled = self.query_one(
             "#monitoring-observability-enabled", LabeledSwitch
         ).value
@@ -379,6 +400,10 @@ class InfraScreen(Container):
         self.query_one(
             "#monitoring-prometheus-namespace", Input
         ).value = infra.monitoring.prometheus_namespace
+        self.query_one("#monitoring-grafana-url", Input).value = infra.monitoring.grafana_url
+        self.query_one(
+            "#monitoring-blackbox-exporter-url", Input
+        ).value = infra.monitoring.blackbox_exporter_url
         self.query_one(
             "#monitoring-observability-enabled", LabeledSwitch
         ).value = infra.monitoring.observability_enabled
