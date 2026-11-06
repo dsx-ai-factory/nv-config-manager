@@ -67,6 +67,37 @@ The DHCP service consists of:
 - **PostgreSQL Lease Database**: Shared lease storage for high availability
 - **Redis Cache**: Stores previous configuration for subnet ID preservation
 
+## Kea Multi-Threading
+
+The generated DHCPv4 configuration includes a Kea `multi-threading` block. By
+default Kea auto-detects the worker count (`thread-pool-size: 0`) and keeps a
+64-packet queue. Tune it with `networkDhcp.kea.multiThreading` in the Helm
+values, or with `dhcp.kea_multi_threading` in the installer configuration.
+
+| Helm value | Installer field | Description |
+| :--------- | :-------------- | :---------- |
+| `sizeFromCpuRequest` | `size_from_cpu_request` | Size the thread pool from `networkDhcp.resources.dhcp.requests.cpu`, rounded up to at least one thread. Defaults to `false`. |
+| `threadPoolSize` | `thread_pool_size` | Explicit worker count. `0` keeps Kea auto-detection. Cannot be combined with `sizeFromCpuRequest`; setting both fails the Helm render. Blank means unset. |
+| `packetQueueSize` | `packet_queue_size` | Explicit queue length, a positive integer. Blank defaults to 64 while the pool is auto-detected, otherwise eight packets per thread. |
+
+```yaml
+networkDhcp:
+  kea:
+    multiThreading:
+      sizeFromCpuRequest: true
+  resources:
+    dhcp:
+      requests:
+        cpu: 2
+```
+
+This example gives two threads and a queue of 16. Invalid values fail the Helm
+render, and the configuration generator rejects them at refresh time. The
+resolved sizes are written to the shared `[dhcp.kea]` section as
+`thread_pool_size` and `packet_queue_size`. See the
+[ISC multi-threading guidance](https://kea.readthedocs.io/en/kea-3.2.0/arm/dhcp4-srv.html#multi-threading-settings)
+for sizing recommendations.
+
 ## CLI Usage
 
 ### Basic Configuration Generation

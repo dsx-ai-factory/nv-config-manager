@@ -529,6 +529,8 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           [dhcp.kea]
           server = {{ $dhcpName }}-internal
           port = 8000
+          thread_pool_size = {{ include "nv-config-manager.dhcp.threadPoolSize" $root }}
+          packet_queue_size = {{ include "nv-config-manager.dhcp.packetQueueSize" $root }}
 
           [dhcp.lease_db]
           local = false

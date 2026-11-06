@@ -60,6 +60,14 @@ Choose which Config Manager services this deployment should run.
 
 To use an existing Nautobot instance, configure it on the [External Services](#3-external-services) screen.
 
+The screen also tunes Kea DHCP multi-threading. With CPU sizing off, blank fields keep Kea's defaults: pool `0` and queue `64`. With CPU sizing on, a blank pool uses the DHCP CPU request and a blank queue is eight packets per selected thread. An explicit pool of `0` keeps the queue at `64`. Invalid values block navigation until corrected.
+
+| Field | Description |
+| :---- | :---------- |
+| Size threads from DHCP CPU request | Sizes the Kea thread pool from the DHCP CPU request |
+| Thread pool size | Optional. `0` keeps auto-detection. Cannot be combined with CPU sizing |
+| Packet queue size | Optional positive integer. Blank is 64 while the pool is auto-detected, otherwise eight packets per thread |
+
 ![Services section screen](../assets/images/installer/02-services.svg)
 
 ## 3. External Services
