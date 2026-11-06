@@ -17,6 +17,8 @@ dependencies = [
     "requests>=2.33.0",
     "textual>=3.1.0",
     "textual-fspicker>=1.0.0",
+    # Security floor for standalone tool installs (GHSA-8988-9cw3-xx77).
+    "urllib3>=2.8.0",
 ]
 
 [project.scripts]
