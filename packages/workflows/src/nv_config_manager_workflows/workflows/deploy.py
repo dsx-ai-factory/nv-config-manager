@@ -34,6 +34,7 @@ from nv_config_manager_workflows.decorators import (
     run_nv_config_manager_workflow,
 )
 from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.stage import (
     StageInput,
     StageMixin,
@@ -60,7 +61,9 @@ with workflow.unsafe.imports_passed_through():
         DiffActivityInput,
         LoadPartialConfigurationActivityInput,
         ValidateConfigDiffActivityInput,
+        apply_activity_timeout,
         apply_approved_configuration,
+        diff_activity_timeout,
         load_intended_configuration,
         load_partial_configuration,
         perform_candidate_diff,
@@ -249,7 +252,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
         diff = await workflow.execute_activity(
             perform_candidate_diff,
             DiffActivityInput(device_data=result.device, configuration=stage_input.intended_config),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():
@@ -265,7 +268,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             )
 
         # Move stage to approval state
-        markdown = f"Configuration Diff For Approval\n```\n{diff}\n```"
+        markdown = f"Configuration Diff For Approval\n```\n{redact_device_secrets(diff)}\n```"
         output = DeployWorkflow.PerformDiffStageOutput(approved=False, diff=diff, display=markdown)
         self.set_stage_output(stage_name, output)
         self.set_stage_state(stage_name, StateEnum.PENDING_APPROVAL)
@@ -283,7 +286,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             reviewers = [rejecter.user for rejecter in self.get_stage_by_name(stage_name).rejecters]
 
         reviewmd = ",".join(reviewers)
-        markdown = f"Configuration Diff {approval_state} by {reviewmd}:\n```\n{diff}\n```"
+        markdown = f"Configuration Diff {approval_state} by {reviewmd}:\n```\n{redact_device_secrets(diff)}\n```"
         return DeployWorkflow.PerformDiffStageOutput(approved=approved, diff=diff, display=markdown)
 
     class ApplyStageInput(StageInput):
@@ -317,7 +320,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
                     approved_diff=stage_input.approved_diff,
                     commit_confirm=stage_input.commit_confirm,
                 ),
-                start_to_close_timeout=timedelta(minutes=5),
+                start_to_close_timeout=apply_activity_timeout(result.device),
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
             )
         except ActivityError as e:
@@ -698,7 +701,7 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
                 configuration=stage_input.deployment_config,
                 partial=stage_input.partial,
             ),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(stage_input.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():
@@ -712,7 +715,7 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
             )
 
         # Display diff without approval
-        markdown = f"Configuration Diff\n```\n{diff}\n```"
+        markdown = f"Configuration Diff\n```\n{redact_device_secrets(diff)}\n```"
         return TenantDeployWorkflow.PerformDiffStageOutput(diff=diff, display=markdown)
 
     class ValidateDiffStageInput(StageInput):
@@ -758,13 +761,13 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
         if result.message:
             display_message = (
                 f"Validation result: Valid. {result.message}\n\n"
-                f"**Validated Diff:**\n```\n{stage_input.diff}\n```"
+                f"**Validated Diff:**\n```\n{redact_device_secrets(stage_input.diff)}\n```"
             )
         else:
             display_message = (
                 "Validation result: Valid. The diff contains only allowed "
                 "tenant configuration commands.\n\n"
-                f"**Validated Diff:**\n```\n{stage_input.diff}\n```"
+                f"**Validated Diff:**\n```\n{redact_device_secrets(stage_input.diff)}\n```"
             )
 
         return TenantDeployWorkflow.ValidateDiffStageOutput(
@@ -795,7 +798,7 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
                 approved_diff=stage_input.diff,
                 partial=stage_input.partial,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=apply_activity_timeout(stage_input.device),
             # Do not retry if the diff changed after approval
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )

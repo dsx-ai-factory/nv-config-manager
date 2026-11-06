@@ -100,6 +100,21 @@ def test_validate_commands_juniper() -> None:
     assert result == ["show_version"]  # bgp summary is not a junos command
 
 
+def test_get_available_commands_cisco_ios_xr() -> None:
+    """CISCO_IOS_XR exposes the four operational diagnostics, each with a description."""
+    result = get_available_commands(Platform.CISCO_IOS_XR)
+    assert set(result) == {
+        "show_version",
+        "show_interfaces",
+        "show_lldp_neighbors",
+        "show_arp_table",
+    }
+    assert all(result.values())
+    assert validate_commands(Platform.CISCO_IOS_XR, ["show version", "show_bgp_summary"]) == [
+        "show_version"
+    ]
+
+
 def test_get_available_commands_unknown_platform() -> None:
     """Returns {} for a platform not in the catalog — no KeyError raised."""
     for platform in Platform:

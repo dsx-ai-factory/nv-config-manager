@@ -402,6 +402,7 @@ test-promote-chart:
       DIGEST_NV_CONFIG_MANAGER_TEMPORAL="$(attest_digest DIGEST_NV_CONFIG_MANAGER_TEMPORAL)"
       DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP="$(attest_digest DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP)"
       DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI="$(attest_digest DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI)"
+      DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY="$(attest_digest DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY)"
 
       # Render with identical inputs for any package, so the locally validated
       # one and the published one can be compared.
@@ -424,6 +425,7 @@ test-promote-chart:
           --set "global.images.temporalServer.digest=${DIGEST_NV_CONFIG_MANAGER_TEMPORAL}" \
           --set "global.images.temporalBootstrap.digest=${DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP}" \
           --set "global.images.temporalUi.digest=${DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI}" \
+          --set "global.images.oidcProxy.digest=${DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY}" \
           > "$render_output"
       }
 
