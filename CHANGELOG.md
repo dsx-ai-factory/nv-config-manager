@@ -21,6 +21,11 @@ version before the selected release candidate is promoted.
  managed Temporal server and bootstrap tools from 1.30.8 to 1.31.4.
   The frontend init container upgrades PostgreSQL core/visibility schemas to
   1.19/1.14; see the [upgrade and rollback notes](docs/temporal/temporal-deployment.mdx#upgrading-from-temporal-1308-to-1314).
+- `nv_config_manager_workflows.workflows` now imports each exported name from
+  its defining module on first access. Importing one workflow module no longer
+  imports all of them, so each workflow run's sandbox re-imports only the
+  modules that run uses instead of all 29 workflow modules. The package's
+  public names are unchanged.
 
 ### Fixed
 
