@@ -234,8 +234,9 @@ make local-status             # Show pods, services, and gateway state
 make local-logs               # Tail deployment logs
 make port-forward             # Forward Nautobot and Temporal UI locally
 make docker-build             # Build all local container images
-make test                     # Run root and isolated workflow package tests
+make test                     # Run root, CI tooling, and isolated workflow package tests
 make test-root                # Run root project tests only
+make test-ci                  # Check build/container/CI tooling without application fixtures
 make lint                     # Run Python linters and type checks
 make openapi                  # Regenerate OpenAPI specs
 make openapi-check            # Check OpenAPI specs are current
@@ -340,8 +341,9 @@ Shared structured logging is available independently through the
 ```bash
 make install                 # Install Python dependencies
 make dev                     # Install with development dependencies
-make test                    # Run root and isolated workflow package tests
+make test                    # Run root, CI tooling, and isolated workflow package tests
 make test-root               # Run root project tests only
+make test-ci                 # Check build/container/CI tooling without application fixtures
 make test-cov                # Run root project tests with coverage in parallel
 make test-integration        # Run integration tests against a running cluster
 make test-nautobot-plugin    # Run the vendored Nautobot plugin's Django suite

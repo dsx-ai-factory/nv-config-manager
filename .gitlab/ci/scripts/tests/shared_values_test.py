@@ -120,6 +120,7 @@ class SharedValuesTests(unittest.TestCase):
         self.config(RECORD + "||extra", success=False)
 
     def prepare_repository(self, with_shared: bool = True, env_has_shared: bool = True) -> None:
+        """Create the repository fixture for shared deployment-value checks."""
         remote = self.root / "remote.git"
         self.git("init", "--bare", str(remote))
         self.repo = self.root / "seed"
@@ -207,6 +208,7 @@ class SharedValuesTests(unittest.TestCase):
             "NV_CONFIG_MANAGER_TEMPORAL",
             "NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP",
             "NV_CONFIG_MANAGER_TEMPORAL_UI",
+            "NV_CONFIG_MANAGER_OIDC_PROXY",
         ]
         (self.project / "digests.env").write_text(
             "".join(f"DIGEST_{key}=sha256:{'c' * 64}\n" for key in digest_keys)
@@ -281,6 +283,7 @@ class SharedValuesTests(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "origin/env-qa", cwd=self.repo), revision)
 
     def test_render_layers_shared_then_cell_then_human_overrides(self) -> None:
+        """Keep human overrides ahead of shared and cell-specific deployment values."""
         self.assertIsNotNone(shutil.which("helm"))
         values = self.root / "values"
         (values / "cells").mkdir(parents=True)
@@ -309,6 +312,7 @@ class SharedValuesTests(unittest.TestCase):
             "NV_CONFIG_MANAGER_TEMPORAL",
             "NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP",
             "NV_CONFIG_MANAGER_TEMPORAL_UI",
+            "NV_CONFIG_MANAGER_OIDC_PROXY",
         ]:
             self.env[f"DIGEST_{key}"] = "sha256:" + "c" * 64
         self.env.update(

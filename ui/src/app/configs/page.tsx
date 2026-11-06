@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { Search, Loader2, ChevronRight, Download, Trash2 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRuntimeConfig } from "@/config/runtime";
 import { searchDevices, fetchDeviceConfigs, deleteDevice } from "@/lib/config-store-api";
 import { downloadConfigsAsZip } from "@/lib/download-config";
@@ -45,6 +46,7 @@ import { formatRelativeTime } from "@/lib/utils";
 export default function ConfigsPage() {
   const { config, isLoading: configLoading } = useRuntimeConfig();
   const { toast } = useToast();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [devices, setDevices] = useState<DeviceWithLatestConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -289,6 +291,17 @@ export default function ConfigsPage() {
                       <TableRow
                         key={device.uuid}
                         className={`group cursor-pointer hover:bg-muted/50 ${!device.active ? "opacity-60" : ""}`}
+                        onClick={(e) => {
+                          // The name and chevron links and the delete button handle their own clicks,
+                          // and a click that ends a text selection is left for copying.
+                          if (
+                            (e.target as Element).closest("a, button") ||
+                            globalThis.getSelection()?.toString()
+                          ) {
+                            return;
+                          }
+                          router.push(`/device/${device.uuid}?file_type=${fileType}`);
+                        }}
                       >
                         <TableCell>
                           <div className="flex items-center gap-2">

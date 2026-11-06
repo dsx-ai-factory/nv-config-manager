@@ -121,16 +121,7 @@ include:
             - nv-config-manager-temporal
             - nv-config-manager-temporal-bootstrap
             - nv-config-manager-temporal-ui
-          PULSE_CONTAINER_SCANNER_PLATFORM:
-            - linux/amd64
-            - linux/arm64
-        # oauth2-proxy is shipped directly as a pinned upstream distroless
-        # image, so scan that exact artifact in addition to NVCM-built images.
-        - CONTAINER_IMAGE: computed-by-before-script
-          PULSE_IMAGE_NAME:
-            - oauth2-proxy
-          PULSE_EXTERNAL_IMAGE:
-            - quay.io/oauth2-proxy/oauth2-proxy:v7.15.5
+            - nv-config-manager-oidc-proxy
           PULSE_CONTAINER_SCANNER_PLATFORM:
             - linux/amd64
             - linux/arm64

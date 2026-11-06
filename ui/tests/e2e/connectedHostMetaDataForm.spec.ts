@@ -15,9 +15,13 @@
  * limitations under the License.
  */
 
-import { FORBIDDEN_DEVICE_IDS } from "@/mocks/data";
+import { expect } from "@playwright/test";
 
-import { runWorkflowFormTests } from "./shared/workflowFormTests";
+import { DEVICES_LIST, FORBIDDEN_DEVICE_IDS, SITES_LIST } from "@/mocks/data";
+
+import { mockServerCatalogAndUser } from "./shared/apiMocks";
+import { test, TEST_TIMEOUT } from "./shared/utils";
+import { formPath, nextPost, runWorkflowFormTests, selected, submit } from "./shared/workflowFormTests";
 
 runWorkflowFormTests({
   workflow: "ConnectedHostMetadataWorkflow",
@@ -25,4 +29,18 @@ runWorkflowFormTests({
   formTitle: "New Connected Host Metadata Workflow",
   endpoint: "/v1/workflow/ngc/connected_host_metadata",
   forbiddenFilter: (devices) => devices.find((device) => device.id === FORBIDDEN_DEVICE_IDS.ARISTA)!,
+});
+
+test("URL parameters cannot set server-owned workflow inputs", async ({ page }) => {
+  await mockServerCatalogAndUser(page, ["reader", "executor"]);
+  const device = DEVICES_LIST[SITES_LIST.pdx01][0];
+  await page.goto(
+    `${formPath("ConnectedHostMetadataWorkflow")}?site=${SITES_LIST.pdx01}&device-id=${device.id}` +
+      "&user=mallory&user_domain=evil.example&workflow_id=forged"
+  );
+  await expect(selected(page, device.name)).toBeVisible({ timeout: TEST_TIMEOUT });
+
+  const post = nextPost(page, "/v1/workflow/ngc/connected_host_metadata");
+  await submit(page);
+  expect((await post).postDataJSON()).toEqual({ device_id: device.id });
 });

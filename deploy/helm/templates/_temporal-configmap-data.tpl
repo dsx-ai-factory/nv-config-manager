@@ -60,7 +60,7 @@ config_template.yaml: |-
     level: DEBUG
 
   persistence:
-    numHistoryShards: {{ .Values.temporal.services.history.replicas }}
+    numHistoryShards: {{ include "nv-config-manager.temporalShardCount" . }}
     defaultStore: default
     visibilityStore: visibility
     datastores:
@@ -75,6 +75,10 @@ config_template.yaml: |-
           maxConns: 20
           maxIdleConns: 20
           maxConnLifetime: 1h
+          {{- with .Values.temporal.persistence.connectAttributes }}
+          connectAttributes:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           tls:
             enabled: false
       visibility:
@@ -88,6 +92,10 @@ config_template.yaml: |-
           maxConns: 10
           maxIdleConns: 10
           maxConnLifetime: 1h
+          {{- with .Values.temporal.persistence.connectAttributes }}
+          connectAttributes:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           tls:
             enabled: false
 

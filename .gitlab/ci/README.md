@@ -86,7 +86,7 @@ ignoring per-target image mappings because promotion images are published only
 to `NVCM_VALUES_IMAGE_TARGET`.
 
 Builds and scans use the selected image target. After `update-version` creates
-the release tags there, `publish-images-release` copies all nine project images
+the release tags there, `publish-images-release` copies all ten project images
 to the other configured image targets. Copies preserve every architecture and
 the source digests, with separate credentials for each destination. Stable
 releases then run `publish-latest-release` under a shared resource lock. That
@@ -193,6 +193,15 @@ and only operate on the finished artifacts. Because of that split, **every
 secret CI/CD variable in this project and its groups must be flagged
 Protected** - unprotected variables are visible to the untrusted
 `pull-request/*` builds. Never protect `pull-request/*` refs.
+
+The PR's own certificate audit provides early feedback. Before promotion,
+`test-promote-audit-images` independently checks the image archives using the
+protected main checkout. It passes no CI variables or registry credentials to
+the checker; Node runs without network access or host mounts. GitLab still
+provides protected variables to trusted job orchestration. The push job requires
+this audit to succeed and verifies each downloaded archive against its audit
+hash. Main/tag builds audit both architectures and publish multi-architecture
+manifests from the exact audited digests, without resolving the tags again.
 
 | Variable | Purpose |
 | -------- | ------- |
