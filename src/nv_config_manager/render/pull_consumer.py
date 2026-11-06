@@ -65,6 +65,7 @@ from nv_config_manager.render.dispatch import EventDispatcher
 from nv_config_manager.render.events.util import DeviceNotEnabledError, clear_queued
 from nv_config_manager.render.exceptions import RenderException
 from nv_config_manager.render.lock import create_lock
+from nv_config_manager.render.progress import HandlerProgress, track_progress
 
 configure_logging(service="render")
 
@@ -166,10 +167,12 @@ class PullConsumer:
             )
         self._last_progress = time.monotonic()
 
-        # A handler reports progress well inside the ack wait so JetStream does not
-        # redeliver a message that is still being worked on, such as a config
-        # context change that queues renders for a whole fleet. The deadline keeps
-        # those reports from hiding a handler that never finishes.
+        # A handler that notes progress, such as a config context change queuing
+        # renders for a whole fleet, is reported in progress well inside the ack
+        # wait so JetStream does not redeliver it while it is still moving. A
+        # handler that notes nothing is not reported, so a stuck one still loses
+        # its message and its liveness. The deadline bounds a handler that moves
+        # but never finishes.
         self.progress_interval = 60.0
         self.progress_flush_timeout = 10
         self.handler_timeout = float(os.getenv("CONSUMER_HANDLER_TIMEOUT_SECONDS", "1800"))
@@ -568,10 +571,19 @@ class PullConsumer:
             mismatches.append(f"max_deliver={config.max_deliver!r} expected {CONSUMER_MAX_DELIVER}")
         return mismatches
 
-    async def _report_progress(self, msg: Msg) -> None:
-        """Extend msg's ack wait and stamp liveness until cancelled."""
+    async def _report_progress(self, msg: Msg, progress: HandlerProgress) -> None:
+        """Every progress_interval, tell JetStream msg is still being worked on and refresh liveness.
+
+        Reports only when the handler noted progress since the previous check, and
+        refreshes liveness only once a flush confirms the server received the report.
+        Runs until the caller cancels it when the handler returns.
+        """
+        reported_steps = 0
         while True:
             await asyncio.sleep(self.progress_interval)
+            if progress.steps == reported_steps:
+                continue
+            reported_steps = progress.steps
             try:
                 await msg.in_progress()
                 if self.nats_conn is None:
@@ -586,7 +598,16 @@ class PullConsumer:
 
     async def _resilient_message_handler(self, msg: Msg) -> None:
         """Wrapper around message_handler with additional error handling."""
-        progress = asyncio.create_task(self._report_progress(msg))
+        with track_progress() as progress:
+            reporter = asyncio.create_task(self._report_progress(msg, progress))
+            try:
+                await self._handle_within_deadline(msg)
+            finally:
+                reporter.cancel()
+                await asyncio.gather(reporter, return_exceptions=True)
+
+    async def _handle_within_deadline(self, msg: Msg) -> None:
+        """Run message_handler under the handler deadline, nak'ing the message on failure."""
         deadline = asyncio.timeout(self.handler_timeout)
         try:
             async with deadline:
@@ -605,9 +626,6 @@ class PullConsumer:
                 await self.nak(msg)
             except Exception as nak_error:
                 self.logger.error("Failed to nak message after handler error: %s", str(nak_error))
-        finally:
-            progress.cancel()
-            await asyncio.gather(progress, return_exceptions=True)
 
     def _clean_exit(self) -> None:
         """Cancel all running tasks and close the connection to NATS."""

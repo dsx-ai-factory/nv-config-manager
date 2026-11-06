@@ -37,6 +37,7 @@ from nv_config_manager.common.config.nats import (
 )
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
+from nv_config_manager.render.progress import note_progress
 
 if TYPE_CHECKING:
     from nv_config_manager.common.client.redis import RedisClient
@@ -316,7 +317,7 @@ async def queue_render_batch(
         ) -> dict[str, str] | None:
             """Process a single device with concurrency control."""
             async with semaphore:
-                return await _process_single_device_enqueue(
+                result = await _process_single_device_enqueue(
                     device_uuid,
                     commit_message,
                     user,
@@ -326,6 +327,8 @@ async def queue_render_batch(
                     queue_client,
                     session_client,
                 )
+            note_progress()
+            return result
 
         try:
             if dcim_client is None:

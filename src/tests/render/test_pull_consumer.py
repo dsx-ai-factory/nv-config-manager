@@ -30,6 +30,7 @@ from nats.js.errors import FetchTimeoutError, NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.render.events.util import DeviceNotEnabledError
+from nv_config_manager.render.progress import note_progress
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
     CONSUMER_ACK_WAIT_SECONDS,
@@ -277,6 +278,7 @@ async def test_long_handler_reports_progress_and_stays_live(
     msg.in_progress.side_effect = lambda: reported.set()
 
     async def long_handler(_msg: Msg) -> None:
+        note_progress()
         await reported.wait()
         await asyncio.sleep(0)
 
@@ -307,6 +309,7 @@ async def test_undelivered_progress_report_does_not_refresh_liveness(
     consumer.nats_conn.flush.side_effect = unanswered_flush
 
     async def long_handler(_msg: Msg) -> None:
+        note_progress()
         await flushed.wait()
         await asyncio.sleep(0)
 
@@ -316,6 +319,49 @@ async def test_undelivered_progress_report_does_not_refresh_liveness(
 
     live, _ = consumer.liveness()
     assert live is False
+
+
+@pytest.mark.asyncio
+async def test_handler_that_notes_no_progress_is_not_reported_in_progress(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A handler stuck waiting on a call must not look busy, so JetStream can redeliver it."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _progress_consumer()
+    msg = AsyncMock(spec=Msg)
+
+    async def stuck_handler(_msg: Msg) -> None:
+        for _ in range(20):
+            await asyncio.sleep(0)
+
+    consumer.message_handler = stuck_handler  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(msg)
+
+    msg.in_progress.assert_not_awaited()
+    live, _ = consumer.liveness()
+    assert live is False
+
+
+@pytest.mark.asyncio
+async def test_handler_is_reported_only_while_it_keeps_moving(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """One step of progress earns one report, not a report on every later check."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _progress_consumer()
+    msg = AsyncMock(spec=Msg)
+
+    async def handler_that_stops_moving(_msg: Msg) -> None:
+        note_progress()
+        for _ in range(20):
+            await asyncio.sleep(0)
+
+    consumer.message_handler = handler_that_stops_moving  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(msg)
+
+    msg.in_progress.assert_awaited_once()
 
 
 @pytest.mark.asyncio
