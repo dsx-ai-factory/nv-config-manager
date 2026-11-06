@@ -111,8 +111,7 @@ async def test_config_store_paths_queries_and_return_models(server: Server) -> N
 
 async def test_batch_skips_unchanged_and_serializes_generated_request(server: Server) -> None:
     server.responses = [
-        (200, {"content": "same", "version": 1, "content_hash": "hash"}),
-        (404, {"detail": "missing"}),
+        (200, [{"filename": "same.cfg", "content": "same", "version": 1}]),
         (200, {"created": [{"version": 2}]}),
     ]
     async with ConfigStoreClient(server.url, "backup", server.url) as client:
@@ -120,7 +119,10 @@ async def test_batch_skips_unchanged_and_serializes_generated_request(server: Se
             "device", {"same.cfg": "same", "new.cfg.j2": "new"}, "backup", "user", "example.com"
         )
     assert [item.filename for item in files] == ["new.cfg"]
-    assert server.requests[-1]["path"] == "/v1/config/device/batch"
+    assert [request["path"] for request in server.requests] == [
+        "/v1/config/device/device?file_type=backup",
+        "/v1/config/device/batch",
+    ]
     assert server.requests[-1]["body"] == {
         "files": [
             {
@@ -136,8 +138,7 @@ async def test_batch_skips_unchanged_and_serializes_generated_request(server: Se
 
 async def test_batch_maps_created_versions_after_server_skips(server: Server) -> None:
     server.responses = [
-        (404, {"detail": "missing"}),
-        (404, {"detail": "missing"}),
+        (200, []),
         (
             200,
             {

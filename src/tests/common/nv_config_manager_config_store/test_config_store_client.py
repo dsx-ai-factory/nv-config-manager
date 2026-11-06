@@ -116,13 +116,14 @@ async def test_whoami_uses_service_root(async_config_store_client):
 
 @pytest.mark.asyncio
 async def test_persist_files_new(async_config_store_client):
-    """Test persisting new files."""
+    """Test persisting files for a device with nothing stored yet."""
     device_uuid = "123e4567-e89b-12d3-a456-426614174000"
 
-    async def mock_load_file(dev_uuid, filename):
-        raise ConfigStoreFileNotFound(f"File {filename} not found")
-
-    async_config_store_client.load_file = mock_load_file
+    list_configs = AsyncMock(return_value=[])
+    async_config_store_client.list_device_configs = list_configs
+    async_config_store_client.load_file = AsyncMock(
+        side_effect=ConfigStoreFileNotFound("startup.yaml not found")
+    )
 
     with patch.object(
         async_config_store_client, "_call", new=AsyncMock(return_value=MOCK_BATCH_POST_RESPONSE)
@@ -139,6 +140,33 @@ async def test_persist_files_new(async_config_store_client):
     assert len(config_files) == 1
     assert config_files[0].commit == "6"
     assert config_files[0].filename == "startup.yaml"
+    # A device with no stored configs must be discovered without a per-file GET.
+    list_configs.assert_awaited_once_with(device_uuid)
+    async_config_store_client.load_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_persist_files_skips_unchanged(async_config_store_client):
+    """Test files matching the stored content are not resubmitted."""
+    device_uuid = "123e4567-e89b-12d3-a456-426614174000"
+
+    async_config_store_client.list_device_configs = AsyncMock(
+        return_value=[dict(MOCK_GET_RESPONSE)]
+    )
+
+    with patch.object(
+        async_config_store_client, "_call", new=AsyncMock(return_value=MOCK_BATCH_POST_RESPONSE)
+    ) as call:
+        config_files = await async_config_store_client.persist_files(
+            device_uuid=device_uuid,
+            files={"startup.yaml.j2": MOCK_GET_RESPONSE["content"]},
+            commit_message="test commit message",
+            user="testuser",
+            user_domain="config-manager.example.com",
+        )
+
+    assert config_files is None
+    call.assert_not_awaited()
 
 
 @pytest.mark.asyncio
