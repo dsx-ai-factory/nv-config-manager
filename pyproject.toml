@@ -47,7 +47,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     "alembic>=1.13.1",
     # Security: Fix Mako vulnerability pulled in by Alembic (GHSA-2h4p-vjrc-8xpq)
-    "mako>=1.3.12",
+    "mako>=1.4.2",
     # Redis
     "redis[hiredis]>=5.2.1",
     # NATS
