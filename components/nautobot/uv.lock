@@ -1102,7 +1102,7 @@ requires-dist = [
     { name = "ipython", marker = "extra == 'dev'" },
     { name = "markdown", marker = "extra == 'dev'" },
     { name = "mkdocs", marker = "extra == 'dev'", specifier = ">=1.6.0" },
-    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.5.0" },
+    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.7.7" },
     { name = "mkdocstrings", marker = "extra == 'dev'", specifier = ">=0.25.0" },
     { name = "mkdocstrings-python", marker = "extra == 'dev'", specifier = ">=1.10.0" },
     { name = "nautobot", specifier = ">=2.4.20,<2.5.0" },
