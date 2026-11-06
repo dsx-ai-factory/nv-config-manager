@@ -114,7 +114,9 @@ dependencies = [
     # Documentation
     "mkdocs>=1.6.1",
     # Model Context Protocol
-    "mcp>=1.29.0,<2",
+    # Security: Fix cross-origin redirects and external schema refs (GHSA-5h93-6whr-6q8j, GHSA-rwrf-2pqf-9j8j).
+    # Security: Bound sessions and validate token resources (GHSA-84m7-p3x7-pcfv, GHSA-w4fh-qvv9-3v23).
+    "mcp>=1.30.0,<2",
     # Network Templates (render service)
     "nv-config-manager-templates",
     # Provider-neutral DCIM SDK
