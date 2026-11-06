@@ -151,6 +151,50 @@ class TestInitCommand:
         assert "Unsupported ZTP platform 'sonic'" in result.output
 
 
+class TestIntegrationTestCommand:
+    @pytest.mark.parametrize("success", [True, False])
+    def test_runs_tests_without_deployment(self, tmp_path: Path, success):
+        config_path = tmp_path / "install.yaml"
+        NVConfigManagerInstallConfig().to_yaml(config_path)
+        kubeconfig = tmp_path / "kubeconfig"
+        kubeconfig.touch()
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            deployer.return_value.run_integration_tests.return_value = success
+            result = CliRunner().invoke(
+                main, ["test", str(config_path), "--kubeconfig", str(kubeconfig)]
+            )
+        assert result.exit_code == (0 if success else 1)
+        deployer.return_value.run_integration_tests.assert_called_once_with(
+            kubeconfig=kubeconfig, oidc_client_secret_name=None, oidc_token_file=None
+        )
+        deployer.return_value.run.assert_not_called()
+
+    def test_reports_setup_failure(self, tmp_path: Path):
+        config_path = tmp_path / "install.yaml"
+        NVConfigManagerInstallConfig().to_yaml(config_path)
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            deployer.return_value.run_integration_tests.side_effect = RuntimeError("no kubeconfig")
+            result = CliRunner().invoke(main, ["test", str(config_path)])
+        assert result.exit_code == 1
+        assert "no kubeconfig" in result.output
+
+    def test_passes_oidc_credential_options(self, tmp_path: Path):
+        config_path = tmp_path / "install.yaml"
+        NVConfigManagerInstallConfig().to_yaml(config_path)
+        token_path = tmp_path / "token"
+        token_path.write_text("test-token")
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            result = CliRunner().invoke(
+                main, ["test", str(config_path), "--oidc-token-file", str(token_path)]
+            )
+            assert result.exit_code == 0
+            assert deployer.return_value.run_integration_tests.call_args.kwargs == {
+                "kubeconfig": None,
+                "oidc_token_file": token_path,
+                "oidc_client_secret_name": None,
+            }
+
+
 class TestDeployCommand:
     def test_deploy_missing_config(self):
         runner = CliRunner()

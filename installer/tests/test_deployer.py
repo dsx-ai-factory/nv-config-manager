@@ -16,6 +16,9 @@
 
 from __future__ import annotations
 
+import io
+import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -71,6 +74,7 @@ from nv_config_manager_installer.schema import (
     SecretsMethod,
     ServicesConfig,
     SiteConfig,
+    SSOProvider,
     TemplatePath,
     ZTPStorageConfig,
     ZTPStorageType,
@@ -1598,6 +1602,200 @@ class TestPvcContentUpload:
         exec_command = deployer._k8s.exec_command.call_args.args[2]
         assert "find . -mindepth 1 -maxdepth 1 -exec rm -rf {} \\;" in exec_command[2]
         assert "tar xzf /tmp/plugins.tar.gz" in exec_command[2]
+
+
+class TestStandaloneIntegrationTests:
+    @pytest.mark.parametrize("remote_failure", [False, True])
+    def test_runs_in_pod_without_chart_or_repo(self, tmp_path: Path, remote_failure):
+        config = _make_config()
+        config.cluster.namespace = "offline"
+        config.cluster.release_name = "site"
+        callback = RecordingCallback()
+        deployer = Deployer(config, DeployOptions(), callback)
+        pod = SimpleNamespace(
+            metadata=SimpleNamespace(name="site-ztp-pod", deletion_timestamp=None),
+            status=SimpleNamespace(
+                phase="Running",
+                container_statuses=[SimpleNamespace(name="sftp", ready=True)],
+            ),
+        )
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            patch("nv_config_manager_installer.deployer.find_project_root") as find_root,
+            patch.object(deployer, "run") as run,
+        ):
+            k8s = client.return_value
+            k8s.v1.list_namespaced_pod.return_value.items = [pod]
+            k8s.read_secret_data.return_value = {"api_token": "test-token"}
+            if remote_failure:
+                k8s.exec_command_streaming.side_effect = RuntimeError("exit 5")
+            else:
+                # A test name may contain 'error' even when every test passes.
+                k8s.exec_command_streaming.return_value = iter(["test_error_response PASSED"])
+            assert deployer.run_integration_tests(kubeconfig=tmp_path / "kubeconfig") is (
+                not remote_failure
+            )
+            client.assert_called_once_with(kubeconfig=tmp_path / "kubeconfig")
+            find_root.assert_not_called()
+            run.assert_not_called()
+            k8s.v1.list_namespaced_pod.assert_called_once_with(
+                "offline", label_selector="app=site-nv-config-manager-ztp"
+            )
+            args = k8s.exec_command_streaming.call_args
+            assert args.args[:2] == ("site-ztp-pod", "offline")
+            assert args.kwargs["container"] == "sftp"
+            assert "http://site-nv-config-manager-render-api:9000" in args.args[2][2]
+            assert "test-token" not in args.args[2][2]
+            assert json.loads(args.kwargs["stdin"]) == {"NAUTOBOT_TOKEN": "test-token"}
+
+    @pytest.mark.parametrize("unsupported", ["external-dcim", "no-nautobot", "no-ztp", "azure"])
+    def test_rejects_unsupported_config_before_connecting(self, unsupported):
+        config = _make_config()
+        if unsupported == "external-dcim":
+            config.dcim.provider = "example"
+            config.dcim.server = "http://dcim.example.com"
+            config.services.nautobot = False
+        elif unsupported == "no-nautobot":
+            config.services.nautobot = False
+            config.services.external_nautobot_url = "http://nautobot.example.com"
+        elif unsupported == "azure":
+            config.sso.enabled = True
+            config.sso.provider = SSOProvider.AZURE
+        else:
+            config.services.ztp = False
+        deployer = Deployer(config, DeployOptions())
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            pytest.raises(ValueError),
+        ):
+            deployer.run_integration_tests()
+        client.assert_not_called()
+
+    def test_missing_ztp_pod_fails(self):
+        deployer = Deployer(_make_config(), DeployOptions())
+        with patch("nv_config_manager_installer.deployer.K8sClient") as client:
+            client.return_value.v1.list_namespaced_pod.return_value.items = []
+            assert deployer.run_integration_tests() is False
+            client.return_value.exec_command_streaming.assert_not_called()
+
+    def test_script_reads_credentials_from_stdin(self):
+        deployer = Deployer(_make_config(), DeployOptions())
+        script = deployer._build_test_script("offline")
+        compile(script, "test-runner", "exec")
+        assert "http://nv-config-manager-nautobot" in script
+        assert "json.loads(sys.stdin.readline())" in script
+
+    def test_sso_script_executes_pytest_with_stdin_credentials(self):
+        config = _make_config()
+        config.sso.enabled = True
+        deployer = Deployer(config, DeployOptions())
+        script = deployer._build_test_script("offline")
+        payload = {"NAUTOBOT_TOKEN": "quote'and\\newline\n", "NVCM_OIDC_ACCESS_TOKEN": "test-jwt"}
+        fake_pytest = MagicMock()
+
+        def run_pytest(args):
+            assert "--sso" in args
+            assert args[args.index("--nv-config-manager-namespace") + 1] == "offline"
+            assert os.environ["NAUTOBOT_TOKEN"] == payload["NAUTOBOT_TOKEN"]
+            assert os.environ["NVCM_OIDC_ACCESS_TOKEN"] == "test-jwt"
+            return 0
+
+        fake_pytest.main.side_effect = run_pytest
+        with (
+            patch("os.chdir"),
+            patch.dict("os.environ"),
+            patch.dict("sys.modules", {"pytest": fake_pytest}),
+            patch("sys.stdin", io.StringIO(json.dumps(payload) + "\n")),
+            patch("os.path.isfile", return_value=True),
+            pytest.raises(SystemExit) as result,
+        ):
+            exec(script, {})
+        assert result.value.code == 0
+
+    @pytest.mark.parametrize("token_file", [False, True])
+    def test_sso_uses_existing_secret_or_token_without_deploying(self, tmp_path: Path, token_file):
+        config = _make_config()
+        config.sso.enabled = True
+        config.sso.client_id = "nvcm"
+        config.sso.internal_issuer = "http://keycloak.keycloak.svc/realms/nmc"
+        callback = RecordingCallback()
+        deployer = Deployer(config, DeployOptions(), callback)
+        path = tmp_path / "token"
+        path.write_text("pre-issued-token\n")
+        captured = {}
+
+        def run_tests():
+            captured.update(deployer._test_oidc_environment)
+            script = deployer._build_test_script("offline")
+            compile(script, "test-runner", "exec")
+            assert "'--sso'" in script
+            deployer._finish_step(deployer._get_step("run-tests"))
+
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            patch.object(deployer, "_run_integration_tests", side_effect=run_tests),
+        ):
+            client.return_value.read_secret_data.return_value = {"client-secret": "test-secret"}
+            assert deployer.run_integration_tests(oidc_token_file=path if token_file else None)
+            if token_file:
+                client.return_value.read_secret_data.assert_not_called()
+                assert captured == {"NVCM_OIDC_ACCESS_TOKEN": "pre-issued-token"}
+            else:
+                client.return_value.read_secret_data.assert_called_once_with(
+                    "oidc-client-secret", config.cluster.namespace
+                )
+                assert captured == {
+                    "NVCM_OIDC_TOKEN_URL": (
+                        "http://keycloak.keycloak.svc/realms/nmc/protocol/openid-connect/token"
+                    ),
+                    "NVCM_OIDC_CLIENT_ID": "nvcm",
+                    "NVCM_OIDC_CLIENT_SECRET": "test-secret",
+                }
+        assert not deployer._test_oidc_environment
+
+    def test_sso_does_not_skip_when_credentials_supplied(self):
+        config = _make_config()
+        config.sso.enabled = True
+        deployer = Deployer(config, DeployOptions(run_tests=True))
+        deployer._test_oidc_environment = {"NVCM_OIDC_ACCESS_TOKEN": "test-token"}
+        deployer._k8s = MagicMock()
+        deployer._k8s.v1.list_namespaced_pod.return_value.items = []
+        deployer._run_integration_tests()
+        assert deployer._get_step("run-tests").status == StepStatus.FAILED
+
+    def test_rejects_missing_oidc_secret_fields(self):
+        config = _make_config()
+        config.sso.enabled = True
+        deployer = Deployer(config, DeployOptions())
+        with patch("nv_config_manager_installer.deployer.K8sClient") as client:
+            client.return_value.read_secret_data.return_value = {}
+            with pytest.raises(ValueError, match="SSO tests require"):
+                deployer.run_integration_tests()
+            client.return_value.exec_command_streaming.assert_not_called()
+
+    def test_sso_uses_alternate_client_secret(self):
+        config = _make_config()
+        config.sso.enabled = True
+        config.sso.issuer_url = "https://keycloak.example/realms/test"
+        deployer = Deployer(config, DeployOptions())
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            patch.object(deployer, "_run_integration_tests") as run_tests,
+        ):
+            client.return_value.read_secret_data.return_value = {
+                "client_id": "acceptance-tests",
+                "client_secret": "test-secret",
+            }
+
+            def check_environment():
+                assert deployer._test_oidc_environment["NVCM_OIDC_CLIENT_ID"] == "acceptance-tests"
+                assert deployer._test_oidc_environment["NVCM_OIDC_CLIENT_SECRET"] == "test-secret"
+
+            run_tests.side_effect = check_environment
+            deployer.run_integration_tests(oidc_client_secret_name="acceptance-tests")
+            client.return_value.read_secret_data.assert_called_once_with(
+                "acceptance-tests", config.cluster.namespace
+            )
 
 
 class TestK8sClientIntegration:

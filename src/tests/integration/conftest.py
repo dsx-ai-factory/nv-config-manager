@@ -21,8 +21,9 @@ For local/CI environments, add entries to /etc/hosts pointing to the gateway IP.
 SFTP is the only service that uses a kubectl port-forward (directly to the ZTP pod)
 since it runs on a non-HTTP port that can't go through the gateway.
 
-When --sso is passed, tests authenticate via OIDC PKCE (browser-based) using the
-shared OIDCAuth class, and route API requests through svc-* JWT-only hostnames.
+When --sso is passed, tests use headless OIDC credentials when supplied, or
+browser-based PKCE otherwise. API requests use svc-* JWT-only hostnames unless
+service URL environment variables select internal endpoints.
 """
 
 import atexit
@@ -40,6 +41,7 @@ import urllib3
 
 from nv_config_manager.common.oidc import OIDCAuth
 from tests.integration.dcim_adapter import DCIMIntegrationAdapter, load_dcim_integration_adapter
+from tests.integration.oidc_client import HeadlessOIDCAuth
 
 # Suppress InsecureRequestWarning for self-signed certs in tests
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -474,19 +476,26 @@ def oidc_auth(
     sso_enabled: bool,
     base_hostname: str,
     headless_oidc_token: str | None,
-) -> OIDCAuth | None:
-    """Create a session-scoped OIDCAuth instance when --sso is enabled.
+) -> OIDCAuth | HeadlessOIDCAuth | None:
+    """Authenticate using headless credentials or interactive gateway discovery.
 
-    Auto-discovers OIDC config from the gateway and performs browser-based
-    authentication once for the entire test session. Set
-    ``NVCM_OIDC_ACCESS_TOKEN`` to provide a valid token for a headless run;
-    it is used directly without writing a token cache. The interactive token
-    cache is reused across browser-based test runs.
+    A supplied token or client credentials avoid browser login, gateway
+    discovery, and token-cache writes. Client credentials renew expiring tokens.
 
     Returns None when --sso is not enabled.
     """
     if not sso_enabled:
         return None
+
+    if headless_oidc_token or os.environ.get("NVCM_OIDC_TOKEN_URL"):
+        headless_auth = HeadlessOIDCAuth(
+            access_token=headless_oidc_token or "",
+            token_url=os.environ.get("NVCM_OIDC_TOKEN_URL", ""),
+            client_id=os.environ.get("NVCM_OIDC_CLIENT_ID", ""),
+            client_secret=os.environ.get("NVCM_OIDC_CLIENT_SECRET", ""),
+        )
+        headless_auth.get_access_token()
+        return headless_auth
 
     gateway_url = f"https://workflow.{base_hostname}/v1/workflow"
     print(f"\n[SSO] Auto-discovering OIDC config from {gateway_url}...")
@@ -507,10 +516,6 @@ def oidc_auth(
 
     print(f"[SSO] Discovered issuer: {auth.issuer_url}")
     print(f"[SSO] Discovered client ID: {auth.client_id}")
-
-    if headless_oidc_token:
-        print("[SSO] Using NVCM_OIDC_ACCESS_TOKEN for headless authentication")
-        return auth
 
     # Clear any stale cached token so we always do a fresh browser-based flow.
     # Cached tokens from previous runs (or a different environment) can cause
@@ -994,11 +999,16 @@ def sftp_host_port(sftp_port_forward: tuple[str, int] | None) -> tuple[str, int]
 
 
 def _make_sso_session(
-    oidc_auth: OIDCAuth,
+    oidc_auth: OIDCAuth | HeadlessOIDCAuth,
     headless_oidc_token: str | None = None,
 ) -> requests.Session:
     """Create a requests session with JWT Bearer auth from OIDCAuth."""
     session = requests.Session()
+    if isinstance(oidc_auth, HeadlessOIDCAuth):
+        session.auth = oidc_auth
+        session.headers.update({"Content-Type": "application/json"})
+        session.verify = False
+        return session
     token = headless_oidc_token or oidc_auth.get_access_token()
     session.headers.update(
         {
@@ -1051,7 +1061,7 @@ def nautobot_client(nautobot_url: str, nautobot_token: str) -> requests.Session:
 def render_client(
     render_api_url: str,
     sso_enabled: bool,
-    oidc_auth: OIDCAuth | None,
+    oidc_auth: OIDCAuth | HeadlessOIDCAuth | None,
     headless_oidc_token: str | None,
 ) -> requests.Session:
     """Create a configured requests session for Render API."""
@@ -1067,7 +1077,7 @@ def render_client(
 def ztp_client(
     ztp_api_url: str,
     sso_enabled: bool,
-    oidc_auth: OIDCAuth | None,
+    oidc_auth: OIDCAuth | HeadlessOIDCAuth | None,
     headless_oidc_token: str | None,
 ) -> requests.Session:
     """Create a configured requests session for ZTP API."""
@@ -1080,7 +1090,7 @@ def ztp_client(
 def dhcp_client(
     dhcp_api_url: str,
     sso_enabled: bool,
-    oidc_auth: OIDCAuth | None,
+    oidc_auth: OIDCAuth | HeadlessOIDCAuth | None,
     headless_oidc_token: str | None,
 ) -> requests.Session:
     """Create a configured requests session for DHCP API."""
@@ -1093,7 +1103,7 @@ def dhcp_client(
 def temporal_client(
     temporal_api_url: str,
     sso_enabled: bool,
-    oidc_auth: OIDCAuth | None,
+    oidc_auth: OIDCAuth | HeadlessOIDCAuth | None,
     headless_oidc_token: str | None,
     temporal_api_port_forward: str,
 ) -> requests.Session:

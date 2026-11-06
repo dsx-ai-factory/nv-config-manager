@@ -95,6 +95,32 @@ def test_exec_command_returns_output_after_zero_exit() -> None:
     websocket.close.assert_called_once()
 
 
+@pytest.mark.parametrize("returncode", [0, 1, 2, 5, None])
+def test_streaming_exec_checks_remote_exit_after_delivering_output(returncode) -> None:
+    k8s = _client()
+    websocket = MagicMock()
+    websocket.is_open.side_effect = [True, False]
+    websocket.returncode = returncode
+    websocket.read_stdout.return_value = "test output\nlast line"
+    websocket.read_stderr.return_value = ""
+
+    with patch("nv_config_manager_installer.k8s.k8s_stream", return_value=websocket):
+        output = k8s.exec_command_streaming(
+            "ztp", "test-ns", ["python"], container="sftp", stdin='{"token":"test-token"}\n'
+        )
+        assert next(output) == "test output"
+        assert next(output) == "last line"
+        if returncode == 0:
+            with pytest.raises(StopIteration):
+                next(output)
+        else:
+            with pytest.raises(RuntimeError, match=f"failed with exit {returncode}"):
+                next(output)
+
+    websocket.close.assert_called_once()
+    websocket.write_stdin.assert_called_once_with('{"token":"test-token"}\n')
+
+
 def test_kubectl_copy_uses_client_kubeconfig(monkeypatch: pytest.MonkeyPatch) -> None:
     k8s = _client()
     k8s.kubeconfig = "/tmp/explicit.yaml"

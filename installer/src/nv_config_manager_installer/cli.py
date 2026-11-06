@@ -18,6 +18,7 @@ Commands:
     init              Launch the TUI wizard (or load an existing config to edit)
     validate          Validate a nv-config-manager-install.yaml config file
     generate-values   Generate Helm values and config-secrets.ini
+    test              Run integration tests against an existing deployment
 """
 
 from __future__ import annotations
@@ -272,6 +273,45 @@ def deploy(
     )
 
     _run_deployer(config, options, operation="Deployment")
+
+
+@main.command("test")
+@click.argument("config_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--kubeconfig",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Kubeconfig file to use. Defaults to KUBECONFIG, then the standard kubeconfig.",
+)
+@click.option(
+    "--oidc-client-secret-name",
+    help="OIDC credential Secret in the deployment namespace (default: oidc-client-secret).",
+)
+@click.option(
+    "--oidc-token-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="File containing a pre-issued access token instead of client credentials.",
+)
+def test_command(
+    config_path: Path,
+    kubeconfig: Path | None,
+    oidc_client_secret_name: str | None,
+    oidc_token_file: Path | None,
+) -> None:
+    """Run integration tests in the deployed ZTP pod without redeploying."""
+    try:
+        config = NVConfigManagerInstallConfig.from_yaml(config_path)
+        deployer = Deployer(
+            config, DeployOptions(run_tests=True), _CliCallback("Integration tests")
+        )
+        success = deployer.run_integration_tests(
+            kubeconfig=kubeconfig,
+            oidc_client_secret_name=oidc_client_secret_name,
+            oidc_token_file=oidc_token_file,
+        )
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+    if not success:
+        raise click.ClickException("Integration tests did not pass; see the test output above.")
 
 
 @main.group("pvc-updater")

@@ -291,6 +291,106 @@ ZTP is initiated by the device, not by Config Manager. As soon as Config Manager
 
 Validation or runtime errors from post-deploy jobs appear in the installer deploy output. Fix the job code, Design Builder design files, or context data and re-run the deployment with the same `content.run_after_deploy` configuration.
 
+### Run Integration Tests After Deployment
+
+After deployment and site data loading finish, run the integration suite from
+the extracted bundle directory:
+
+```bash
+./installer/nvcm-installer test install.yaml
+```
+
+This command runs tests against the existing deployment without running the
+deployment pipeline again. It uses the namespace and Helm release name in
+`install.yaml` and the current Kubernetes context. To select a kubeconfig
+explicitly:
+
+```bash
+./installer/nvcm-installer test install.yaml --kubeconfig /path/to/kubeconfig
+```
+
+The installer executes the integration tests already included in the deployed
+Config Manager image, inside the ZTP pod's `sftp` container. No cloned
+repository, Makefile, host-side pytest installation, internet access, or image
+pull is needed. Tests use internal service addresses; the operator host only
+needs Kubernetes API access. Its Kubernetes credentials must allow listing
+pods, reading the `nautobot-admin` Secret, and executing commands in pods in the
+deployment namespace.
+
+#### SSO Deployments with Keycloak
+
+Keep `sso.enabled: true` in `install.yaml`. The same command supports unattended
+Keycloak authentication:
+
+```bash
+./installer/nvcm-installer test install.yaml
+```
+
+The installer reads the existing `oidc-client-secret` Kubernetes Secret's
+`client-secret` field and uses `sso.client_id` from `install.yaml`. Operators do
+not need to extract or copy its value. Configure the client's `sso.client_id`
+and realm's `sso.issuer_url`. If Keycloak has an internal cluster address, set
+`sso.internal_issuer` to that realm URL so the ZTP pod can reach it.
+
+The Keycloak client must have **Client authentication** and **Service accounts
+roles** enabled. Its tokens need an audience accepted by Config Manager and
+the roles required by the APIs and workflows being tested. A browser/PKCE
+client configuration alone does not enable client-credentials grants; ensure
+the Keycloak configuration includes this capability before using it for
+unattended tests. The runner does not change Keycloak client settings.
+
+To use a separate test client, reference its existing Secret instead:
+
+```bash
+./installer/nvcm-installer test install.yaml \
+  --oidc-client-secret-name nvcm-integration-tests
+```
+
+That Secret must contain `client_id` and `client_secret` (or `client-secret`).
+The runner obtains tokens from Keycloak inside the pod and renews them before
+expiry. Token requests verify HTTPS certificates; the deployed image must
+trust the issuer's CA, or use the configured internal Keycloak service URL.
+
+Alternatively, automation that already issues access tokens can provide a
+protected file containing only the token:
+
+```bash
+./installer/nvcm-installer test install.yaml --oidc-token-file /run/secrets/nvcm-test-token
+```
+
+This token must remain valid for the entire run. Neither mode opens a browser
+or writes an interactive token cache. Use this token-file mode for OIDC
+providers other than Keycloak. Keycloak or token failures cause the
+tests to fail, rather than skipping SSO coverage. Both the installer and the
+deployed Config Manager image must include this headless OIDC test support.
+These checks authenticate requests to internal services; they do not validate
+the external gateway's browser login flow.
+
+#### Test Prerequisites and Results
+
+Before running, confirm that:
+
+* The deployed image includes the integration suite and pytest, as the bundled
+  Config Manager image does, and the ZTP `sftp` container is ready.
+* The bundled Nautobot provider and the services under test are running, and
+  site topology and templates have been loaded. Tests that require devices or
+  rendered configurations fail when that data is missing.
+* For SSO deployments, Keycloak client credentials or an access-token file are
+  available as described above. External DCIM providers are not supported by
+  this runner. It assumes the bundled chart's default resource naming, without
+  `nameOverride` or `fullnameOverride`.
+
+Test output streams to the terminal. Exit status `0` means pytest completed
+successfully; a nonzero status means tests failed or could not run. Review
+skipped tests as well: optional and CI-only checks do not run by default. These
+are live service integration tests, including render and workflow requests;
+they do not certify a complete physical switch repave or DHCP/PXE boot cycle.
+
+If an older installer reports `No such command 'test'`, it does not expose the
+standalone runner. Use an updated offline installer package that includes this
+command. The TUI's **Run integration tests** option runs as part of deployment
+and does not provide a test-only rerun.
+
 ### Post-Deployment Checks
 
 Open the Config Store UI, such as `https://config-manager.example.com/configs`, and confirm that intended configs are present for every device that should be rendered. If renders are missing, check the render service logs.

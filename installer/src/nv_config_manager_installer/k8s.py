@@ -841,15 +841,16 @@ class K8sClient:
         namespace: str,
         command: list[str],
         container: str | None = None,
+        stdin: str | None = None,
     ) -> Generator[str]:
-        """Execute a command in a running pod, yielding stdout lines as they arrive."""
+        """Yield command output as it arrives, raising unless the remote exit is zero."""
         kwargs: dict[str, Any] = {
             "name": name,
             "namespace": namespace,
             "command": command,
             "stderr": True,
             "stdout": True,
-            "stdin": False,
+            "stdin": stdin is not None,
             "tty": False,
             "_preload_content": False,
         }
@@ -858,6 +859,8 @@ class K8sClient:
         ws = k8s_stream(self.v1.connect_get_namespaced_pod_exec, **kwargs)
         buf = ""
         try:
+            if stdin is not None:
+                ws.write_stdin(stdin)
             while ws.is_open():
                 ws.update(timeout=1)
                 stdout = ws.read_stdout(timeout=0)
@@ -872,10 +875,15 @@ class K8sClient:
                     while "\n" in buf:
                         line, buf = buf.split("\n", 1)
                         yield line
+            if buf.strip():
+                yield buf
+            returncode = ws.returncode
+            if returncode != 0:
+                raise RuntimeError(
+                    f"Command in pod {namespace}/{name} failed with exit {returncode}"
+                )
         finally:
             ws.close()
-        if buf.strip():
-            yield buf
 
     def copy_to_pod(
         self,
