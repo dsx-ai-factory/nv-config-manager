@@ -598,7 +598,7 @@ dcim.provider. A null requirement (Helm's way to delete a default key) means non
 The scheduler host does not check providers; this is the only provider gate.
 A missing map (e.g. --reuse-values from an older chart) fails rather than selecting none.
 Only schedulers in the reserved builtin. namespace receive DCIM access from the host,
-so the pod waits for Nautobot only when one of them is selected on nautobot-2x.
+so the pod waits for the DCIM only when one of them is selected and dcim.readiness is on.
 */}}
 {{- if not (hasKey .Values.temporal.scheduler "schedulers") }}
 {{- fail "temporal.scheduler.schedulers is missing, usually because helm upgrade --reuse-values kept values from an older chart. Upgrade without --reuse-values, or pass --set 'temporal.scheduler.schedulers.builtin\\.backup.enabled=true' --set 'temporal.scheduler.schedulers.builtin\\.backup.requiresDcimProvider=nautobot-2x' to keep the chart default. To run no schedulers, set temporal.scheduler.enabled=false." }}

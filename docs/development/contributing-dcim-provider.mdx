@@ -386,6 +386,15 @@ attributes:
 - `air`: `AirContribution` with the DSX Air launch status, `AirProviderHooks`,
   a population panel, and an Air settings model.
 
+  The Air box runs `nv-config-manager-installer deploy` from the NVCM checkout,
+  whose environment has only the built-in providers. An external provider
+  uploads its wheels in `AirProviderHooks.pre_deploy` and returns them from
+  `installer_packages` as an `AirInstallerPackages`; the orchestrator passes
+  each requirement to `uv run --with` and each directory to `--find-links`.
+  The `/plugin-wheels` wheelhouse in the provider's package image is a
+  suitable source, since it already carries the provider, the DCIM SDK, and
+  their dependencies.
+
 Runtime hooks default to no-ops. The deployer passes itself to deploy hooks as
 a `ProviderDeployContext` (`config`, `options`, `callback`, `k8s`,
 `secrets_state`, `is_rerun`, `nats_user`, `nats_url`, `provider_state`, and

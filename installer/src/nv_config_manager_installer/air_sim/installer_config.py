@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -37,7 +38,7 @@ from nv_config_manager_installer.air_sim.constants import (
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 
 if TYPE_CHECKING:
-    from nv_config_manager_installer.air_sim.provider import AirProviderHooks
+    from nv_config_manager_installer.air_sim.provider import AirInstallerPackages, AirProviderHooks
 
 _NETWORK_SECRET_KEYS = [
     ("root_password", "Switch root / cumulus user password"),
@@ -170,16 +171,21 @@ def generate_air_sim_install_yaml(
     return yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
 
 
-def build_deploy_command(_cfg: SimConfig) -> str:
+def build_deploy_command(_cfg: SimConfig, packages: AirInstallerPackages | None = None) -> str:
     """Return the remote command that runs nv-config-manager-installer deploy."""
     user = NVCM_BOX_USER
     kube = f"KUBECONFIG=/home/{user}/.kube/config"
     config_path = f"/home/{user}/{CONFIG_MANAGER_INSTALL_CONFIG}"
+    overlay = ""
+    if packages is not None:
+        overlay = "".join(f" --find-links {shlex.quote(d)}" for d in packages.find_links)
+        overlay += "".join(f" --with {shlex.quote(r)}" for r in packages.requirements)
 
     return (
         f"sudo NO_COLOR=1 {kube} uv run --python 3.13"
         f" --directory {CONFIG_MANAGER_REMOTE_DIR}"
         f" --project {CONFIG_MANAGER_REMOTE_DIR}/installer"
+        f"{overlay}"
         f" nv-config-manager-installer deploy {config_path}"
         f" --chart-dir {CONFIG_MANAGER_REMOTE_DIR}/deploy/helm"
         f" --kind-cluster {CONFIG_MANAGER_KIND_CLUSTER}"

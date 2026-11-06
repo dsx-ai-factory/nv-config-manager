@@ -34,7 +34,7 @@ from nv_config_manager_installer.air_sim.orchestrator import (
     StepStatus,
     _monitor_setup_command,
 )
-from nv_config_manager_installer.air_sim.provider import AirProviderHooks
+from nv_config_manager_installer.air_sim.provider import AirInstallerPackages, AirProviderHooks
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.air_sim.sim_manager import AirSimulationManager
 
@@ -648,3 +648,21 @@ def test_post_deploy_does_not_reset_inventory_only_switches() -> None:
 
     manager.reset_cumulus_nodes.assert_called_once_with("simulation-id", ["simulated"])
     assert config_waits == [1]
+
+
+def test_deploy_command_carries_the_provider_installer_packages() -> None:
+    class _Hooks(AirProviderHooks):
+        def installer_packages(self, cfg: SimConfig) -> AirInstallerPackages:
+            return AirInstallerPackages(requirements=("example-provider",), find_links=("/w",))
+
+    command = SimOrchestrator(
+        SimConfig(), _Callback(), provider_hooks=_Hooks()
+    )._build_deploy_command(SimConfig())
+
+    assert "--find-links /w --with example-provider nv-config-manager-installer deploy" in command
+
+
+def test_built_in_provider_needs_no_installer_packages() -> None:
+    command = SimOrchestrator(SimConfig(), _Callback())._build_deploy_command(SimConfig())
+
+    assert "--with" not in command

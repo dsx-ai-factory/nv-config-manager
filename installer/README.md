@@ -369,7 +369,9 @@ class attributes:
 - `tui`: wizard sections inserted after an anchor section (default
   `network_secrets`) and an optional DCIM panel on External Services.
 - `air`: DSX Air launch status, `AirProviderHooks`, population panel, and Air
-  settings model.
+  settings model. An external provider returns `AirInstallerPackages` from
+  `installer_packages` so the Air box's installer run can load it
+  (`uv run --with`/`--find-links`).
 
 Runtime hooks default to no-ops, so a provider implements only the stages it
 owns. The deployer passes itself as the `ProviderDeployContext` (config,

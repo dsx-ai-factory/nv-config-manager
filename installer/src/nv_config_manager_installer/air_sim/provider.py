@@ -48,6 +48,20 @@ class AirProviderStatus:
         return f"Switches Provisioned: waiting for {self.display_name}"
 
 
+@dataclass(frozen=True)
+class AirInstallerPackages:
+    """Python packages layered onto the installer run on the AIR box.
+
+    Each requirement is passed to ``uv run --with`` and each directory to
+    ``--find-links``, so a provider that is not part of the installer package is
+    discoverable by ``nv-config-manager-installer deploy`` on the box. Paths are
+    remote paths the provider uploaded during ``pre_deploy``.
+    """
+
+    requirements: tuple[str, ...] = ()
+    find_links: tuple[str, ...] = ()
+
+
 class AirProviderHooks:
     """Lifecycle hooks a DCIM provider supplies to the AIR orchestrator.
 
@@ -72,6 +86,14 @@ class AirProviderHooks:
 
     def pre_deploy(self, manager: AirSimulationManager, host: str, port: int) -> None:
         """Install provider-owned services before NVIDIA Config Manager deploys."""
+
+    def installer_packages(self, cfg: SimConfig) -> AirInstallerPackages:
+        """Return packages the box's installer run needs to load this provider.
+
+        They must exist on the box by the time the deploy command runs, which is
+        after ``pre_deploy``. Built-in providers need none.
+        """
+        return AirInstallerPackages()
 
     def post_deploy(self, manager: AirSimulationManager, host: str, port: int) -> None:
         """Run provider setup after common services are ready."""

@@ -193,7 +193,7 @@ class SimOrchestrator:
 
     def _build_deploy_command(self, cfg: SimConfig) -> str:
         """Return the provider installer's remote deployment command."""
-        return build_deploy_command(cfg)
+        return build_deploy_command(cfg, self._hooks.installer_packages(cfg))
 
     @staticmethod
     def _local_repository_path(repo: str) -> Path | None:

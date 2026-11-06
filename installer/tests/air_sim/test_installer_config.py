@@ -31,6 +31,7 @@ from nv_config_manager_installer.air_sim.installer_config import (
     generate_air_sim_install_config,
 )
 from nv_config_manager_installer.air_sim.prebuilt_configs import load_prebuilt_config
+from nv_config_manager_installer.air_sim.provider import AirInstallerPackages
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.providers.nautobot.air import NautobotAirHooks, build_content_jobs
 
@@ -244,3 +245,22 @@ def test_internal_air_deploy_command_uses_default_numpy_wheel_path() -> None:
 
     assert "uv run --python 3.13" in command
     assert "NVCM_NUMPY_FROM_SOURCE" not in command
+
+
+def test_air_deploy_command_has_no_overlay_without_provider_packages() -> None:
+    command = build_deploy_command(SimConfig(), AirInstallerPackages())
+
+    assert "--with" not in command
+    assert "--find-links" not in command
+
+
+def test_air_deploy_command_layers_provider_packages_onto_the_installer() -> None:
+    packages = AirInstallerPackages(
+        requirements=("example-provider",),
+        find_links=("/home/nvcm/provider wheels",),
+    )
+    command = build_deploy_command(SimConfig(), packages)
+
+    overlay = " --find-links '/home/nvcm/provider wheels' --with example-provider "
+    assert overlay in command
+    assert command.index(overlay) < command.index(" nv-config-manager-installer deploy ")

@@ -142,6 +142,7 @@ SUPPORTED_PLATFORMS = [
     Platform.ARISTA_EOS,
     Platform.NV_OS,
     Platform.JUNIPER_JUNOS,
+    Platform.CISCO_IOS_XR,
 ]
 DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION = (
     "Preloaded data for the target network device, if available."

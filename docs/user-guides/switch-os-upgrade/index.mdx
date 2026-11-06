@@ -24,7 +24,7 @@ Before running, complete the pre-work that drives the upgrade. The workflow does
 Also confirm:
 
 - **Device exists in Nautobot** with a current intended configuration in the [Config Store](../../config-store/index.mdx).
-- **Device is on a supported platform** — Cumulus Linux or Juniper Junos. NV-OS (NVLink) is rejected at runtime; use [NVLink Switch Firmware Upgrade](../nvlink-switch-firmware-upgrade/index.mdx) instead.
+- **Device is on a supported platform** — Cumulus Linux or Juniper Junos. Cisco IOS XR and NV-OS (NVLink) are rejected at runtime; for NVLink switches use [NVLink Switch Firmware Upgrade](../nvlink-switch-firmware-upgrade/index.mdx) instead.
 - **Firmware image is uploaded** to the ZTP service for the target OS version and the device's platform. See [Upload Images to the ZTP Server](../../network-ztp/upload-images.mdx) for the upload procedure.
 - **Juniper Junos:** operator- or plugin-supplied templates must render `full-config` into the intended config store. After factory reset the device fetches that file and the firmware image through DHCP option 43 (HTTP). There is no bundled Junos template tree.
 - **Device is reachable** and credentials are current. The upgrade flow drives image install over the management network and waits for the device to ZTP back into a reachable state.
