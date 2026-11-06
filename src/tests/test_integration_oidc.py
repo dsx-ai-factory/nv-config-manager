@@ -24,6 +24,7 @@ from tests.integration.oidc_client import HeadlessOIDCAuth
 
 
 def test_client_credentials_renew_before_expiry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reuse a live token and renew it when later requests approach its expiry."""
     post = MagicMock()
     post.return_value.status_code = 200
     post.return_value.json.side_effect = [
@@ -62,6 +63,7 @@ def test_client_credentials_renew_before_expiry(monkeypatch: pytest.MonkeyPatch)
 def test_token_failures_do_not_expose_response_or_secret(
     monkeypatch: pytest.MonkeyPatch, status: int, payload: dict
 ) -> None:
+    """Token rejections and malformed responses produce credential-safe errors."""
     post = MagicMock()
     post.return_value.status_code = status
     post.return_value.json.return_value = payload
@@ -79,6 +81,7 @@ def test_token_failures_do_not_expose_response_or_secret(
 def test_preissued_token_never_discovers_oidc_or_opens_browser(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A supplied bearer token must bypass gateway discovery and interactive login."""
     oidc = MagicMock()
     monkeypatch.setattr(integration_fixtures, "OIDCAuth", oidc)
     monkeypatch.delenv("NVCM_OIDC_TOKEN_URL", raising=False)

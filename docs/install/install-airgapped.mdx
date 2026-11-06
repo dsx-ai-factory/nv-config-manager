@@ -301,13 +301,27 @@ the extracted bundle directory:
 ```
 
 This command runs tests against the existing deployment without running the
-deployment pipeline again. It uses the namespace and Helm release name in
-`install.yaml` and the current Kubernetes context. To select a kubeconfig
+deployment pipeline again. With a config file, it uses that file's namespace
+and Helm release name and the current Kubernetes context. To select a kubeconfig
 explicitly:
 
 ```bash
 ./installer/nvcm-installer test install.yaml --kubeconfig /path/to/kubeconfig
 ```
+
+If the deployment was managed by other tooling and you do not have an
+installer config, pass the target directly:
+
+```bash
+./installer/nvcm-installer test \
+  --namespace nv-config-manager \
+  --release-name nv-config-manager \
+  --kubeconfig /path/to/kubeconfig
+```
+
+Both `--namespace` and `--release-name` are required when the config path is
+omitted. Flags override the corresponding settings when a config is supplied;
+the config file is not rewritten.
 
 The installer executes the integration tests already included in the deployed
 Config Manager image, inside the ZTP pod's `sftp` container. No cloned
@@ -316,6 +330,11 @@ pull is needed. Tests use internal service addresses; the operator host only
 needs Kubernetes API access. Its Kubernetes credentials must allow listing
 pods, reading the `nautobot-admin` Secret, and executing commands in pods in the
 deployment namespace.
+
+With SSO enabled, client-credentials authentication also requires read access
+to the selected OIDC Secret: `oidc-client-secret` by default, or the Secret
+selected with `--oidc-client-secret-name`. Token-file authentication does not
+require OIDC Secret access.
 
 #### SSO Deployments with Keycloak
 
@@ -326,8 +345,26 @@ Keycloak authentication:
 ./installer/nvcm-installer test install.yaml
 ```
 
-The installer reads the existing `oidc-client-secret` Kubernetes Secret's
-`client-secret` field and uses `sso.client_id` from `install.yaml`. Operators do
+Without an installer config, supply the SSO settings as flags:
+
+```bash
+./installer/nvcm-installer test \
+  --namespace nv-config-manager \
+  --release-name nv-config-manager \
+  --kubeconfig /path/to/kubeconfig \
+  --sso \
+  --oidc-client-id config-manager \
+  --oidc-issuer-url https://keycloak.example.com/realms/config-manager
+```
+
+Use the actual configured client ID and a realm URL reachable from the test
+pod. `--oidc-issuer-url` overrides either issuer URL in an existing config.
+`--sso` enables authentication without a config; `--no-sso` explicitly disables
+it. With a config, its SSO setting is retained unless either flag is supplied.
+
+For SSO without `--oidc-token-file`, the installer reads the existing `oidc-client-secret` Kubernetes Secret's
+`client-secret` field and uses `--oidc-client-id` or `sso.client_id` from the
+config. Operators do
 not need to extract or copy its value. Configure the client's `sso.client_id`
 and realm's `sso.issuer_url`. If Keycloak has an internal cluster address, set
 `sso.internal_issuer` to that realm URL so the ZTP pod can reach it.
@@ -348,8 +385,9 @@ To use a separate test client, reference its existing Secret instead:
 
 That Secret must contain `client_id` and `client_secret` (or `client-secret`).
 The runner obtains tokens from Keycloak inside the pod and renews them before
-expiry. Token requests verify HTTPS certificates; the deployed image must
-trust the issuer's CA, or use the configured internal Keycloak service URL.
+expiry. Both external and internal HTTPS realm URLs require the deployed image
+to trust the issuer's CA. An internal HTTP URL sends the client secret without
+TLS; use HTTP only when the connection has other transport protection.
 
 Alternatively, automation that already issues access tokens can provide a
 protected file containing only the token:

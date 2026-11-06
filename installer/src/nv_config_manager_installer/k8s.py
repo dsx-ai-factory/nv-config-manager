@@ -50,6 +50,15 @@ from kubernetes.stream import stream as k8s_stream
 LOADER_POD_IMAGE = "docker.io/library/busybox:1.36"
 
 
+class PodExecError(RuntimeError):
+    """A remote process failed or closed without an exit status."""
+
+    def __init__(self, namespace: str, name: str, returncode: int | None) -> None:
+        """Retain the exit status separately from potentially sensitive output."""
+        self.returncode = returncode
+        super().__init__(f"Command in pod {namespace}/{name} failed with exit {returncode}")
+
+
 def kubectl_current_context(kubeconfig: str | Path | None = None) -> str | None:
     """Return ``kubectl config current-context`` output, or None on failure.
 
@@ -879,9 +888,7 @@ class K8sClient:
                 yield buf
             returncode = ws.returncode
             if returncode != 0:
-                raise RuntimeError(
-                    f"Command in pod {namespace}/{name} failed with exit {returncode}"
-                )
+                raise PodExecError(namespace, name, returncode)
         finally:
             ws.close()
 

@@ -32,6 +32,7 @@ class HeadlessOIDCAuth(requests.auth.AuthBase):
         client_id: str = "",
         client_secret: str = "",
     ) -> None:
+        """Initialize either a fixed token or a renewing client-credentials identity."""
         self._access_token = access_token
         self._token_url = token_url
         self._client_id = client_id
@@ -39,6 +40,7 @@ class HeadlessOIDCAuth(requests.auth.AuthBase):
         self._expires_at = 0.0
 
     def get_access_token(self) -> str:
+        """Return the supplied token or renew a cached token before it expires."""
         if not self._token_url:
             if not self._access_token:
                 raise RuntimeError("Headless OIDC authentication requires an access token")
@@ -75,5 +77,6 @@ class HeadlessOIDCAuth(requests.auth.AuthBase):
         return token
 
     def __call__(self, request: requests.PreparedRequest) -> requests.PreparedRequest:
+        """Attach a current bearer token when requests prepares an API call."""
         request.headers["Authorization"] = f"Bearer {self.get_access_token()}"
         return request

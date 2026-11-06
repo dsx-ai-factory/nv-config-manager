@@ -30,6 +30,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from kubernetes.client.rest import ApiException
 
 from nv_config_manager_installer.accounts import build_config_secrets_ini
 from nv_config_manager_installer.deployer import (
@@ -49,7 +50,7 @@ from nv_config_manager_installer.deployer import (
     _unready_pod_summary_lines,
     find_project_root,
 )
-from nv_config_manager_installer.k8s import LOADER_POD_IMAGE
+from nv_config_manager_installer.k8s import LOADER_POD_IMAGE, PodExecError
 from nv_config_manager_installer.nautobot_jobs import NautobotJobRunner
 from nv_config_manager_installer.schema import (
     ClusterConfig,
@@ -1607,6 +1608,7 @@ class TestPvcContentUpload:
 class TestStandaloneIntegrationTests:
     @pytest.mark.parametrize("remote_failure", [False, True])
     def test_runs_in_pod_without_chart_or_repo(self, tmp_path: Path, remote_failure):
+        """Run only the selected pod's suite and respect its process exit status."""
         config = _make_config()
         config.cluster.namespace = "offline"
         config.cluster.release_name = "site"
@@ -1628,7 +1630,7 @@ class TestStandaloneIntegrationTests:
             k8s.v1.list_namespaced_pod.return_value.items = [pod]
             k8s.read_secret_data.return_value = {"api_token": "test-token"}
             if remote_failure:
-                k8s.exec_command_streaming.side_effect = RuntimeError("exit 5")
+                k8s.exec_command_streaming.side_effect = PodExecError("offline", "site-ztp-pod", 5)
             else:
                 # A test name may contain 'error' even when every test passes.
                 k8s.exec_command_streaming.return_value = iter(["test_error_response PASSED"])
@@ -1647,9 +1649,12 @@ class TestStandaloneIntegrationTests:
             assert "http://site-nv-config-manager-render-api:9000" in args.args[2][2]
             assert "test-token" not in args.args[2][2]
             assert json.loads(args.kwargs["stdin"]) == {"NAUTOBOT_TOKEN": "test-token"}
+            if remote_failure:
+                assert any("PodExecError (exit 5)" in line for line in callback.logs)
 
     @pytest.mark.parametrize("unsupported", ["external-dcim", "no-nautobot", "no-ztp", "azure"])
     def test_rejects_unsupported_config_before_connecting(self, unsupported):
+        """Reject unsupported providers and missing services before touching the cluster."""
         config = _make_config()
         if unsupported == "external-dcim":
             config.dcim.provider = "example"
@@ -1672,6 +1677,7 @@ class TestStandaloneIntegrationTests:
         client.assert_not_called()
 
     def test_missing_ztp_pod_fails(self):
+        """Missing ready test containers cannot produce a successful result."""
         deployer = Deployer(_make_config(), DeployOptions())
         with patch("nv_config_manager_installer.deployer.K8sClient") as client:
             client.return_value.v1.list_namespaced_pod.return_value.items = []
@@ -1679,6 +1685,7 @@ class TestStandaloneIntegrationTests:
             client.return_value.exec_command_streaming.assert_not_called()
 
     def test_script_reads_credentials_from_stdin(self):
+        """Generated exec arguments contain only code and non-secret connection settings."""
         deployer = Deployer(_make_config(), DeployOptions())
         script = deployer._build_test_script("offline")
         compile(script, "test-runner", "exec")
@@ -1686,6 +1693,7 @@ class TestStandaloneIntegrationTests:
         assert "json.loads(sys.stdin.readline())" in script
 
     def test_sso_script_executes_pytest_with_stdin_credentials(self):
+        """Execute the generated script to check stdin decoding and SSO arguments."""
         config = _make_config()
         config.sso.enabled = True
         deployer = Deployer(config, DeployOptions())
@@ -1714,6 +1722,7 @@ class TestStandaloneIntegrationTests:
 
     @pytest.mark.parametrize("token_file", [False, True])
     def test_sso_uses_existing_secret_or_token_without_deploying(self, tmp_path: Path, token_file):
+        """Resolve either credential source and clear transient credentials afterward."""
         config = _make_config()
         config.sso.enabled = True
         config.sso.client_id = "nvcm"
@@ -1754,6 +1763,7 @@ class TestStandaloneIntegrationTests:
         assert not deployer._test_oidc_environment
 
     def test_sso_does_not_skip_when_credentials_supplied(self):
+        """Headless credentials select real test execution rather than the TUI's SSO skip."""
         config = _make_config()
         config.sso.enabled = True
         deployer = Deployer(config, DeployOptions(run_tests=True))
@@ -1764,6 +1774,7 @@ class TestStandaloneIntegrationTests:
         assert deployer._get_step("run-tests").status == StepStatus.FAILED
 
     def test_rejects_missing_oidc_secret_fields(self):
+        """An incomplete credential Secret must fail before remote execution."""
         config = _make_config()
         config.sso.enabled = True
         deployer = Deployer(config, DeployOptions())
@@ -1774,6 +1785,7 @@ class TestStandaloneIntegrationTests:
             client.return_value.exec_command_streaming.assert_not_called()
 
     def test_sso_uses_alternate_client_secret(self):
+        """An alternate Secret can supply both client identity and client secret."""
         config = _make_config()
         config.sso.enabled = True
         config.sso.issuer_url = "https://keycloak.example/realms/test"
@@ -1796,6 +1808,21 @@ class TestStandaloneIntegrationTests:
             client.return_value.read_secret_data.assert_called_once_with(
                 "acceptance-tests", config.cluster.namespace
             )
+
+    def test_stream_error_reports_safe_cause(self):
+        """Report a Kubernetes HTTP status without leaking exception bodies or headers."""
+        callback = RecordingCallback()
+        deployer = Deployer(_make_config(), DeployOptions(run_tests=True), callback)
+        deployer._k8s = MagicMock()
+        deployer._k8s.read_secret_data.return_value = {"api_token": "test-token"}
+        deployer._k8s.exec_command_streaming.side_effect = ApiException(
+            status=403, reason="confidential-credential-value"
+        )
+        with patch.object(deployer, "_find_ztp_pod", return_value="ztp"):
+            deployer._run_integration_tests()
+        assert deployer._get_step("run-tests").status == StepStatus.FAILED
+        assert any("ApiException (HTTP 403)" in line for line in callback.logs)
+        assert all("confidential-credential-value" not in line for line in callback.logs)
 
 
 class TestK8sClientIntegration:

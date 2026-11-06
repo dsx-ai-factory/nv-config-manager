@@ -276,7 +276,18 @@ def deploy(
 
 
 @main.command("test")
-@click.argument("config_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.argument(
+    "config_path", required=False, type=click.Path(exists=True, dir_okay=False, path_type=Path)
+)
+@click.option("--namespace", help="Deployment namespace; required when CONFIG_PATH is omitted.")
+@click.option("--release-name", help="Helm release name; required when CONFIG_PATH is omitted.")
+@click.option(
+    "--sso/--no-sso", default=None, help="Enable or disable headless OIDC test authentication."
+)
+@click.option(
+    "--oidc-client-id", help="Keycloak client ID (may also come from the credential Secret)."
+)
+@click.option("--oidc-issuer-url", help="Keycloak realm URL reachable from the test pod.")
 @click.option(
     "--kubeconfig",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
@@ -292,14 +303,38 @@ def deploy(
     help="File containing a pre-issued access token instead of client credentials.",
 )
 def test_command(
-    config_path: Path,
+    config_path: Path | None,
+    namespace: str | None,
+    release_name: str | None,
+    sso: bool | None,
+    oidc_client_id: str | None,
+    oidc_issuer_url: str | None,
     kubeconfig: Path | None,
     oidc_client_secret_name: str | None,
     oidc_token_file: Path | None,
 ) -> None:
     """Run integration tests in the deployed ZTP pod without redeploying."""
+    if config_path is None and not (namespace and release_name):
+        raise click.UsageError("Supply CONFIG_PATH or both --namespace and --release-name.")
     try:
-        config = NVConfigManagerInstallConfig.from_yaml(config_path)
+        config = (
+            NVConfigManagerInstallConfig.from_yaml(config_path)
+            if config_path is not None
+            else NVConfigManagerInstallConfig()
+        )
+        if namespace is not None:
+            config.cluster.namespace = namespace
+        if release_name is not None:
+            config.cluster.release_name = release_name
+        if sso is not None:
+            config.sso.enabled = sso
+        if not config.sso.enabled and (oidc_client_id is not None or oidc_issuer_url is not None):
+            raise ValueError("OIDC settings require --sso or sso.enabled=true in CONFIG_PATH")
+        if oidc_client_id is not None:
+            config.sso.client_id = oidc_client_id
+        if oidc_issuer_url is not None:
+            config.sso.issuer_url = oidc_issuer_url
+            config.sso.internal_issuer = ""
         deployer = Deployer(
             config, DeployOptions(run_tests=True), _CliCallback("Integration tests")
         )

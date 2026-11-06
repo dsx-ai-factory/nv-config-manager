@@ -45,12 +45,14 @@ from typing import Any, ClassVar, Protocol
 from urllib.parse import urlparse
 
 import yaml
+from kubernetes.client.rest import ApiException
 
 from nv_config_manager_installer.accounts import build_config_secrets_ini
 from nv_config_manager_installer.helm_values import generate_helm_values
 from nv_config_manager_installer.k8s import (
     LOADER_POD_IMAGE,
     K8sClient,
+    PodExecError,
     kubectl_current_context,
     pin_kubeconfig_to_current_context,
 )
@@ -3390,6 +3392,7 @@ class Deployer:
         )
 
     def _run_integration_tests(self) -> None:
+        """Stream the in-pod suite and report failures without credential-bearing exception text."""
         if not self.options.run_tests:
             self._skip_step("run-tests", _SKIP_REASON)
             return
@@ -3434,8 +3437,15 @@ class Deployer:
                 step.output.append(line)
             step.output.append("Integration tests passed")
             self._finish_step(step)
-        except Exception:
-            self.callback.on_log("In-pod test execution failed; check the streamed output above")
+        except Exception as exc:
+            cause = type(exc).__name__
+            if isinstance(exc, PodExecError):
+                cause += f" (exit {exc.returncode})"
+            elif isinstance(exc, ApiException) and isinstance(exc.status, int):
+                cause += f" (HTTP {exc.status})"
+            self.callback.on_log(
+                f"In-pod test execution failed: {cause}; check the streamed output above"
+            )
             step.error = "Integration tests failed"
             self._finish_step(step, StepStatus.FAILED)
 
