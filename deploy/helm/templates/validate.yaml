@@ -1,3 +1,18 @@
+{{- $cnpgBackupClusters := include "nv-config-manager.cnpg.backupClusters" . -}}
+{{- if $cnpgBackupClusters -}}
+  {{- $cnpgBackup := .Values.cnpg.backup | default dict -}}
+  {{- $cnpgDest := $cnpgBackup.destinationType | default "s3" -}}
+  {{- if ne $cnpgDest "s3" -}}
+    {{- fail (printf "cnpg.backup.destinationType %q is not supported (backups enabled for: %s); only \"s3\" is implemented" $cnpgDest $cnpgBackupClusters) -}}
+  {{- end -}}
+  {{- $cnpgS3 := $cnpgBackup.s3 | default dict -}}
+  {{- if not $cnpgS3.bucket -}}
+    {{- fail (printf "cnpg.backup.s3.bucket is required when CNPG backups are enabled (clusters: %s)" $cnpgBackupClusters) -}}
+  {{- end -}}
+  {{- if not $cnpgS3.path -}}
+    {{- fail (printf "cnpg.backup.s3.path is required when CNPG backups are enabled (clusters: %s)" $cnpgBackupClusters) -}}
+  {{- end -}}
+{{- end -}}
 {{- $gatewayType := include "nv-config-manager.gatewayControllerType" . -}}
 {{- $ingress := .Values.ingress | default dict -}}
 {{- range $key, $_ := $ingress -}}
