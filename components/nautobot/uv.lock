@@ -3,15 +3,6 @@ revision = 5
 requires-python = "==3.11.*"
 
 [[package]]
-name = "absl-py"
-version = "2.3.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/10/2a/c93173ffa1b39c1d0395b7e842bbdc62e556ca9d8d3b5572926f3e4ca752/absl_py-2.3.1.tar.gz", hash = "sha256:a97820526f7fbfd2ec1bce83f3f25e3a14840dac0d8e02a0b71cd75db3f77fc9", size = 116588, upload-time = "2025-07-03T09:31:44.05Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/aa/ba0014cc4659328dc818a28827be78e6d97312ab0cb98105a770924dc11e/absl_py-2.3.1-py3-none-any.whl", hash = "sha256:eeecf07f0c2a93ace0772c92e596ace6d3d3996c042b2128459aaae2a76de11d", size = 135811, upload-time = "2025-07-03T09:31:42.253Z" },
-]
-
-[[package]]
 name = "amqp"
 version = "5.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -97,22 +88,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/bc/1d/ede8680603f6016887c062a2cf4fc8fdba905866a3ab8831aa8aa651320c/cachetools-6.2.4.tar.gz", hash = "sha256:82c5c05585e70b6ba2d3ae09ea60b79548872185d2f24ae1f2709d37299fd607", size = 31731, upload-time = "2025-12-15T18:24:53.744Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/fc/1d7b80d0eb7b714984ce40efc78859c022cd930e402f599d8ca9e39c78a4/cachetools-6.2.4-py3-none-any.whl", hash = "sha256:69a7a52634fed8b8bf6e24a050fb60bff1c9bd8f6d24572b99c32d4e71e62a51", size = 11551, upload-time = "2025-12-15T18:24:52.332Z" },
-]
-
-[[package]]
-name = "capirca"
-version = "2.0.9"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "absl-py" },
-    { name = "mock" },
-    { name = "ply" },
-    { name = "pyyaml" },
-    { name = "six" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/21/2f7a20f2da1f7785f2236fdb4f000e79b5f4cb65eacd09c191700f3c9702/capirca-2.0.9.tar.gz", hash = "sha256:48e33e5d06f3a877ff49fe7f3bea94757f8e421d3e2112a7bdc2d02c257ac987", size = 205272, upload-time = "2023-02-17T22:32:10.769Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/2c/bf9cdfe6653c0bf93c12fae81c6c3b3e89297609f8766a800f889f34f62d/capirca-2.0.9-py3-none-any.whl", hash = "sha256:cf333ac9315f0d61890710f412f6b113950095ff71580530887b48b267fe2a6f", size = 232257, upload-time = "2023-02-17T22:32:09.15Z" },
 ]
 
 [[package]]
@@ -1013,15 +988,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mock"
-version = "5.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/07/8c/14c2ae915e5f9dca5a22edd68b35be94400719ccfa068a03e0fb63d0f6f6/mock-5.2.0.tar.gz", hash = "sha256:4e460e818629b4b173f32d08bf30d3af8123afbb8e04bb5707a1fd4799e503f0", size = 92796, upload-time = "2025-03-03T12:31:42.911Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/d9/617e6af809bf3a1d468e0d58c3997b1dc219a9a9202e650d30c2fc85d481/mock-5.2.0-py3-none-any.whl", hash = "sha256:7ba87f72ca0e915175596069dbbcc7c75af7b5e9b9bc107ad6349ede0819982f", size = 31617, upload-time = "2025-03-03T12:31:41.518Z" },
-]
-
-[[package]]
 name = "nats-py"
 version = "2.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1162,19 +1128,6 @@ wheels = [
 ]
 
 [[package]]
-name = "nautobot-firewall-models"
-version = "2.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "capirca" },
-    { name = "nautobot" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/e8/8999770b3a36edf55a3443b66ee8e33ca55d9db14c0a48c2654349c7fe8f/nautobot_firewall_models-2.4.0.tar.gz", hash = "sha256:97e189df550e57e08fbadfb68c39c97569c7c055c938b49e1525452521a5677c", size = 2374893, upload-time = "2025-12-10T01:57:17.278Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0c/f5/5f66d75e629d80f18073bd780cc509d106cdc4d9e25f09284c06aece8169/nautobot_firewall_models-2.4.0-py3-none-any.whl", hash = "sha256:d8886ee5abbaf8d04eaa55bf004500bcd1991c1a23c79b5913659f6c02e53f98", size = 2502893, upload-time = "2025-12-10T01:57:15.448Z" },
-]
-
-[[package]]
 name = "nautobot-fsus"
 version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1227,7 +1180,6 @@ dependencies = [
     { name = "nautobot-bgp-models" },
     { name = "nautobot-broker-nats" },
     { name = "nautobot-design-builder" },
-    { name = "nautobot-firewall-models" },
     { name = "nautobot-fsus" },
     { name = "nautobot-nv-config-manager" },
     { name = "nautobot-nvdatamodels" },
@@ -1263,7 +1215,6 @@ requires-dist = [
     { name = "nautobot-bgp-models", specifier = ">=2.3.1" },
     { name = "nautobot-broker-nats", git = "https://github.com/NVIDIA/nautobot-broker-nats.git?rev=f8b46f8d3471157eaa64fe81e866e409076048dd" },
     { name = "nautobot-design-builder", specifier = ">=2.1.0" },
-    { name = "nautobot-firewall-models", specifier = ">=2.2.0" },
     { name = "nautobot-fsus", specifier = ">=3.0.1" },
     { name = "nautobot-nv-config-manager", directory = "nautobot-nv-config-manager" },
     { name = "nautobot-nvdatamodels", specifier = ">=0.17.0" },
@@ -1429,15 +1380,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
-]
-
-[[package]]
-name = "ply"
-version = "3.11"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e5/69/882ee5c9d017149285cab114ebeab373308ef0f874fcdac9beb90e0ac4da/ply-3.11.tar.gz", hash = "sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3", size = 159130, upload-time = "2018-02-15T19:01:31.097Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl", hash = "sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce", size = 49567, upload-time = "2018-02-15T19:01:27.172Z" },
 ]
 
 [[package]]

@@ -13,7 +13,6 @@ dependencies = [
     "nautobot==2.4.45",
     "nautobot-fsus>=3.0.1",
     "nautobot-broker-nats",
-    "nautobot-firewall-models>=2.2.0",
     "nautobot-design-builder>=2.1.0",
     "nautobot-nvdatamodels>=0.17.0",
     "nautobot-bgp-models>=2.3.1",
