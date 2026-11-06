@@ -1068,7 +1068,7 @@ requires-dist = [
     { name = "ipython", marker = "extra == 'dev'" },
     { name = "markdown", marker = "extra == 'dev'" },
     { name = "mkdocs", marker = "extra == 'dev'", specifier = ">=1.6.0" },
-    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.5.0" },
+    { name = "mkdocs-material", marker = "extra == 'dev'", specifier = ">=9.7.7" },
     { name = "mkdocstrings", marker = "extra == 'dev'", specifier = ">=0.25.0" },
     { name = "mkdocstrings-python", marker = "extra == 'dev'", specifier = ">=1.10.0" },
     { name = "nautobot", specifier = ">=2.4.20,<2.5.0" },
@@ -1085,7 +1085,7 @@ provides-extras = ["dev"]
 [package.metadata.requires-dev]
 dev = [
     { name = "ipdb", specifier = ">=0.13.13" },
-    { name = "python-dotenv", specifier = ">=1.1.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
 ]
 
 [[package]]
@@ -1153,7 +1153,7 @@ requires-dist = [
     { name = "django-slowtests", marker = "extra == 'dev'", specifier = ">=1.1.1" },
     { name = "factory-boy", marker = "extra == 'dev'", specifier = ">=3.3.1" },
     { name = "nautobot", specifier = ">=2.4.20,<3.0" },
-    { name = "selenium", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "selenium", marker = "extra == 'dev'", specifier = ">=4.14.0" },
     { name = "splinter", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "unittest-xml-reporting", marker = "extra == 'dev'", specifier = ">=3.2.0" },
 ]
@@ -1208,7 +1208,7 @@ requires-dist = [
     { name = "certifi", specifier = ">=2026.10.23" },
     { name = "cryptography", specifier = ">=50.0.0" },
     { name = "django", specifier = ">=4.2.30" },
-    { name = "gitpython", specifier = ">=3.1.62" },
+    { name = "gitpython", specifier = ">=3.2.1" },
     { name = "idna", specifier = ">=3.15" },
     { name = "nautobot", specifier = "==2.4.45" },
     { name = "nautobot-app-overlays", directory = "nautobot-app-overlays" },
@@ -1219,7 +1219,7 @@ requires-dist = [
     { name = "nautobot-nv-config-manager", directory = "nautobot-nv-config-manager" },
     { name = "nautobot-nvdatamodels", specifier = ">=0.17.0" },
     { name = "pillow", specifier = ">=12.3.0" },
-    { name = "pyasn1", specifier = ">=0.6.4" },
+    { name = "pyasn1", specifier = ">=0.6.5" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.14.0" },
     { name = "pynacl", specifier = ">=1.6.2" },
     { name = "requests", specifier = ">=2.33.0" },
@@ -1433,11 +1433,11 @@ wheels = [
 
 [[package]]
 name = "pyasn1"
-version = "0.6.4"
+version = "0.6.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a4/9a/23310166d960def5897e91fe20e5b724601b02a22e84ba1f94232c0b7f67/pyasn1-0.6.4.tar.gz", hash = "sha256:9c447d8431c947fe4c8febc4ed9e760bc29011a5b01e5c74b67025bd9fb8ce81", size = 151262, upload-time = "2026-07-09T01:12:33.988Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/7e/3c0da41061a2021cac7cd524fd57092adbe5b515e8bf9005702e366802e2/pyasn1-0.6.5.tar.gz", hash = "sha256:6b11616a6bcf3a40e635f082bb232fa57b5e0dd7f517bd7ddd69ec3794508a47", size = 155152, upload-time = "2026-10-27T06:32:49.125Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/3b/6163796d69c3977d1e4287bea4a6979161cbbdd170ebb430511e8e1999ce/pyasn1-0.6.4-py3-none-any.whl", hash = "sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b", size = 84410, upload-time = "2026-07-09T01:12:32.92Z" },
+    { url = "https://files.pythonhosted.org/packages/19/1f/3eefd5c84c35cae44549ce1c7f7e58f7945b34f5a6bce07a135438522073/pyasn1-0.6.5-py3-none-any.whl", hash = "sha256:4017b0fce125096b8573b39c989fdb1a4b19cf761e683398184550fea0e66587", size = 84807, upload-time = "2026-10-27T06:32:48.045Z" },
 ]
 
 [[package]]
@@ -1515,11 +1515,11 @@ wheels = [
 
 [[package]]
 name = "pygments"
-version = "2.19.2"
+version = "2.20.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887", size = 4968631, upload-time = "2025-06-21T13:39:12.283Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/b2/bc9c9196916376152d655522fdcebac55e66de6603a76a02bca1b6414f6c/pygments-2.20.0.tar.gz", hash = "sha256:6757cd03768053ff99f3039c1a36d6c0aa0b263438fcab17520b30a303a82b5f", size = 4955991, upload-time = "2026-03-29T13:29:33.898Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b", size = 1225217, upload-time = "2025-06-21T13:39:07.939Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/7e/a72dd26f3b0f4f2bf1dd8923c85f7ceb43172af56d63c7383eb62b332364/pygments-2.20.0-py3-none-any.whl", hash = "sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176", size = 1231151, upload-time = "2026-03-29T13:29:30.038Z" },
 ]
 
 [[package]]
