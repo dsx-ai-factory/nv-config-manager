@@ -69,6 +69,14 @@ def test_backups_disabled_needs_no_s3_settings() -> None:
             (_ENABLE_TEMPORAL, _BUCKET, _PATH, "cnpg.backup.destinationType="),
             "destinationType",
         ),
+        (
+            (_ENABLE_TEMPORAL, "cnpg.backup.s3.bucket={my-bucket}", _PATH),
+            "cnpg.backup.s3.bucket must be a string",
+        ),
+        (
+            (_ENABLE_TEMPORAL, _BUCKET, "cnpg.backup.s3.path={my,prefix}"),
+            "cnpg.backup.s3.path must be a string",
+        ),
     ],
 )
 def test_incomplete_backup_config_fails(set_args: tuple[str, ...], message: str) -> None:

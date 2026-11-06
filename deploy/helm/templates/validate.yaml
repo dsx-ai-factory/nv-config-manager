@@ -9,8 +9,14 @@
   {{- if not $cnpgS3.bucket -}}
     {{- fail (printf "cnpg.backup.s3.bucket is required when CNPG backups are enabled (clusters: %s)" $cnpgBackupClusters) -}}
   {{- end -}}
+  {{- if not (kindIs "string" $cnpgS3.bucket) -}}
+    {{- fail (printf "cnpg.backup.s3.bucket must be a string, got %s (clusters: %s)" (kindOf $cnpgS3.bucket) $cnpgBackupClusters) -}}
+  {{- end -}}
   {{- if not $cnpgS3.path -}}
     {{- fail (printf "cnpg.backup.s3.path is required when CNPG backups are enabled (clusters: %s)" $cnpgBackupClusters) -}}
+  {{- end -}}
+  {{- if not (kindIs "string" $cnpgS3.path) -}}
+    {{- fail (printf "cnpg.backup.s3.path must be a string, got %s (clusters: %s)" (kindOf $cnpgS3.path) $cnpgBackupClusters) -}}
   {{- end -}}
 {{- end -}}
 {{- $gatewayType := include "nv-config-manager.gatewayControllerType" . -}}
