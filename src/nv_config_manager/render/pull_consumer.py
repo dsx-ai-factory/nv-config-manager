@@ -141,14 +141,15 @@ class PullConsumer:
 
         # Liveness. A broken connection can leave this loop retrying forever
         # without the process ever exiting, so the only trustworthy evidence
-        # that the consumer still works is a fetch that completes. An idle
-        # queue is healthy; a fetch that never completes is not.
+        # that the consumer still works is a round trip to the server: a fetch
+        # that completes, or a progress report on the message being handled.
+        # An idle queue is healthy; a loop that completes neither is not.
         #
-        # The budget has to exceed the longest time one message can legitimately
-        # occupy the loop, because the clock is only stamped between fetches. A
-        # message still being worked on past its ack wait is already redelivered
-        # elsewhere, so that is the point where a stalled loop stops being
-        # merely slow.
+        # Synchronous work in a handler blocks the event loop, and with it both
+        # kinds of evidence, so the budget has to exceed the longest such
+        # stretch. A message whose progress reports stop for its whole ack wait
+        # is already redelivered elsewhere, so that is the point where a stalled
+        # loop stops being merely slow.
         self.liveness_timeout = float(
             os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
         )
@@ -163,7 +164,26 @@ class PullConsumer:
                 f"consumer ack wait of {CONSUMER_ACK_WAIT_SECONDS}s, or a slow render would "
                 "restart the pod before it finishes"
             )
-        self._last_successful_fetch = time.monotonic()
+        self._last_progress = time.monotonic()
+
+        # A handler reports progress well inside the ack wait so JetStream does not
+        # redeliver a message that is still being worked on, such as a config
+        # context change that queues renders for a whole fleet. The deadline keeps
+        # those reports from hiding a handler that never finishes.
+        self.progress_interval = 60.0
+        self.progress_flush_timeout = 10
+        self.handler_timeout = float(os.getenv("CONSUMER_HANDLER_TIMEOUT_SECONDS", "1800"))
+        if not math.isfinite(self.handler_timeout):
+            raise ValueError(
+                f"CONSUMER_HANDLER_TIMEOUT_SECONDS={self.handler_timeout:g} must be a finite "
+                "number of seconds, or a handler that never finishes would keep the pod live"
+            )
+        if self.handler_timeout < CONSUMER_ACK_WAIT_SECONDS:
+            raise ValueError(
+                f"CONSUMER_HANDLER_TIMEOUT_SECONDS={self.handler_timeout:g} must be at least the "
+                f"consumer ack wait of {CONSUMER_ACK_WAIT_SECONDS}s, or a slow render would be "
+                "abandoned before it finishes"
+            )
 
     def run(self) -> None:
         """Run the consumer."""
@@ -210,18 +230,19 @@ class PullConsumer:
         """
         return True
 
-    def _record_successful_fetch(self) -> None:
-        """Note that a fetch completed, whether or not it returned messages."""
-        self._last_successful_fetch = time.monotonic()
+    def _record_progress(self) -> None:
+        """Note a completed fetch, with or without messages, or a delivered progress report."""
+        self._last_progress = time.monotonic()
 
     def liveness(self) -> tuple[bool, str]:
-        """Report whether a fetch has completed recently enough."""
-        stalled_for = time.monotonic() - self._last_successful_fetch
+        """Report whether a fetch or progress report has completed recently enough."""
+        stalled_for = time.monotonic() - self._last_progress
         if stalled_for > self.liveness_timeout:
             return False, (
-                f"no successful fetch for {stalled_for:.0f}s (limit {self.liveness_timeout:.0f}s)"
+                f"no successful fetch or progress report for {stalled_for:.0f}s "
+                f"(limit {self.liveness_timeout:.0f}s)"
             )
-        return True, f"last successful fetch {stalled_for:.0f}s ago"
+        return True, f"last successful fetch or progress report {stalled_for:.0f}s ago"
 
     async def ack(self, msg: Msg) -> None:
         """Acknowledge a message with resilient error handling."""
@@ -424,14 +445,14 @@ class PullConsumer:
                     # raise an exception after missing heartbeats. Any exception
                     # during fetch indicates we should recreate the consumer.
                     msgs = await pull_subscription.fetch(batch=1, heartbeat=self.heartbeat_interval)
-                    self._record_successful_fetch()
+                    self._record_progress()
                     if msgs:
                         await self._resilient_message_handler(msgs[0])
                     else:
                         await asyncio.sleep(self.idle_wait)
                 except FetchTimeoutError:
                     # Heartbeats were fine, but no messages were received
-                    self._record_successful_fetch()
+                    self._record_progress()
                     await asyncio.sleep(self.idle_wait)
                 except Exception as e:
                     # Any exception during fetch (timeouts, heartbeat failures,
@@ -547,18 +568,46 @@ class PullConsumer:
             mismatches.append(f"max_deliver={config.max_deliver!r} expected {CONSUMER_MAX_DELIVER}")
         return mismatches
 
+    async def _report_progress(self, msg: Msg) -> None:
+        """Extend msg's ack wait and stamp liveness until cancelled."""
+        while True:
+            await asyncio.sleep(self.progress_interval)
+            try:
+                await msg.in_progress()
+                if self.nats_conn is None:
+                    raise RuntimeError("NATS connection is None")
+                # in_progress() only buffers the publish; the flush round trip
+                # proves the server received it.
+                await self.nats_conn.flush(timeout=self.progress_flush_timeout)
+            except Exception as e:
+                self.logger.warning("Could not report progress on message: %s", str(e))
+                continue
+            self._record_progress()
+
     async def _resilient_message_handler(self, msg: Msg) -> None:
         """Wrapper around message_handler with additional error handling."""
+        progress = asyncio.create_task(self._report_progress(msg))
+        deadline = asyncio.timeout(self.handler_timeout)
         try:
-            await self.message_handler(msg)
+            async with deadline:
+                await self.message_handler(msg)
         except Exception as e:
-            self.logger.error("Error in message handler: %s", str(e), exc_info=e)
+            if deadline.expired():
+                self.logger.error(
+                    "Message handler did not finish within %.0fs; abandoning it for redelivery",
+                    self.handler_timeout,
+                )
+            else:
+                self.logger.error("Error in message handler: %s", str(e), exc_info=e)
             # For message handler errors, try to nak the message
             # Don't bubble up since these are processing errors, not consumer errors
             try:
                 await self.nak(msg)
             except Exception as nak_error:
                 self.logger.error("Failed to nak message after handler error: %s", str(nak_error))
+        finally:
+            progress.cancel()
+            await asyncio.gather(progress, return_exceptions=True)
 
     def _clean_exit(self) -> None:
         """Cancel all running tasks and close the connection to NATS."""

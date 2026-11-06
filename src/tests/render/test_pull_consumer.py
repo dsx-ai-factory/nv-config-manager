@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for the NATS pull consumer module."""
 
+import asyncio
 import json
 import urllib.error
 import urllib.request
@@ -157,13 +158,13 @@ def test_liveness_fails_once_fetches_stop_completing(custom_ini: Callable[[str],
 
     # A wedged connection leaves the retry loop running but never completes a
     # fetch, which is the only state that distinguishes it from an idle queue.
-    consumer._last_successful_fetch -= consumer.liveness_timeout + 1
+    consumer._last_progress -= consumer.liveness_timeout + 1
     live, detail = consumer.liveness()
     assert live is False
     assert "no successful fetch" in detail
 
     # A fetch that returns no messages still proves the connection works
-    consumer._record_successful_fetch()
+    consumer._record_progress()
     live, _ = consumer.liveness()
     assert live is True
 
@@ -177,9 +178,9 @@ def test_liveness_budget_outlasts_one_slow_message(custom_ini: Callable[[str], N
         queue_suffix="test_queue",
     )
 
-    # The clock is only stamped between fetches, so a single message occupies the
-    # loop for its whole render. A budget below the ack wait would restart the pod
-    # mid-render, and the redelivery would be just as slow.
+    # Synchronous render work blocks the event loop and with it the progress
+    # reports. A budget below the ack wait would restart the pod mid-render, and
+    # the redelivery would be just as slow.
     assert consumer.liveness_timeout > CONSUMER_ACK_WAIT_SECONDS
 
 
@@ -197,7 +198,7 @@ def test_liveness_endpoint_returns_503_when_wedged(custom_ini: Callable[[str], N
         with urllib.request.urlopen(url, timeout=5) as response:
             assert response.status == 200
 
-        consumer._last_successful_fetch -= consumer.liveness_timeout + 1
+        consumer._last_progress -= consumer.liveness_timeout + 1
         with pytest.raises(urllib.error.HTTPError) as excinfo:
             urllib.request.urlopen(url, timeout=5)
         assert excinfo.value.code == 503
@@ -242,6 +243,102 @@ def test_liveness_timeout_above_ack_wait_is_accepted(
     assert consumer.liveness_timeout == CONSUMER_ACK_WAIT_SECONDS + 1
 
 
+@pytest.mark.parametrize("timeout", ["nan", "inf", str(CONSUMER_ACK_WAIT_SECONDS - 1)])
+def test_unsafe_handler_timeout_is_rejected(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, timeout: str
+) -> None:
+    """A deadline that never expires, or one that cuts off a normal render, fails at startup."""
+    custom_ini(TEST_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_HANDLER_TIMEOUT_SECONDS", timeout)
+
+    with pytest.raises(ValueError, match="CONSUMER_HANDLER_TIMEOUT_SECONDS"):
+        PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+
+def _progress_consumer() -> PullConsumer:
+    """Return a consumer past its liveness budget that reports progress without waiting."""
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.progress_interval = 0
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.flush = AsyncMock()
+    consumer._last_progress -= consumer.liveness_timeout + 1
+    return consumer
+
+
+@pytest.mark.asyncio
+async def test_long_handler_reports_progress_and_stays_live(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A handler still queuing a large batch extends its ack wait and keeps the pod live."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _progress_consumer()
+    msg = AsyncMock(spec=Msg)
+    reported = asyncio.Event()
+    msg.in_progress.side_effect = lambda: reported.set()
+
+    async def long_handler(_msg: Msg) -> None:
+        await reported.wait()
+        await asyncio.sleep(0)
+
+    consumer.message_handler = long_handler  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(msg)
+
+    msg.in_progress.assert_awaited()
+    consumer.nats_conn.flush.assert_awaited()
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+@pytest.mark.asyncio
+async def test_undelivered_progress_report_does_not_refresh_liveness(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A progress report the server never confirms is no evidence the connection works."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _progress_consumer()
+    msg = AsyncMock(spec=Msg)
+    flushed = asyncio.Event()
+
+    async def unanswered_flush(**_kwargs: object) -> None:
+        flushed.set()
+        raise nats.errors.TimeoutError()
+
+    consumer.nats_conn.flush.side_effect = unanswered_flush
+
+    async def long_handler(_msg: Msg) -> None:
+        await flushed.wait()
+        await asyncio.sleep(0)
+
+    consumer.message_handler = long_handler  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(msg)
+
+    live, _ = consumer.liveness()
+    assert live is False
+
+
+@pytest.mark.asyncio
+async def test_handler_past_its_deadline_is_abandoned_for_redelivery(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """Progress reports cannot keep a handler that never finishes running forever."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _progress_consumer()
+    consumer.handler_timeout = 0.01
+    consumer.nak = AsyncMock()  # type: ignore[method-assign]
+    msg = AsyncMock(spec=Msg)
+
+    async def hung_handler(_msg: Msg) -> None:
+        await asyncio.Event().wait()
+
+    consumer.message_handler = hung_handler  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(msg)
+
+    consumer.nak.assert_awaited_once_with(msg)
+
+
 def _stalled_cycle_consumer(
     mock_jetstream: MagicMock, mock_pull_subscription: MagicMock, fetch_error: Exception
 ) -> PullConsumer:
@@ -260,7 +357,7 @@ def _stalled_cycle_consumer(
         raise fetch_error
 
     mock_pull_subscription.fetch.side_effect = fetch_once
-    consumer._last_successful_fetch -= consumer.liveness_timeout + 1
+    consumer._last_progress -= consumer.liveness_timeout + 1
     return consumer
 
 
