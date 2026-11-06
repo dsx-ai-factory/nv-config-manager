@@ -36,7 +36,7 @@ curl() {
             printf 'IMAGE_REPOSITORY=%s\n' "$MOCK_REPO" > "$file"
             printf 'IMAGE_TAG=%s\n' "$MOCK_IMAGE_TAG" >> "$file"
             printf 'SOURCE_SHA=%s\n' "$MOCK_ARTIFACT_SHA" >> "$file"
-            for key in NV_CONFIG_MANAGER NV_CONFIG_MANAGER_UI NV_CONFIG_MANAGER_KEA NV_CONFIG_MANAGER_KEA_ADMIN NV_CONFIG_MANAGER_NAUTOBOT NV_CONFIG_MANAGER_NATS_READY NV_CONFIG_MANAGER_TEMPORAL NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP NV_CONFIG_MANAGER_TEMPORAL_UI; do
+            for key in NV_CONFIG_MANAGER NV_CONFIG_MANAGER_UI NV_CONFIG_MANAGER_KEA NV_CONFIG_MANAGER_KEA_ADMIN NV_CONFIG_MANAGER_NAUTOBOT NV_CONFIG_MANAGER_NATS_READY NV_CONFIG_MANAGER_TEMPORAL NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP NV_CONFIG_MANAGER_TEMPORAL_UI NV_CONFIG_MANAGER_OIDC_PROXY; do
                 if [[ "$MOCK_DIGEST" == true ]]; then printf 'DIGEST_%s=sha256:%064d\n' "$key" 0 >> "$file"; else printf 'DIGEST_%s=bad\n' "$key" >> "$file"; fi
             done
             printf '200\n' ;;
@@ -52,7 +52,7 @@ for env in test test01 kiwi-qa demo01; do
     bash "$validator" > /dev/null
     [[ "$(sed -n 's/^PR_SHA=//p' promote.env)" == "$NVCM_PROMOTE_SOURCE_SHA" ]]
     [[ "$(sed -n 's/^CHART_BUILD_JOB_ID=//p' promote.env)" == 11 ]]
-    [[ "$(wc -l < digests.env | tr -d ' ')" == 9 ]]
+    [[ "$(wc -l < digests.env | tr -d ' ')" == 10 ]]
 done
 export MOCK_PAGE=2
 bash "$validator" > /dev/null
@@ -94,7 +94,7 @@ export -f docker
 export CI_COMMIT_SHA=$NVCM_PROMOTE_SOURCE_SHA MOCK_DIGEST=true
 bash "$repo_root/.gitlab/ci/scripts/record_main_image_digests.sh"
 [[ "$(sed -n 's/^SOURCE_SHA=//p' digests.env)" == "$CI_COMMIT_SHA" ]]
-[[ "$(wc -l < digests.env | tr -d ' ')" == 12 ]]
+[[ "$(wc -l < digests.env | tr -d ' ')" == 13 ]]
 export MOCK_DIGEST=false
 if bash "$repo_root/.gitlab/ci/scripts/record_main_image_digests.sh" > /dev/null 2>&1; then
     echo 'Recorder accepted an invalid registry digest' >&2; exit 1
