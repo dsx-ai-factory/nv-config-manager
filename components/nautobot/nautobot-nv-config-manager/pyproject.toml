@@ -27,7 +27,7 @@ keywords = ["nautobot", "nautobot-app", "nautobot-plugin", "automation"]
 dev = [
     "django-slowtests>=1.1.1",
     "factory-boy>=3.3.1",
-    "selenium>=4.0.0",
+    "selenium>=4.14.0",
     "splinter>=0.21.0",
     "unittest-xml-reporting>=3.2.0",
 ]
