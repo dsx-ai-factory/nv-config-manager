@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from nv_config_manager_installer.k8s import K8sClient, ServiceProxy
+from nv_config_manager_installer.k8s import K8sClient, PodExecError, ServiceProxy
 
 
 def _client() -> K8sClient:
@@ -93,6 +93,34 @@ def test_exec_command_returns_output_after_zero_exit() -> None:
     assert output == "done\n"
     assert stream.call_args.kwargs["_request_timeout"] == 30
     websocket.close.assert_called_once()
+
+
+@pytest.mark.parametrize("returncode", [0, 1, 2, 5, None])
+def test_streaming_exec_checks_remote_exit_after_delivering_output(returncode) -> None:
+    """Deliver all output before reporting nonzero or missing remote exit status."""
+    k8s = _client()
+    websocket = MagicMock()
+    websocket.is_open.side_effect = [True, False]
+    websocket.returncode = returncode
+    websocket.read_stdout.return_value = "test output\nlast line"
+    websocket.read_stderr.return_value = ""
+
+    with patch("nv_config_manager_installer.k8s.k8s_stream", return_value=websocket):
+        output = k8s.exec_command_streaming(
+            "ztp", "test-ns", ["python"], container="sftp", stdin='{"token":"test-token"}\n'
+        )
+        assert next(output) == "test output"
+        assert next(output) == "last line"
+        if returncode == 0:
+            with pytest.raises(StopIteration):
+                next(output)
+        else:
+            with pytest.raises(PodExecError, match=f"failed with exit {returncode}") as failure:
+                next(output)
+            assert failure.value.returncode == returncode
+
+    websocket.close.assert_called_once()
+    websocket.write_stdin.assert_called_once_with('{"token":"test-token"}\n')
 
 
 def test_kubectl_copy_uses_client_kubeconfig(monkeypatch: pytest.MonkeyPatch) -> None:
