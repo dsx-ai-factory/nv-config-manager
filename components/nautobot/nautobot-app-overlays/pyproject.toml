@@ -40,6 +40,7 @@ dev = [
     "toml",
     "Markdown",
     "mkdocs>=1.6.0",
+    # Security: Fix search-suggestion DOM XSS (GHSA-xvg9-69gf-fjrf).
     "mkdocs-material>=9.7.7",
     "mkdocstrings>=0.25.0",
     "mkdocstrings-python>=1.10.0",
