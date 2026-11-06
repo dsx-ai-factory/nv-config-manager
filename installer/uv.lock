@@ -292,6 +292,7 @@ dependencies = [
     { name = "requests" },
     { name = "textual" },
     { name = "textual-fspicker" },
+    { name = "urllib3" },
 ]
 
 [package.dev-dependencies]
@@ -314,6 +315,7 @@ requires-dist = [
     { name = "requests", specifier = ">=2.33.0" },
     { name = "textual", specifier = ">=3.1.0" },
     { name = "textual-fspicker", specifier = ">=1.0.0" },
+    { name = "urllib3", specifier = ">=2.8.0" },
 ]
 
 [package.metadata.requires-dev]
