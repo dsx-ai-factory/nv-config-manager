@@ -17,9 +17,11 @@
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import nats.errors
+import nats.js.errors
 import pytest
 
-from nv_config_manager.dcim import RenderDeviceStatus
+from nv_config_manager.dcim import DCIMConnectivityError, RenderDeviceStatus
 from nv_config_manager.render.events.util import (
     DeviceNotEnabledError,
     EnqueueResult,
@@ -28,6 +30,7 @@ from nv_config_manager.render.events.util import (
     clear_queued,
     is_queued,
     queue_render,
+    queue_render_batch,
     should_run,
 )
 
@@ -278,6 +281,93 @@ async def test_enqueue_failure_keeps_another_producers_flag(mock_dcim_client, cu
 
     assert isinstance(result, dict)
     redis.delete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_reraises_transient_dcim_failure(mock_dcim_client, custom_ini):
+    """A DCIM outage during the status check is raised so the event can be retried."""
+    custom_ini("[nats]\n")
+    mock_dcim_client.get_render_device_status.side_effect = DCIMConnectivityError("down")
+    redis = _enqueue_redis(claimed=True)
+
+    with pytest.raises(DCIMConnectivityError):
+        await _process_single_device_enqueue(
+            "device", "msg", "user", "ts", _jetstream(), MagicMock(), redis, mock_dcim_client
+        )
+    redis.redis.set.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error", [TimeoutError, nats.js.errors.NoStreamResponseError, nats.errors.ConnectionClosedError]
+)
+async def test_enqueue_releases_claim_before_reraising_transient_failure(
+    error, mock_dcim_client, custom_ini
+):
+    """A publish NATS cannot complete releases this producer's claim so a retry can publish."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis = _enqueue_redis(claimed=True)
+    jetstream = _jetstream()
+    jetstream.publish.side_effect = error()
+
+    with pytest.raises(error):
+        await _process_single_device_enqueue(
+            "device", "msg", "user", "ts", jetstream, MagicMock(), redis, mock_dcim_client
+        )
+    redis.delete.assert_awaited_once_with("device_queued")
+
+
+@pytest.fixture
+def batch_nats():
+    """Give the batch path a shared NATS connection and no Redis."""
+    connection = MagicMock()
+    connection.is_closed = False
+    connection.jetstream = MagicMock(return_value=_jetstream())
+    with (
+        patch("nv_config_manager.render.events.util.NATSConnectionManager") as manager,
+        patch("nv_config_manager.render.events.util._get_queue_redis_client", return_value=None),
+    ):
+        manager.return_value.get_connection.return_value = connection
+        yield connection
+
+
+def _status_or_outage(device_uuid: str) -> RenderDeviceStatus:
+    if device_uuid == "device-b":
+        raise DCIMConnectivityError("DCIM unreachable")
+    return RenderDeviceStatus(render_enabled=True, is_aggregate_managed=False)
+
+
+@pytest.mark.asyncio
+async def test_batch_reports_transient_failure_by_device(batch_nats, mock_dcim_client, custom_ini):
+    """Callers that do not retry see the failed device rather than an exception."""
+    custom_ini("[nats]\n")
+    mock_dcim_client.get_render_device_status.side_effect = _status_or_outage
+
+    queued, failed = await queue_render_batch(
+        ["device-a", "device-b"], "msg", "user", "ts", dcim_client=mock_dcim_client
+    )
+
+    assert queued == 1
+    assert failed == [{"device_uuid": "device-b", "error": "DCIM unreachable"}]
+
+
+@pytest.mark.asyncio
+async def test_batch_raises_transient_failure_when_asked(batch_nats, mock_dcim_client, custom_ini):
+    """The event dispatcher has the whole batch retried after a DCIM outage."""
+    custom_ini("[nats]\n")
+    mock_dcim_client.get_render_device_status.side_effect = _status_or_outage
+
+    with pytest.raises(DCIMConnectivityError):
+        await queue_render_batch(
+            ["device-a", "device-b"],
+            "msg",
+            "user",
+            "ts",
+            dcim_client=mock_dcim_client,
+            raise_transient_errors=True,
+        )
+    batch_nats.jetstream.return_value.publish.assert_awaited_once()
 
 
 @pytest.mark.asyncio

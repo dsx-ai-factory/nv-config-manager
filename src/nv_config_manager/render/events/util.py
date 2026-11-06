@@ -38,6 +38,7 @@ from nv_config_manager.common.config.nats import (
 )
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
+from nv_config_manager.render.exceptions import is_transient_dependency_error
 
 if TYPE_CHECKING:
     from nv_config_manager.common.client.redis import RedisClient
@@ -211,6 +212,8 @@ async def _process_single_device_enqueue(
         # Another producer's flag still stands for its own pending render.
         if claimed:
             await clear_queued(device_uuid, queue_client)
+        if is_transient_dependency_error(exc):
+            raise
         error_msg = str(exc)
         logger.warning(f"Failed to queue device {device_uuid}: {error_msg}")
         return {"device_uuid": device_uuid, "error": error_msg}
@@ -294,6 +297,7 @@ async def queue_render_batch(
     timestamp: str,
     max_concurrency: int = 20,
     dcim_client: DCIMClient | None = None,
+    raise_transient_errors: bool = False,
 ) -> tuple[int, list[dict[str, str]]]:
     """
     Queue renders for multiple devices in parallel with controlled concurrency.
@@ -304,6 +308,9 @@ async def queue_render_batch(
         user: User initiating the renders
         timestamp: Timestamp for all renders
         max_concurrency: Maximum number of concurrent operations
+        raise_transient_errors: Raise the first transient DCIM or Config Store
+            failure after the batch completes, so the caller can retry it,
+            instead of reporting it as a failed device
 
     Returns:
         Tuple of (queued_count, failed_devices)
@@ -368,11 +375,13 @@ async def queue_render_batch(
             await _close_queue_redis_client(queue_client)
 
         failed_devices = []
+        transient_errors: list[BaseException] = []
 
-        for result in results:
-            if isinstance(result, Exception):
-                # This shouldn't happen due to our exception handling, but just in case
-                failed_devices.append({"device_uuid": "unknown", "error": str(result)})
+        for device_uuid, result in zip(device_uuids, results, strict=True):
+            if isinstance(result, BaseException):
+                if is_transient_dependency_error(result):
+                    transient_errors.append(result)
+                failed_devices.append({"device_uuid": device_uuid, "error": str(result)})
             elif isinstance(result, dict):
                 # Failed device (result is dict[str, str])
                 failed_devices.append(result)
@@ -382,6 +391,8 @@ async def queue_render_batch(
         logger.info(
             f"Batch operation completed: {queued_count} queued, {len(failed_devices)} failed"
         )
+        if raise_transient_errors and transient_errors:
+            raise transient_errors[0]
         return queued_count, failed_devices
 
     finally:

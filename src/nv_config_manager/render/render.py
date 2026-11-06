@@ -37,7 +37,11 @@ from nv_config_manager.dcim import (
     RenderDataRequest,
     dcim_client_session,
 )
-from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
+from nv_config_manager.render.exceptions import (
+    RenderException,
+    RenderScopeMismatch,
+    is_transient_dependency_error,
+)
 
 logger = get_logger(__name__, category=LogCategory.RENDER)
 
@@ -184,6 +188,8 @@ async def execute_render(device_uuid: str, commit_message: str, user: str) -> li
                 return []
             files = {key.split("/")[-1].replace(".j2", ""): value for key, value in files.items()}
         except Exception as exc:
+            if is_transient_dependency_error(exc):
+                raise
             raise RenderException(f"Failed to render entrypoints for {device_uuid}: {exc}") from exc
 
         try:

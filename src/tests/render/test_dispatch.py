@@ -17,11 +17,25 @@
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 
-from nv_config_manager.dcim import DCIMChangeEvent, RenderEventRequest
-from nv_config_manager.render.dispatch import EventDispatcher
-from nv_config_manager.render.exceptions import RenderScopeMismatch
+from nv_config_manager.common.client.config_store import (
+    ConfigStoreException,
+    ConfigStoreUnavailableError,
+)
+from nv_config_manager.dcim import (
+    DCIMChangeEvent,
+    DCIMConnectivityError,
+    DCIMInvalidDataError,
+    RenderEventRequest,
+)
+from nv_config_manager.render.dispatch import (
+    EVENT_FAILED_COUNTER,
+    NAUTOBOT_CHANGE_FAILED_COUNTER,
+    EventDispatcher,
+)
+from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
 
 
 class SyntheticRenderEventProvider:
@@ -73,7 +87,81 @@ async def test_dispatch_uses_provider_registered_handler():
         "user",
         "2026-07-20T00:00:00Z",
         dcim_client=dcim_client,
+        raise_transient_errors=True,
     )
+
+
+def _synthetic_event() -> DCIMChangeEvent:
+    return DCIMChangeEvent(
+        provider="synthetic",
+        operation="update",
+        object_type="synthetic.device",
+        object_id="device-1",
+        timestamp="2026-07-20T00:00:00Z",
+        actor="user",
+        record={"id": "device-1"},
+    )
+
+
+@asynccontextmanager
+async def _dcim_session():
+    yield AsyncMock()
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_reraises_transient_dcim_failure():
+    """A DCIM outage leaves the event for redelivery instead of dropping it."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.queue_render_batch",
+            new_callable=AsyncMock,
+            side_effect=DCIMConnectivityError("DCIM unreachable"),
+        ),
+        patch.object(dispatcher, "logger") as logger,
+    ):
+        with pytest.raises(DCIMConnectivityError):
+            await dispatcher.dcim_event_dispatch(_synthetic_event())
+    logger.exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_counts_failure_outside_dcim_errors():
+    """A raw timeout is retried by the consumer and still counted as a failure."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    failed = EVENT_FAILED_COUNTER.labels(
+        "synthetic.device", dispatcher.instance, "TimeoutError", dispatcher.namespace
+    )
+    before = failed._value.get()
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.queue_render_batch",
+            new_callable=AsyncMock,
+            side_effect=TimeoutError(),
+        ),
+    ):
+        with pytest.raises(TimeoutError):
+            await dispatcher.dcim_event_dispatch(_synthetic_event())
+    assert failed._value.get() == before + 1
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_consumes_dcim_data_error():
+    """Bad DCIM data will not render on retry, so the event is consumed."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.queue_render_batch",
+            new_callable=AsyncMock,
+            side_effect=DCIMInvalidDataError("no primary IP"),
+        ),
+        patch.object(dispatcher, "logger") as logger,
+    ):
+        await dispatcher.dcim_event_dispatch(_synthetic_event())
+    logger.exception.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -153,3 +241,56 @@ async def test_queued_device_outside_aggregate_scope_is_skipped(mock_render):
         await dispatcher.nautobot_change_dispatch(message)
     logger.info.assert_called_once()
     logger.exception.assert_not_called()
+
+
+_RENDER_MESSAGE = {
+    "device_id": "device-1",
+    "commit_message": "message",
+    "user": "test",
+    "@timestamp": "2025-08-13T20:00:30Z",
+}
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        DCIMConnectivityError("DCIM unreachable"),
+        ConfigStoreUnavailableError("unavailable"),
+        TimeoutError(),
+        aiohttp.ClientConnectionError("reset"),
+    ],
+)
+@patch("nv_config_manager.render.dispatch.execute_render", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_nautobot_change_dispatch_reraises_transient_failure(mock_render, failure):
+    """A dependency outage is counted and left for the consumer to retry with backoff."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    mock_render.side_effect = failure
+    failed = NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
+        dispatcher.instance, type(failure).__name__, dispatcher.namespace
+    )
+    before = failed._value.get()
+    with patch.object(dispatcher, "logger") as logger:
+        with pytest.raises(type(failure)):
+            await dispatcher.nautobot_change_dispatch(dict(_RENDER_MESSAGE))
+    logger.exception.assert_not_called()
+    assert failed._value.get() == before + 1
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        DCIMInvalidDataError("no primary IP"),
+        ConfigStoreException("bad request"),
+        RenderException("template failed"),
+    ],
+)
+@patch("nv_config_manager.render.dispatch.execute_render", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_nautobot_change_dispatch_consumes_data_errors(mock_render, failure):
+    """Errors a retry cannot fix are logged and the message is consumed."""
+    dispatcher = EventDispatcher(SyntheticRenderEventProvider())
+    mock_render.side_effect = failure
+    with patch.object(dispatcher, "logger") as logger:
+        await dispatcher.nautobot_change_dispatch(dict(_RENDER_MESSAGE))
+    logger.exception.assert_called_once()
