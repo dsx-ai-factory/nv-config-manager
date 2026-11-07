@@ -18,7 +18,7 @@ A consumer can only tell a slow handler from a stuck one if the work itself says
 when it moves forward, so long-running steps call ``note_progress()`` as they go.
 """
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -42,7 +42,7 @@ def note_progress() -> None:
 
 
 @contextmanager
-def track_progress() -> Iterator[HandlerProgress]:
+def track_progress() -> Generator[HandlerProgress]:
     """Collect progress noted by this task and any tasks it starts."""
     progress = HandlerProgress()
     token = _current.set(progress)
