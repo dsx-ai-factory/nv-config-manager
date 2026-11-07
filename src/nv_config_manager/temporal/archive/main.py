@@ -31,6 +31,7 @@ from elasticsearch import ApiError, BadRequestError, Elasticsearch
 from fastapi import HTTPException
 from nats.aio.msg import Msg
 from nv_config_manager_infrastructure.nats.admin import (
+    ARCHIVE_CONSUMER_MAX_ACK_PENDING,
     ARCHIVE_CONSUMER_MAX_DELIVER,
     CONSUMER_ACK_WAIT_SECONDS,
 )
@@ -113,6 +114,10 @@ async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_D
         logging.error("No workflow ID in archive message: %s", data)
         await msg.ack()
         return
+    if _publish_time(data) is None:
+        logging.error("Discarding archive event without a usable publish_time: %s", data)
+        await msg.term()
+        return
 
     workflow_id = data["workflow_id"]
     try:
@@ -144,6 +149,16 @@ async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_D
 
 
 _retention: timedelta | None = None
+_namespace_confirmed = False
+
+
+def _publish_time(data: dict[str, Any]) -> datetime | None:
+    """Return the event's timezone-aware publish time, which every producer sets."""
+    try:
+        published = datetime.fromisoformat(data["publish_time"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return published if published.tzinfo is not None else None
 
 
 async def _namespace_retention(temporal_client: Client) -> timedelta:
@@ -159,31 +174,49 @@ async def _namespace_retention(temporal_client: Client) -> timedelta:
 
 async def _past_retention(temporal_client: Client, data: dict[str, Any]) -> bool:
     """Whether the event was published longer ago than Temporal keeps workflows."""
-    try:
-        published = datetime.fromisoformat(data["publish_time"])
-    except (KeyError, TypeError, ValueError):
-        return False
-    if published.tzinfo is None:
+    published = _publish_time(data)
+    if published is None:
         return False
     retention = await _namespace_retention(temporal_client)
     return retention > timedelta(0) and datetime.now(UTC) - published > retention
 
 
+async def _namespace_holds_workflows(temporal_client: Client) -> bool:
+    """Whether this process has seen workflows in the namespace, so it is the right one.
+
+    A misconfigured namespace answers every lookup with NOT_FOUND; one that holds
+    workflows proves a NOT_FOUND is about the event's own workflow.
+    """
+    global _namespace_confirmed
+    if not _namespace_confirmed:
+        async for _ in temporal_client.list_workflows(limit=1, page_size=1):
+            _namespace_confirmed = True
+    return _namespace_confirmed
+
+
 async def _archive_workflow(data: dict[str, Any]) -> None:
     """Look up the finished workflow in Temporal and write it to the archive backend."""
+    global _namespace_confirmed
     temporal_client = await get_client()
     workflow_handle = temporal_client.get_workflow_handle(data["workflow_id"])
     try:
         workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
     except HTTPException as exc:
-        # A workflow past Temporal retention never comes back, and retrying it
-        # would hold an in-flight slot for the whole max_deliver window. A 404 for a
-        # newer event can mean the wrong namespace, so that one is retried.
-        if exc.status_code == 404 and await _past_retention(temporal_client, data):
-            raise ArchiveRejectedError(
-                f"workflow {data['workflow_id']} is past Temporal retention"
-            ) from exc
+        # A missing workflow never comes back, and retrying it would hold an
+        # in-flight slot for the whole max_deliver window. A 404 can also mean the
+        # wrong namespace, so it is retried unless the namespace is proven right or
+        # the event is past retention.
+        if exc.status_code == 404:
+            if await _past_retention(temporal_client, data):
+                raise ArchiveRejectedError(
+                    f"workflow {data['workflow_id']} is past Temporal retention"
+                ) from exc
+            if await _namespace_holds_workflows(temporal_client):
+                raise ArchiveRejectedError(
+                    f"workflow {data['workflow_id']} does not exist in Temporal"
+                ) from exc
         raise
+    _namespace_confirmed = True
     workflow_details = workflow_response.model_dump(mode="json")
 
     logging.debug("Response from temporal API: %s", workflow_details)
@@ -352,6 +385,7 @@ def main() -> None:
         queue_suffix="archive",
         handler=handler,
         manual_ack=True,
+        max_concurrent_handlers=ARCHIVE_CONSUMER_MAX_ACK_PENDING,
     )
     consumer.run()
 

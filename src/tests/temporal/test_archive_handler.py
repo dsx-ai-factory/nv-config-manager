@@ -311,15 +311,30 @@ async def test_elasticsearch_event_without_publish_time_is_rejected(
     write.assert_not_called()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_namespace_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test starts in a process that has not looked at its Temporal namespace yet."""
+    monkeypatch.setattr(archive_main, "_retention", None)
+    monkeypatch.setattr(archive_main, "_namespace_confirmed", False)
+
+
+def _listing(*workflows: object) -> MagicMock:
+    async def iterate(*_args: object, **_kwargs: object):
+        for workflow in workflows:
+            yield workflow
+
+    return MagicMock(side_effect=iterate)
+
+
 @pytest.fixture
 def missing_workflow(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """Make Temporal report the workflow as not found, with a 14-day retention."""
+    """Make Temporal report the workflow as not found in an empty namespace with 14-day retention."""
     temporal_client = MagicMock()
     temporal_client.namespace = "default"
+    temporal_client.list_workflows = _listing()
     retention = MagicMock()
     retention.config.workflow_execution_retention_ttl.ToTimedelta.return_value = timedelta(days=14)
     temporal_client.workflow_service.describe_namespace = AsyncMock(return_value=retention)
-    monkeypatch.setattr(archive_main, "_retention", None)
     monkeypatch.setattr(archive_main, "get_client", AsyncMock(return_value=temporal_client))
     missing = HTTPException(status_code=404, detail="Workflow with ID 'wf-1' not found")
     monkeypatch.setattr(
@@ -354,25 +369,83 @@ async def test_workflow_past_retention_is_discarded(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "published",
-    [
-        datetime.now(UTC) - timedelta(days=1),
-        None,
-        "not a time",
-        datetime.now(UTC).replace(tzinfo=None) - timedelta(days=15),
-    ],
-    ids=["recent", "missing", "unparseable", "naive"],
-)
-async def test_missing_workflow_not_known_to_be_expired_is_retried(
-    missing_workflow: MagicMock, published: datetime | str | None
+async def test_missing_workflow_in_unproven_namespace_is_retried(
+    missing_workflow: MagicMock,
 ) -> None:
-    """A 404 that retention cannot explain, such as a wrong namespace, stays retryable."""
-    msg = _event_msg(published)
+    """A recent 404 in a namespace with no workflows may be a wrong namespace, so it is retried."""
+    msg = _event_msg(datetime.now(UTC) - timedelta(days=1))
 
     await handle_archive_msg(msg)
 
     msg.nak.assert_awaited_once_with(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+
+
+@pytest.mark.asyncio
+async def test_missing_workflow_in_populated_namespace_is_discarded(
+    missing_workflow: MagicMock,
+) -> None:
+    """A recent 404 in a namespace that holds workflows names a workflow that does not exist."""
+    missing_workflow.list_workflows = _listing(MagicMock())
+    msg = _event_msg(datetime.now(UTC) - timedelta(days=1))
+
+    await handle_archive_msg(msg)
+
+    assert _settled(msg) == ["term"]
+
+
+@pytest.mark.asyncio
+async def test_successful_lookup_confirms_namespace_without_listing(
+    missing_workflow: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once a lookup succeeds, a later 404 is discarded without listing the namespace."""
+    monkeypatch.setattr(archive_main, "_archive_nvdataflow", AsyncMock())
+    found = MagicMock()
+    found.model_dump.return_value = {}
+    missing = HTTPException(status_code=404, detail="Workflow with ID 'wf-2' not found")
+    monkeypatch.setattr(
+        archive_main.WorkflowDetailResponse,
+        "from_handle",
+        AsyncMock(side_effect=[found, missing]),
+    )
+    archived, unknown = (_event_msg(datetime.now(UTC)) for _ in range(2))
+
+    await handle_archive_msg(archived)
+    await handle_archive_msg(unknown)
+
+    assert _settled(archived) == ["ack"]
+    assert _settled(unknown) == ["term"]
+    missing_workflow.list_workflows.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_failed_namespace_listing_is_retried(missing_workflow: MagicMock) -> None:
+    """If Temporal cannot list the namespace, the 404 is retried rather than dropped."""
+    missing_workflow.list_workflows = MagicMock(side_effect=RuntimeError("down"))
+    msg = _event_msg(datetime.now(UTC) - timedelta(days=1))
+
+    await handle_archive_msg(msg)
+
+    msg.nak.assert_awaited_once_with(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "published",
+    [None, "not a time", datetime.now(UTC).replace(tzinfo=None)],
+    ids=["missing", "unparseable", "naive"],
+)
+async def test_event_without_usable_publish_time_is_discarded(
+    published: datetime | str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every producer sets a timezone-aware publish_time, so an event without one is malformed."""
+    archive = AsyncMock()
+    monkeypatch.setattr(archive_main, "_archive_workflow", archive)
+    msg = _event_msg(published)
+
+    await handle_archive_msg(msg)
+
+    archive.assert_not_awaited()
+    assert _settled(msg) == ["term"]
 
 
 @pytest.mark.asyncio

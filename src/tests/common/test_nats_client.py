@@ -635,6 +635,39 @@ async def test_consumer_handles_in_flight_deliveries_concurrently():
 
 
 @pytest.mark.asyncio
+async def test_consumer_caps_concurrent_handlers_when_asked():
+    """A durable provisioned with a higher limit cannot start more handlers than the cap."""
+    release = asyncio.Event()
+    started = []
+
+    async def handler(msg):
+        started.append(msg)
+        await release.wait()
+
+    consumer = NatsConsumer(
+        stream="nv-config-manager",
+        subject="nv-config-manager.workflow.result",
+        queue_suffix="archive",
+        handler=handler,
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+        max_concurrent_handlers=1,
+    )
+    first, second = _delivery(), _delivery()
+
+    await consumer._dispatch(first)
+    waiting = asyncio.create_task(consumer._dispatch(second))
+    await asyncio.sleep(0)
+
+    assert started == [first]
+    assert len(consumer._handler_tasks) == 1
+    release.set()
+    await waiting
+    await asyncio.gather(*consumer._handler_tasks)
+    assert started == [first, second]
+
+
+@pytest.mark.asyncio
 async def test_consumer_leaves_failed_delivery_unacked():
     """A handler that raises leaves the message for JetStream to redeliver."""
     consumer = _dispatching_consumer(AsyncMock(side_effect=RuntimeError("boom")))

@@ -55,15 +55,17 @@ class NatsConsumer(NatsClient):
         durable_name: str | None = None,
         deliver_subject: str | None = None,
         manual_ack: bool = False,
+        max_concurrent_handlers: int | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the stream, subject, durable, and message handler.
 
         Each delivery runs as its own task, so up to the durable's
         ``max_ack_pending`` messages are handled concurrently and none waits in
-        the client while its ack wait runs. With ``manual_ack`` the handler must
-        ack, nak, or term every message itself; otherwise each message is acked
-        once the handler returns.
+        the client while its ack wait runs. ``max_concurrent_handlers`` caps that
+        locally for a durable provisioned with a higher limit. With
+        ``manual_ack`` the handler must ack, nak, or term every message itself;
+        otherwise each message is acked once the handler returns.
         """
         super().__init__(**kwargs)
         self.stream = stream
@@ -79,6 +81,9 @@ class NatsConsumer(NatsClient):
         self._stop = asyncio.Event()
         self._subscription: Any = None
         self._handler_tasks: set[asyncio.Task[None]] = set()
+        self._handler_slots = (
+            asyncio.Semaphore(max_concurrent_handlers) if max_concurrent_handlers else None
+        )
 
     @property
     def full_queue_name(self) -> str:
@@ -142,10 +147,17 @@ class NatsConsumer(NatsClient):
             await self._close_connection(self.conn)
 
     async def _dispatch(self, msg: Msg) -> None:
-        """Start handling a delivery without holding up the next one."""
+        """Start handling a delivery without holding up the next one, up to the cap."""
+        if self._handler_slots is not None:
+            await self._handler_slots.acquire()
         task = asyncio.create_task(self._handle(msg))
         self._handler_tasks.add(task)
-        task.add_done_callback(self._handler_tasks.discard)
+        task.add_done_callback(self._handler_finished)
+
+    def _handler_finished(self, task: asyncio.Task[None]) -> None:
+        self._handler_tasks.discard(task)
+        if self._handler_slots is not None:
+            self._handler_slots.release()
 
     async def _handle(self, msg: Msg) -> None:
         """Run the handler, acking afterwards unless it settles messages itself."""
