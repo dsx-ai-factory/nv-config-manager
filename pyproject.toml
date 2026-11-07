@@ -207,7 +207,7 @@ ipython = [
     "ipython>=8.28.0",
 ]
 docs = [
-    "mkdocs-material>=9.4.0",
+    "mkdocs-material>=9.7.7",
     "mkdocs-autorefs==0.4.1",
     "mkdocstrings>=0.24.0",
     "mkdocstrings-python>=1.7.0",
