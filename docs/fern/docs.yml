@@ -40,6 +40,10 @@ navigation:
     path: ../i-want-to.mdx
     slug: i-want-to
 
+  - changelog: ./changelog
+    title: Changelog (Trial)
+    slug: changelog
+
   - section: Quick Start
     slug: getting-started
     contents:

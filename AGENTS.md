@@ -37,6 +37,35 @@ Place new build, container, and CI tooling tests in `ci/tests/` and service test
 in `src/tests/`. Keep tooling tests independent of application fixtures and
 application coverage.
 
+## Release Notes
+
+For user-facing features, behavior or API changes, configuration changes, fixes,
+security changes, and upgrade requirements, update both [CHANGELOG.md](CHANGELOG.md)
+and the matching [Fern release notes](docs/fern/changelog/) in the same PR.
+Keep the release scope, availability, compatibility notes, and required operator
+actions consistent between the two resources.
+
+- **Root changelog:** Add work in progress under `Unreleased`, then finalize the
+  `## X.Y.Z` section before release promotion. The promotion workflow extracts
+  GitHub release notes from these headings; preserve that format.
+- **Fern changelog:** Maintain one announcement per release, with full details
+  under nested Added, Changed, Fixed, and Security headings as applicable.
+  Update the existing announcement as the release evolves. Use verified dates
+  and clearly identify unreleased or candidate versions; do not imply stable
+  availability before promotion.
+- **Feature tags:** Tag the affected areas, such as `deployment`, `dhcp`,
+  `security`, `telemetry`, and `workflows`. These are examples, not an exclusive
+  list. Reuse existing tags when they fit and add clear new feature tags as
+  needed, avoiding synonyms for existing tags. Keep version numbers and release
+  status in the announcement headings rather than using them as filter tags.
+  When releases share a dated file, use per-announcement tags so their feature
+  labels remain distinct.
+
+Before handing off release-note changes, check both resources for omissions and
+contradictions, then run `make docs-lint`, `make docs-lint-fern`, and
+`git diff --check`. Internal-only changes do not need release notes unless they
+affect user-visible behavior.
+
 ## Python Imports
 
 All imports MUST be placed at the top of the file, following standard Python conventions (stdlib, third-party, local). Do NOT place imports inside functions, methods, or conditional blocks.
