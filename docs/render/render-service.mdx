@@ -165,15 +165,15 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 
 **Exception types**:
 
-- `DCIMError` - DCIM provider API errors, retry on transient failures
+- `DCIMError` - DCIM provider API errors, logged and counted, ACK (not retried)
 - `RenderException` - Template rendering failures, ACK (do not retry)
 - `DeviceNotEnabledError` - Device not enabled for rendering, ACK
 - `EventParseError` - Malformed event data, fail counter incremented
-- `ConfigStoreException` - Config store persistence errors
+- `ConfigStoreException` - Config store persistence errors, logged and counted, ACK (not retried)
 
 **Consumer behavior**:
 
-- **ACK**: Successful processing, render exceptions (will not succeed on retry), disabled devices
+- **ACK**: Successful processing, render exceptions (will not succeed on retry), DCIM and Config Store errors, disabled devices
 - **NAK**: Handler failures other than DCIM and Config Store errors, with a delay that doubles from 1s up to 60s; lock acquisition failures, with a delay that doubles from 5s up to 30s
 - **TERM**: The final delivery the durable's `max_deliver` allows, when the render still failed or never acquired the device lock
 - **Consumer recreation**: Any fetch/heartbeat failure triggers automatic consumer rebuild
