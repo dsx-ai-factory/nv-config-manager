@@ -6,6 +6,39 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
+Historical upstream defaults identify an upgrade migration, not a custom image.
+Keep this old tag fixed when the active binary pin changes in the Dockerfile.
+*/}}
+{{- define "nv-config-manager.oidcProxyCustomImage" -}}
+{{- $legacy := .Values.oidc.proxy.image -}}
+{{- $oldRepository := "quay.io/oauth2-proxy/oauth2-proxy" -}}
+{{- $oldTag := "v7.15.5" -}}
+{{- $repository := $legacy.repository | default $oldRepository -}}
+{{- $tag := $legacy.tag | default $oldTag -}}
+{{- if and (or $legacy.repository $legacy.tag) (not (and (eq $repository $oldRepository) (eq $tag $oldTag))) -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nv-config-manager.oidcProxyImage" -}}
+{{- $custom := include "nv-config-manager.oidcProxyCustomImage" . -}}
+{{- if $custom -}}
+{{- $custom -}}
+{{- else -}}
+{{- $image := deepCopy (.Values.global.images.oidcProxy | default dict) -}}
+{{- if not $image.repository -}}
+{{- /* Follow the project registry when the wrapper repository is unset. */ -}}
+{{- $mainRepository := .Values.global.images.nvConfigManager.repository -}}
+{{- if not (hasSuffix "/nv-config-manager" $mainRepository) -}}
+{{- fail "set global.images.oidcProxy.repository to the CA-refreshed project image; it cannot be inferred from global.images.nvConfigManager.repository" -}}
+{{- end -}}
+{{- $_ := set $image "repository" (printf "%s-oidc-proxy" $mainRepository) -}}
+{{- end -}}
+{{- include "nv-config-manager.image" (dict "root" . "image" $image) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create chart name and version as used by the chart label.
 */}}
 {{- define "nv-config-manager.chart" -}}
@@ -58,6 +91,14 @@ disabled, a user-managed Temporal endpoint is required instead.
 {{- else -}}
 {{- required "temporal.client.address is required when temporal.server.enabled=false" .Values.temporal.client.address -}}
 {{- end -}}
+{{- end }}
+
+{{/*
+Resolve the Temporal history shard count while preserving the legacy fallback
+to the number of History service replicas.
+*/}}
+{{- define "nv-config-manager.temporalShardCount" -}}
+{{- default .Values.temporal.services.history.replicas .Values.temporal.numHistoryShards -}}
 {{- end }}
 
 {{/*
@@ -399,7 +440,7 @@ Usage: {{ include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "
 {{- if and $useSpiffe (eq $authMode "jwt") }}
 # SPIFFE Helper -- fetches JWT-SVIDs for outbound service-to-service calls
 - name: spiffe-helper
-  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.8.0" }}
+  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.12.3" }}
   imagePullPolicy: {{ index $spiffeHelperImage "pullPolicy" | default "IfNotPresent" }}
   args:
     - -config
@@ -496,7 +537,7 @@ Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nin
 {{- $spiffe := .root.Values.spiffe | default dict }}
 {{- if and (index $spiffe "enabled") (eq (index $spiffe "authMode" | default "jwt") "jwt") }}
 - name: spiffe-helper
-  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.8.0" }}
+  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.12.3" }}
   imagePullPolicy: {{ (index $spiffe "helper" | default dict).image.pullPolicy | default "IfNotPresent" }}
   {{- if .native }}
   restartPolicy: Always
@@ -1518,6 +1559,29 @@ cannot collapse monitors for different releases or clusters onto one name.
 {{- end }}
 
 {{/*
+Name of the method-matched rule on the browser HTTPRoutes. Shared so the rule
+and the BackendTrafficPolicy that targets it by sectionName cannot drift apart.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRuleName" -}}
+safe-methods
+{{- end }}
+
+{{/*
+True when the browser routes should carry a separate method-matched rule for
+the safe-method retry. Requires oauth2-proxy to actually be in the request
+path; the rule itself is plain Gateway API, and each controller attaches its
+own policy to it - a BackendTrafficPolicy on Envoy Gateway, a TrafficPolicy on
+kgateway - so it is emitted for both.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRetryEnabled" -}}
+{{- $r := .Values.gateway.retry | default dict -}}
+{{- $sm := $r.safeMethods | default dict -}}
+{{- if and .Values.oidc.enabled $r.enabled $sm.enabled -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 Address of the Prometheus this release deploys, for KEDA's render-autoscaling
 trigger -- empty unless that in-cluster Prometheus is actually what KEDA will
 query.
@@ -2213,4 +2277,72 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
   value: {{ $endpoint | quote }}
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | quote }}
+{{- end -}}
+
+{{/*
+Render one container probe (livenessProbe / readinessProbe / startupProbe) from
+a chart-provided default handler plus operator-supplied values.
+
+  Context: (dict "kind" "liveness" "handler" <dict> "probes" <values map> "indent" <int>)
+
+  kind     liveness | readiness | startup; rendered as "<kind>Probe:".
+  handler  The probe's default action as a dict, e.g.
+           (dict "httpGet" (dict "path" "/healthcheck" "port" 9000)). Owned by the
+           template because it is tied to what the container actually serves.
+  probes   The container's values map holding the liveness / readiness / startup
+           entries (e.g. .Values.networkDhcp.probes.api); the entry named by
+           `kind` is used. May be nil/empty (the probe is then rendered with the
+           default handler and no timing fields).
+  indent   Spaces to indent the rendered block (it starts on a new line).
+
+Entry in the probes map:
+  enabled  false omits the probe entirely (default true when the key is absent).
+  Any other key is copied verbatim onto the Kubernetes probe, so every field the
+  Kubernetes API supports is available (initialDelaySeconds, periodSeconds,
+  timeoutSeconds, successThreshold, failureThreshold,
+  terminationGracePeriodSeconds, ...). Zero values are honored.
+  httpGet / tcpSocket / exec / grpc
+           When set, replaces the chart's default handler. If the chosen handler is
+           the same type as the default, its sub-keys are merged over the default's
+           (e.g. override only `httpGet.path`; `port` is kept). A different handler
+           type replaces the default one outright.
+
+Renders nothing when the probe is disabled.
+*/}}
+{{- define "nv-config-manager.probe" -}}
+{{- $handlerKeys := list "httpGet" "tcpSocket" "exec" "grpc" -}}
+{{- $user := deepCopy (get (.probes | default dict) .kind | default dict) -}}
+{{- $enabled := true -}}
+{{- if hasKey $user "enabled" -}}
+{{- $enabled = $user.enabled -}}
+{{- $_ := unset $user "enabled" -}}
+{{- end -}}
+{{- if $enabled -}}
+{{- $userHandler := false -}}
+{{- range $k := $handlerKeys -}}
+{{- if hasKey $user $k -}}
+{{- $userHandler = true -}}
+{{- end -}}
+{{- end -}}
+{{- $probe := dict -}}
+{{- if not $userHandler -}}
+{{- $probe = deepCopy .handler -}}
+{{- end -}}
+{{- range $k, $v := $user -}}
+{{- if and (has $k $handlerKeys) (kindIs "map" $v) (kindIs "map" (get $.handler $k)) -}}
+{{- $merged := deepCopy (get $.handler $k) -}}
+{{- range $hk, $hv := $v -}}
+{{- if eq $hv nil -}}
+{{- $_ := unset $merged $hk -}}
+{{- else -}}
+{{- $_ := set $merged $hk $hv -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set $probe $k $merged -}}
+{{- else -}}
+{{- $_ := set $probe $k $v -}}
+{{- end -}}
+{{- end -}}
+{{- printf "%sProbe:\n%s" .kind (toYaml $probe | indent 2) | nindent (int .indent) -}}
+{{- end -}}
 {{- end -}}

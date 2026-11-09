@@ -35,7 +35,8 @@ Run both tagging workflows from `main`; their inputs select the source.
    `source_ref=release/X.Y.Z` to tag that protected branch's tip.
 1. Validate the candidate using the project's release qualification process.
 1. Run **Promote Release** for the validated candidate. The workflow promotes the
-   same commit and publishes a GitHub Release using its changelog section.
+   same commit and publishes a GitHub Release using its changelog section. The
+   commit must remain reachable from `main` or the matching `release/X.Y.Z` branch.
 1. Verify the source tag, Go module tag, and GitHub release notes before announcing
    availability.
 

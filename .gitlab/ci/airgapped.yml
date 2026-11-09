@@ -31,11 +31,15 @@
     <<: *airgapped-variables
   before_script:
     - |
+      set -e
       export DEBIAN_FRONTEND=noninteractive
       apt-get update -qq
       apt-get install -y -qq curl tar gzip ca-certificates jq git wget openssl
       # Install yq for YAML parsing
-      wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+      YQ_VERSION=v4.44.6
+      YQ_SHA256=0c2b24e645b57d8e7c0566d18643a6d4f5580feeea3878127354a46f2a1e4598
+      wget -qO /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+      echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
       chmod +x /usr/local/bin/yq
       echo "=== Installing containerd (matching version for daemon and ctr) ==="
       CTR_VERSION="1.7.10"

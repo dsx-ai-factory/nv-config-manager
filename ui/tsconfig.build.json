@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@/mocks/browser": [
+        "./src/app/contexts/msw-disabled.ts"
+      ],
+      "@/mocks/handlers": [
+        "./src/app/contexts/msw-disabled.ts"
+      ]
+    },
+    "tsBuildInfoFile": ".next/cache/tsconfig.build.tsbuildinfo"
+  },
+  "exclude": [
+    "node_modules",
+    "src/mocks",
+    "tests"
+  ]
+}

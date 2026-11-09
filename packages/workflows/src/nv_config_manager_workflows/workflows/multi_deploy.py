@@ -40,6 +40,7 @@ from nv_config_manager_workflows.search_attributes import (
     USER_SEARCH_ATTRIBUTE,
     upsert_missing_search_attributes,
 )
+from nv_config_manager_workflows.secret_redaction import redact_device_secrets
 from nv_config_manager_workflows.stage import (
     StageInput,
     StageMixin,
@@ -65,7 +66,9 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
+        apply_activity_timeout,
         apply_approved_configuration,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
@@ -319,7 +322,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
 
         markdown += (
             f"**Devices in this batch:**\n{device_list}\n\n"
-            f"**Configuration Changes:**\n```\n{stage_input.diff_group.diff_content}\n```"
+            f"**Configuration Changes:**\n```\n{redact_device_secrets(stage_input.diff_group.diff_content)}\n```"
         )
 
         output = BatchDeployWorkflow.ReviewDiffStageOutput(approved=False, display=markdown)
@@ -350,7 +353,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
             markdown = f"**Shared Configuration Diff {approval_state} by {reviewmd}**\n\n"
         markdown += (
             f"**Devices in this batch ({stage_input.device_count}):**\n{device_list}\n\n"
-            f"**Configuration Changes:**\n```\n{stage_input.diff_group.diff_content}\n```"
+            f"**Configuration Changes:**\n```\n{redact_device_secrets(stage_input.diff_group.diff_content)}\n```"
         )
         return BatchDeployWorkflow.ReviewDiffStageOutput(approved=approved, display=markdown)
 
@@ -395,7 +398,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
                         approved_diff=stage_input.approved_diff,
                         commit_confirm=stage_input.commit_confirm,
                     ),
-                    start_to_close_timeout=timedelta(minutes=5),
+                    start_to_close_timeout=apply_activity_timeout(device_data.device),
                     retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 )
                 return device_data.device.name, None
@@ -743,7 +746,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
                 diff = await workflow.execute_activity(
                     perform_candidate_diff,
                     DiffActivityInput(device_data=device, configuration=content),
-                    start_to_close_timeout=timedelta(minutes=1),
+                    start_to_close_timeout=diff_activity_timeout(device),
                     retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 )
 

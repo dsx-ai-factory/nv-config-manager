@@ -376,6 +376,8 @@ jobs:
         run: uv run python .gitlab/ci/scripts/tests/shared_values_test.py
       - run: helm lint deploy/helm/ --values deploy/helm/values-ci.yaml
       - run: helm template test deploy/helm/ --values deploy/helm/values-ci.yaml >/tmp/nvcm-helm.yaml
+      - name: Temporal history shard render
+        run: bash deploy/helm/tests/temporal-history-shards.sh
       - name: CNPG PodMonitor ownership render
         run: |
           # A CloudNativePG operator may own/delete a PodMonitor whose name is
@@ -420,7 +422,7 @@ jobs:
         run: |
           set -euo pipefail
           image_args=()
-          for image_name in nvConfigManager nvConfigManagerUi kea keaAdmin nautobot natsReady temporalServer temporalBootstrap temporalUi; do
+          for image_name in nvConfigManager nvConfigManagerUi kea keaAdmin nautobot natsReady temporalServer temporalBootstrap temporalUi oidcProxy; do
             image_args+=(--set-string "global.images.${image_name}.repository=private.registry.test/${image_name}")
           done
           helm template test deploy/helm/ \
@@ -491,7 +493,7 @@ jobs:
           # fall back to repository:tag. Render-time check only (no cluster) so
           # it stays out of the slow kind-integration path.
           set -euo pipefail
-          names="nvConfigManager nvConfigManagerUi kea keaAdmin nautobot natsReady temporalServer temporalBootstrap temporalUi"
+          names="nvConfigManager nvConfigManagerUi kea keaAdmin nautobot natsReady temporalServer temporalBootstrap temporalUi oidcProxy"
           r_nvConfigManager=registry.ci.example/nvcm/main
           r_nvConfigManagerUi=registry.ci.example/nvcm/ui
           r_kea=registry.ci.example/nvcm/kea
@@ -501,6 +503,7 @@ jobs:
           r_temporalServer=registry.ci.example/nvcm/temporal-server
           r_temporalBootstrap=registry.ci.example/nvcm/temporal-bootstrap
           r_temporalUi=registry.ci.example/nvcm/temporal-ui
+          r_oidcProxy=registry.ci.example/nvcm/oidc-proxy
           t_nvConfigManager=9.0.1-nvcm
           t_nvConfigManagerUi=9.0.1-ui
           t_kea=9.0.1-kea
@@ -510,6 +513,7 @@ jobs:
           t_temporalServer=9.0.1-temporal-server
           t_temporalBootstrap=9.0.1-temporal-bootstrap
           t_temporalUi=9.0.1-temporal-ui
+          t_oidcProxy=9.0.1-oidc-proxy
           d_nvConfigManager=sha256:1111111111111111111111111111111111111111111111111111111111111111
           d_nvConfigManagerUi=sha256:2222222222222222222222222222222222222222222222222222222222222222
           d_kea=sha256:3333333333333333333333333333333333333333333333333333333333333333
@@ -519,8 +523,9 @@ jobs:
           d_temporalServer=sha256:7777777777777777777777777777777777777777777777777777777777777777
           d_temporalBootstrap=sha256:8888888888888888888888888888888888888888888888888888888888888888
           d_temporalUi=sha256:9999999999999999999999999999999999999999999999999999999999999999
+          d_oidcProxy=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-          base_set_args=""
+          base_set_args="--set oidc.enabled=true --set-string oidc.issuerUrl=https://oidc.ci.example --set-string oidc.clientId=ci"
           for n in $names; do
             eval "repo=\$r_$n"
             eval "tag=\$t_$n"
@@ -570,7 +575,7 @@ jobs:
             fi
           done
           [ "$fail" -eq 0 ] || exit 1
-          echo "All 9 built-service images render exact repository:tag or repository@digest references"
+          echo "All 10 built-service images render exact repository:tag or repository@digest references"
 
   argocd-health-gate:
     name: ArgoCD Rollout Observer
@@ -785,12 +790,12 @@ jobs:
         uses: *actions_cache
         with:
           path: ui/.next/cache
-          key: ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-${{ hashFiles('ui/src/**', 'ui/public/**', 'ui/*.config.*', 'ui/tsconfig.json') }}
+          key: ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-${{ hashFiles('ui/src/**', 'ui/public/**', 'ui/*.config.*', 'ui/tsconfig.json', 'ui/tsconfig.build.json') }}
           restore-keys: |
             ui-next-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}-
       - run: npm ci --prefer-offline
-      - run: npm run test:unit
       - run: npm run build
+      - run: npm run test:unit
       - run: npm run test:e2e:ci
       - uses: *upload_artifact
         if: always()
