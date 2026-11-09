@@ -20,7 +20,6 @@ from configparser import ConfigParser
 from typing import ClassVar
 
 from nv_config_manager.common.config.client_settings.device import device_connection_settings
-from nv_config_manager.temporal.common.mixins.device import NetworkDeviceData
 
 # isort: off
 from nv_config_manager_workflows.clients.device.base import (
@@ -58,15 +57,3 @@ class NetworkConnection(_NetworkConnection):
             mock=False,
         )
         super().__init__(host, resolved_port, settings=settings)
-
-    @staticmethod
-    def from_device_data(
-        device_data: NetworkDeviceData,
-        *,
-        config: ConfigParser | None = None,
-    ) -> NetworkConnection:
-        """Return a service connection for an inventoried device."""
-        # Import locally because the service factory imports this base class.
-        from nv_config_manager.temporal.client.device.factory import from_device_data
-
-        return from_device_data(device_data, config=config)

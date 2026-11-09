@@ -55,6 +55,7 @@ from nv_config_manager_installer.schema import (
     SSOConfig,
     SSOProvider,
     TemporalAuthMethod,
+    TemporalDeploymentConfig,
     VaultAuthMethod,
     ZTPOSImage,
     ZTPS3CephConfig,
@@ -74,6 +75,78 @@ class TestNVConfigManagerInstallConfig:
         assert config.services.render is True
         assert config.dcim.provider == "nautobot-2x"
         assert config.infrastructure.monitoring.redis_metrics_enabled is False
+
+    def test_cluster_custom_labels_roundtrip(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            cluster=ClusterConfig(
+                custom_labels={
+                    "production": "true",
+                    "nvidia.com/include_in_slo": "",
+                }
+            )
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.cluster.custom_labels == {
+            "production": "true",
+            "nvidia.com/include_in_slo": "",
+        }
+        assert yaml.safe_load(path.read_text())["cluster"]["custom_labels"] == {
+            "production": "true",
+            "nvidia.com/include_in_slo": "",
+        }
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "-production",
+            "Production!",
+            f"{'a' * 64}",
+            f"{'a' * 254}/production",
+            "nvidia.com/",
+        ],
+    )
+    def test_cluster_custom_labels_reject_invalid_keys(self, key: str) -> None:
+        with pytest.raises(ValueError, match="invalid Kubernetes label key"):
+            ClusterConfig(custom_labels={key: "true"})
+
+    @pytest.mark.parametrize("value", ["-production", "production!", f"{'a' * 64}"])
+    def test_cluster_custom_labels_reject_invalid_values(self, value: str) -> None:
+        with pytest.raises(ValueError, match="invalid Kubernetes label value"):
+            ClusterConfig(custom_labels={"production": value})
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "app",
+            "component",
+            "instance",
+            "job",
+            "app.kubernetes.io/name",
+            "app.kubernetes.io/owner",
+            "helm.sh/chart",
+            "helm.sh/owner",
+        ],
+    )
+    def test_cluster_custom_labels_reject_chart_owned_keys(self, key: str) -> None:
+        with pytest.raises(ValueError, match="reserved custom label key"):
+            ClusterConfig(custom_labels={key: "test"})
+
+    def test_cluster_custom_labels_validate_assignment(self) -> None:
+        cluster = ClusterConfig()
+
+        with pytest.raises(ValueError, match="invalid Kubernetes label key"):
+            cluster.custom_labels = {"invalid key": "true"}
+        with pytest.raises(ValueError, match="reserved custom label key"):
+            cluster.custom_labels = {"app": "test"}
+
+    def test_yaml_omits_empty_cluster_custom_labels(self) -> None:
+        data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
+
+        assert "custom_labels" not in data["cluster"]
 
     def test_external_temporal_mtls_requires_address_and_secret(self):
         with pytest.raises(ValueError, match="requires an address"):
@@ -106,6 +179,54 @@ class TestNVConfigManagerInstallConfig:
     def test_external_temporal_rejects_unsafe_namespace(self, namespace: str):
         with pytest.raises(ValueError, match="namespace must not contain control characters"):
             ExternalTemporalConfig(namespace=namespace)
+
+    def test_default_yaml_omits_temporal_deployment(self) -> None:
+        data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
+
+        assert "temporal" not in data
+
+    def test_temporal_deployment_yaml_roundtrip(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=16,
+                num_history_shards=128,
+            )
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.temporal.history_replicas == 16
+        assert loaded.temporal.num_history_shards == 128
+        assert yaml.safe_load(path.read_text())["temporal"] == {
+            "history_replicas": 16,
+            "num_history_shards": 128,
+        }
+
+    @pytest.mark.parametrize("field", ["history_replicas", "num_history_shards"])
+    def test_temporal_deployment_rejects_negative_values(self, field: str) -> None:
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            TemporalDeploymentConfig(**{field: -1})
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {
+                "services": ServicesConfig(temporal=False),
+                "temporal": TemporalDeploymentConfig(history_replicas=8),
+            },
+            {
+                "external_services": ExternalServicesConfig(
+                    temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+                ),
+                "temporal": TemporalDeploymentConfig(num_history_shards=128),
+            },
+        ],
+    )
+    def test_temporal_deployment_rejects_unmanaged_server(self, config: dict[str, object]) -> None:
+        with pytest.raises(ValueError, match="managed Temporal server"):
+            NVConfigManagerInstallConfig(**config)
 
     def test_ztp_image_rejects_unsupported_platform(self):
         with pytest.raises(ValueError, match="Unsupported ZTP platform 'sonic'"):

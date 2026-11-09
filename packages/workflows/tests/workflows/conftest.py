@@ -14,7 +14,7 @@
 # limitations under the License.
 """Temporal execution fixtures for package-owned workflow tests."""
 
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from unittest.mock import AsyncMock, Mock
 
@@ -140,7 +140,7 @@ def time_skipping_env() -> Callable[[], AbstractAsyncContextManager[WorkflowEnvi
     """Return an isolated time-skipping Temporal environment."""
 
     @asynccontextmanager
-    async def _environment() -> AsyncIterator[WorkflowEnvironment]:
+    async def _environment() -> AsyncGenerator[WorkflowEnvironment]:
         environment = await WorkflowEnvironment.start_time_skipping(
             data_converter=get_data_converter()
         )

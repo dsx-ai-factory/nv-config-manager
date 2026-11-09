@@ -31,13 +31,13 @@ from nats.aio.msg import Msg
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy
 from nats.js.errors import FetchTimeoutError, NotFoundError
+from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
 from prometheus_client import Gauge, start_http_server
 
-from nv_config_manager.common.config import (
-    DEFAULT_NATS_API_PREFIX,
+from nv_config_manager.common.config.loader import load_config
+from nv_config_manager.common.config.nats import (
     NATSConnectionManager,
     ensure_local_streams,
-    load_config,
     nats_config_manager_api_prefix,
     nats_connection,
     nats_dcim_change_config,

@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-root test-workflow-package test-workflow-wheels lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
+.PHONY: help install dev test test-root test-ci test-workflow-package test-workflow-wheels lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
         local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed \
         openapi openapi-check go-bindings python-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
         obs-grafana obs-prometheus obs-loki obs-alloy obs-port-forward obs-port-forward-stop
@@ -111,8 +111,9 @@ help:
 	@echo "Python Commands:"
 	@echo "  make install                 - Install Python dependencies"
 	@echo "  make dev                     - Install with dev dependencies"
-	@echo "  make test                    - Run root and isolated workflow package tests"
+	@echo "  make test                    - Run root, CI tooling, and isolated workflow package tests"
 	@echo "  make test-root               - Run root project tests (parallel)"
+	@echo "  make test-ci                 - Check build, container, and CI tooling"
 	@echo "  make test-cov                - Run root project tests with coverage (parallel)"
 	@echo "  make test-integration        - Run integration tests (requires running cluster)"
 	@echo "  make test-nautobot-plugin    - Run vendored Nautobot plugin's Django suite in one-shot container"
@@ -167,10 +168,15 @@ install:
 dev:
 	uv sync
 
-test: test-root test-workflow-package
+test: test-root test-ci test-workflow-package
 
 test-root:
 	uv run pytest -n auto
+
+test-ci:
+	uv run ruff format --check ci/tests/
+	uv run ruff check ci/tests/
+	uv run pytest ci/tests/
 
 test-cov:
 	uv run pytest -n auto --cov=src/nv_config_manager --cov-report=html --cov-report=xml
@@ -443,6 +449,7 @@ docker-build:
 	$(MAKE) docker-build-ui & pids="$$pids $$!"; \
 	$(MAKE) docker-build-nb & pids="$$pids $$!"; \
 	$(MAKE) docker-build-nats-ready & pids="$$pids $$!"; \
+	$(MAKE) docker-build-oidc-proxy & pids="$$pids $$!"; \
 	$(MAKE) docker-build-temporal & pids="$$pids $$!"; \
 	failed=0; \
 	for pid in $$pids; do \
@@ -493,6 +500,10 @@ docker-build-nats-ready:
 	docker build --provenance=false $(APT_MIRROR_ARGS) -t nv-config-manager-nats-ready:$(LOCAL_TAG) -f build/nats-ready.Dockerfile components/nats-ready/
 	@echo "✅ Built nv-config-manager-nats-ready:$(LOCAL_TAG)"
 
+.PHONY: docker-build-oidc-proxy
+docker-build-oidc-proxy:
+	docker build --provenance=false $(APT_MIRROR_DEBIAN_ARGS) -t nv-config-manager-oidc-proxy:$(LOCAL_TAG) -f build/oidc-proxy.Dockerfile .
+
 # Build project-owned Temporal server, bootstrap, and web UI images.
 .PHONY: docker-build-temporal
 docker-build-temporal:
@@ -514,6 +525,7 @@ docker-push:
 	docker tag nv-config-manager-temporal:$(LOCAL_TAG) $(REGISTRY)/nv-config-manager-temporal:$(VERSION)
 	docker tag nv-config-manager-temporal-bootstrap:$(LOCAL_TAG) $(REGISTRY)/nv-config-manager-temporal-bootstrap:$(VERSION)
 	docker tag nv-config-manager-temporal-ui:$(LOCAL_TAG) $(REGISTRY)/nv-config-manager-temporal-ui:$(VERSION)
+	docker tag nv-config-manager-oidc-proxy:$(LOCAL_TAG) $(REGISTRY)/nv-config-manager-oidc-proxy:$(VERSION)
 	docker push $(REGISTRY)/nv-config-manager:$(VERSION)
 	docker push $(REGISTRY)/nv-config-manager-ui:$(VERSION)
 	docker push $(REGISTRY)/nv-config-manager-nautobot:$(VERSION)
@@ -521,6 +533,7 @@ docker-push:
 	docker push $(REGISTRY)/nv-config-manager-temporal:$(VERSION)
 	docker push $(REGISTRY)/nv-config-manager-temporal-bootstrap:$(VERSION)
 	docker push $(REGISTRY)/nv-config-manager-temporal-ui:$(VERSION)
+	docker push $(REGISTRY)/nv-config-manager-oidc-proxy:$(VERSION)
 
 # =============================================================================
 # Multi-Arch Build Targets
@@ -546,10 +559,11 @@ LATEST_TAG_nautobot = $(if $(PUSH_LATEST),-t $(REGISTRY)/nv-config-manager-nauto
 LATEST_TAG_nats_ready = $(if $(PUSH_LATEST),-t $(REGISTRY)/nv-config-manager-nats-ready:latest,)
 LATEST_TAG_temporal = $(if $(PUSH_LATEST),-t $(REGISTRY)/nv-config-manager-temporal:latest,)
 LATEST_TAG_temporal_bootstrap = $(if $(PUSH_LATEST),-t $(REGISTRY)/nv-config-manager-temporal-bootstrap:latest,)
+LATEST_TAG_oidc_proxy = $(if $(PUSH_LATEST),-t $(REGISTRY)/nv-config-manager-oidc-proxy:latest,)
 LATEST_TAG_temporal_ui = $(if $(PUSH_LATEST),-t $(REGISTRY)/nv-config-manager-temporal-ui:latest,)
 
 # All image names for manifest operations
-IMAGES := nv-config-manager nv-config-manager-kea nv-config-manager-kea-admin nv-config-manager-ui nv-config-manager-nautobot nv-config-manager-nats-ready nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui
+IMAGES := nv-config-manager nv-config-manager-kea nv-config-manager-kea-admin nv-config-manager-ui nv-config-manager-nautobot nv-config-manager-nats-ready nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui nv-config-manager-oidc-proxy
 
 .PHONY: docker-buildx-setup
 docker-buildx-setup: ## Sets up Docker Buildx for multi-arch builds.
@@ -565,7 +579,7 @@ docker-buildx-setup-native: ## Sets up Docker Buildx for native single-arch buil
 	@echo "✅ Buildx ready for native $(PLATFORM) builds"
 
 .PHONY: docker-build-multiarch
-docker-build-multiarch: docker-buildx-setup docker-build-nv-config-manager-multiarch docker-build-kea-multiarch docker-build-kea-admin-multiarch docker-build-ui-multiarch docker-build-nb-multiarch docker-build-nats-ready-multiarch docker-build-temporal-multiarch ## Builds and pushes all multi-arch images (requires registry login).
+docker-build-multiarch: docker-buildx-setup docker-build-nv-config-manager-multiarch docker-build-kea-multiarch docker-build-kea-admin-multiarch docker-build-ui-multiarch docker-build-nb-multiarch docker-build-nats-ready-multiarch docker-build-temporal-multiarch docker-build-oidc-proxy-multiarch ## Builds and pushes all multi-arch images (requires registry login).
 	@echo "✅ All multi-arch images built and pushed successfully"
 
 # =============================================================================
@@ -582,6 +596,7 @@ docker-build-all: ## Builds and pushes all images for PLATFORM in parallel. Call
 	$(MAKE) docker-build-single-ui & pids="$$pids $$!"; \
 	$(MAKE) docker-build-single-nb & pids="$$pids $$!"; \
 	$(MAKE) docker-build-single-nats-ready & pids="$$pids $$!"; \
+	$(MAKE) docker-build-single-oidc-proxy & pids="$$pids $$!"; \
 	$(MAKE) docker-build-single-temporal & pids="$$pids $$!"; \
 	failed=0; \
 	for pid in $$pids; do \
@@ -699,6 +714,10 @@ docker-build-single-temporal-bootstrap: ## Builds the distroless Temporal bootst
 docker-build-single-temporal-ui: ## Builds the distroless Temporal UI image for PLATFORM.
 	@echo "🏗️  Building distroless Temporal UI image for $(PLATFORM)..."
 	docker buildx build --platform $(PLATFORM) -t $(REGISTRY)/nv-config-manager-temporal-ui:$(VERSION) $(LATEST_TAG_temporal_ui) $(EXTRA_TAGS) $(TEMPORAL_BUILD_ARGS) --target ui -f build/temporal.Dockerfile $(DOCKER_BUILD_OUTPUT) .
+
+.PHONY: docker-build-single-oidc-proxy
+docker-build-single-oidc-proxy: ## Builds the OIDC proxy CA wrapper for PLATFORM.
+	docker buildx build --platform $(PLATFORM) -t $(REGISTRY)/nv-config-manager-oidc-proxy:$(VERSION) $(LATEST_TAG_oidc_proxy) $(EXTRA_TAGS) $(APT_MIRROR_DEBIAN_ARGS) -f build/oidc-proxy.Dockerfile $(DOCKER_BUILD_OUTPUT) .
 
 # =============================================================================
 # Manifest Merge Targets (for combining arch-specific images)
@@ -822,6 +841,11 @@ docker-build-temporal-multiarch: docker-buildx-setup ## Builds and pushes multi-
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/nv-config-manager-temporal-bootstrap:$(VERSION) $(LATEST_TAG_temporal_bootstrap) $(EXTRA_TAGS) $(TEMPORAL_BUILD_ARGS) --target bootstrap -f build/temporal.Dockerfile --push .
 	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/nv-config-manager-temporal-ui:$(VERSION) $(LATEST_TAG_temporal_ui) $(EXTRA_TAGS) $(TEMPORAL_BUILD_ARGS) --target ui -f build/temporal.Dockerfile --push .
 	@echo "✅ Multi-arch distroless Temporal images pushed to $(REGISTRY)"
+
+.PHONY: docker-build-oidc-proxy-multiarch
+docker-build-oidc-proxy-multiarch: docker-buildx-setup ## Builds and pushes the OIDC proxy CA wrapper for PLATFORMS.
+	docker buildx build --platform $(PLATFORMS) -t $(REGISTRY)/nv-config-manager-oidc-proxy:$(VERSION) $(LATEST_TAG_oidc_proxy) $(EXTRA_TAGS) $(APT_MIRROR_DEBIAN_ARGS) -f build/oidc-proxy.Dockerfile --push .
+	@echo "✅ Multi-arch OIDC proxy CA wrapper pushed to $(REGISTRY)"
 
 # =============================================================================
 # Service run targets (for local development without k8s)

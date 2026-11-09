@@ -175,6 +175,22 @@ nvcm-installer deploy nv-config-manager-install.yaml \
 
 For a fresh Kind deployment that builds local images, the local-image flags and the three operator install flags are required unless those operators are already installed and images are already available to the cluster. If the Kind cluster name is not `nv-config-manager`, pass the actual name with `--kind-cluster`.
 
+Before deploying, select the intended Kubernetes context:
+
+```bash
+kubectl config use-context kind-nv-config-manager
+```
+
+With `--load-kind`, the installer requires both the matching `kind-<cluster>`
+context and the API server reported by `kind get kubeconfig`. If they disagree,
+restore the context with `kind export kubeconfig --name <cluster>` and retry.
+
+With `images.source: local` and no `--load-kind`, the installer requires a
+recognized local context or local API server address. For a remote cluster,
+use `--image-source registry`. If a cluster can already use your local images,
+set `NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES=1` for that deployment.
+This override does not bypass the `--load-kind` checks.
+
 In CI environments where in-cluster pulls are unreliable or rate limited, `--load-kind` can also preload selected third-party runtime images before Helm starts. Add image references under `images.kind_preload_images` in the installer YAML, or pass a comma- or space-separated override with `NVCM_KIND_PRELOAD_IMAGES`.
 
 | Flag | Default | Description |
@@ -331,8 +347,8 @@ Validation or runtime errors from post-deploy jobs appear in the installer deplo
 Open the Config Store UI from the Config Manager interface, such as `https://config-manager.example.com/configs`, and confirm that intended configs are present for every device that should be rendered. If renders are missing, check the render service logs.
 
 ```bash
-# List render-service pods.
-kubectl get pods -n <namespace> -l app.kubernetes.io/component=render-service
+# List render-service deployments.
+kubectl get deployments -n <namespace> -l app.kubernetes.io/component=render-service
 
 # Device-change consumer performs the actual render.
 kubectl logs -n <namespace> -l component=consumer-device -c consumer -f --tail=500
@@ -345,10 +361,11 @@ Search log output for `RenderException`, `Error processing event`, or Python tra
 
 To verify that devices have DHCP reservations, call the DHCP config endpoint, usually `https://dhcp.<your-hostname>/config?ip_version=4`, and search for the device by hostname, IP address, or device UUID.
 
-To verify that DHCP has sufficient data from Nautobot, check the logs of the `config-refresh-v4` container in the DHCP refresh pods.
+To verify that DHCP has sufficient data from the configured DCIM provider, find the DHCP refresh Deployment and read its `config-refresh-v4` container logs. Replace `<refresh-deployment>` with a name from the first command.
 
 ```bash
-kubectl logs -n <namespace> -l app.kubernetes.io/component=network-dhcp -c config-refresh-v4 -f --tail=200
+kubectl get deployments -n <namespace> -l app.kubernetes.io/component=network-dhcp-refresh
+kubectl logs -n <namespace> deployment/<refresh-deployment> -c config-refresh-v4 -f --tail=200
 ```
 
 ## Iterative Deployment and Post-Deploy Changes
@@ -369,6 +386,25 @@ endpoints that older APIs do not provide. If a new UI reaches an older API, it
 fails closed: the workflow launcher disables browser-form links and direct form
 URLs display an API-upgrade message without requesting a `/form` endpoint. API
 and CLI workflow execution remain available during that temporary mismatch.
+
+### Other 1.4.0 Upgrade Checks
+
+Before upgrading an existing deployment:
+
+- Review the [workflow scheduler settings](../temporal/temporal-deployment.mdx#workflow-schedulers),
+  especially when using `helm upgrade --reuse-values`. Older values files lack
+  the scheduler map; preserve `builtin.backup` explicitly if scheduled backups
+  should continue.
+- Keep the Nautobot Django cache on a Redis database separate from Config
+  Manager's application and lock databases. The default
+  `externalServices.redis.nautobotCacheDb` is `1`. Follow the
+  [Nautobot upgrade procedure](../nautobot/nautobot-integration.mdx#upgrading-from-an-earlier-release)
+  for the old cache keys.
+- Install custom workflow plugins in every process that consumes them and
+  validate them before deployment. The
+  [plugin registration contract](https://github.com/dsx-ai-factory/nv-config-manager/blob/main/packages/workflows/README.md#registering-a-workflow-plugin)
+  replaces service-local registration changes. Existing Temporal histories
+  still require compatible workflow type names and input payloads.
 
 ### Update Nautobot or Site Data
 

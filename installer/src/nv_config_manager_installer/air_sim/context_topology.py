@@ -143,6 +143,7 @@ def build_site_design_from_mock_context(
                 "name": intf_name,
                 "type": intf.get("type", "1000base-t"),
                 "description": intf.get("description", ""),
+                "label": intf.get("label", ""),
                 "mac_address": intf.get("mac_address"),
                 "role": _name(intf.get("role")),
                 "mgmt_only": bool(intf.get("mgmt_only", False)),

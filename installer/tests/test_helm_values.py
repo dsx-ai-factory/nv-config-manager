@@ -23,7 +23,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from nv_config_manager_installer.helm_values import _GLOBAL_IMAGE_DEFAULTS, generate_helm_values
+from nv_config_manager_installer.helm_values import (
+    _GLOBAL_IMAGE_DEFAULTS,
+    _NESTED_IMAGE_DEFAULTS,
+    generate_helm_values,
+)
 from nv_config_manager_installer.schema import (
     NV_CONFIG_MANAGER_IMAGE_KEYS,
     ClusterConfig,
@@ -62,6 +66,7 @@ from nv_config_manager_installer.schema import (
     SSOProvider,
     TemplatePath,
     TemplatePluginsConfig,
+    TemporalDeploymentConfig,
     VaultConfig,
     VaultPathConfig,
     VaultPathsConfig,
@@ -130,6 +135,30 @@ class TestGenerateHelmValues:
         assert ext["postgres"]["temporal"]["host"] == "cluster-temporal-rw"
         assert ext["postgres"]["configStore"]["host"] == "cluster-config-store-rw"
         assert values["mcp"]["enabled"] is True
+
+    def test_custom_labels_are_emitted_under_global(self) -> None:
+        values = _gen(
+            _make_config(
+                cluster=ClusterConfig(
+                    hostname="test.example.com",
+                    environment="prod",
+                    custom_labels={
+                        "production": "true",
+                        "include_in_slo": "true",
+                    },
+                )
+            )
+        )
+
+        assert values["global"]["customLabels"] == {
+            "production": "true",
+            "include_in_slo": "true",
+        }
+
+    def test_empty_custom_labels_are_omitted_from_global(self) -> None:
+        values = _gen(_make_config())
+
+        assert "customLabels" not in values["global"]
 
     def test_s3_irsa_role_and_region(self):
         """S3 IRSA emits an annotated ServiceAccount without a credentials Secret."""
@@ -346,6 +375,59 @@ class TestGenerateHelmValues:
         assert values["cnpg"]["temporal"]["enabled"] is False
         assert values["cnpg"]["temporalVisibility"]["enabled"] is False
 
+    def test_temporal_deployment_defaults_do_not_override_chart_values(self) -> None:
+        temporal = _gen(_make_config())["temporal"]
+
+        assert "numHistoryShards" not in temporal
+        assert "services" not in temporal
+
+    def test_temporal_deployment_maps_history_replicas_and_shards(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=16,
+                num_history_shards=128,
+            )
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 16
+        assert temporal["numHistoryShards"] == 128
+
+    def test_temporal_deployment_maps_only_history_replicas(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(history_replicas=8),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 8
+        assert "numHistoryShards" not in temporal
+
+    def test_temporal_deployment_maps_only_history_shards(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(num_history_shards=64),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["numHistoryShards"] == 64
+        assert "services" not in temporal
+
+    def test_temporal_deployment_overrides_size_profile(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=8,
+                num_history_shards=64,
+            )
+        )
+
+        temporal = _gen(config, complete=True)["temporal"]
+
+        assert temporal["services"]["history"]["replicas"] == 8
+        assert temporal["services"]["history"]["resources"]["requests"]["memory"] == "256Mi"
+        assert temporal["numHistoryShards"] == 64
+
     def test_network_policy(self):
         values = _gen(_make_config())
         assert values["networkPolicy"]["enabled"] is True
@@ -452,6 +534,7 @@ class TestGenerateHelmValues:
         }
 
     def test_local_images(self):
+        """Select local tags for project images, including the OIDC proxy wrapper."""
         values = _gen(_make_config(), local_images=True)
 
         images = values["global"]["images"]
@@ -463,6 +546,8 @@ class TestGenerateHelmValues:
         assert images["temporalServer"]["repository"] == "nv-config-manager-temporal"
         assert images["temporalBootstrap"]["repository"] == "nv-config-manager-temporal-bootstrap"
         assert images["temporalUi"]["repository"] == "nv-config-manager-temporal-ui"
+        assert images["oidcProxy"]["repository"] == "nv-config-manager-oidc-proxy"
+        assert images["oidcProxy"]["tag"] == "local"
 
     def test_registry_images_present_by_default(self):
         values = _gen(_make_config())
@@ -473,9 +558,10 @@ class TestGenerateHelmValues:
         )
 
     def test_redis_exporter_image_default(self):
+        """Keep the installer Redis exporter pin aligned with the chart."""
         assert _GLOBAL_IMAGE_DEFAULTS["redisExporter"] == (
             "docker.io/oliver006/redis_exporter",
-            "v1.90.0",
+            "v1.95.0",
         )
 
     def test_sso_enabled(self):
@@ -951,6 +1037,41 @@ class TestImagesInHelmValues:
         assert images["nvConfigManager"]["tag"] == "dev-branch"
         assert images["nautobot"]["tag"] == "v1.0"
 
+    @pytest.mark.parametrize("global_tag", ["", "1.4.2"])
+    def test_repository_only_oidc_override_preserves_legacy_tag(self, global_tag):
+        """Preserve the upstream proxy tag for repository-only legacy mirror overrides."""
+        config = _make_config(
+            images=ImagesConfig(
+                tag=global_tag,
+                overrides={"oidcProxy": ImageOverride(repository="mirror.example/proxy")},
+            )
+        )
+        image = _gen(config)["global"]["images"]["oidcProxy"]
+        assert image["repository"] == "mirror.example/proxy"
+        assert image["tag"] == "v7.15.5"
+        assert image["installerImageOverride"] is True
+
+    @pytest.mark.parametrize("tag", ["v7.15.5", "1.4.2"])
+    def test_tagged_oidc_repository_override_requires_ca_verification(self, tag):
+        """A tag cannot distinguish an upstream mirror from a refreshed custom image."""
+        config = _make_config(
+            images=ImagesConfig(
+                tag="1.4.2",
+                overrides={"oidcProxy": ImageOverride(repository="mirror.example/proxy", tag=tag)},
+            )
+        )
+        image = _gen(config)["global"]["images"]["oidcProxy"]
+        assert image["repository"] == "mirror.example/proxy"
+        assert image["tag"] == tag
+        assert image["installerImageOverride"] is True
+
+    def test_default_wrapper_settings_clear_oidc_image_reminder(self):
+        """Clear installer override provenance when the default wrapper is selected."""
+        config = _make_config(images=ImagesConfig(tag="1.4.2"))
+        image = _gen(config)["global"]["images"]["oidcProxy"]
+        assert image["tag"] == "1.4.2"
+        assert image["installerImageOverride"] is False
+
     def test_temporal_server_and_ui_overrides_keep_project_bootstrap(self):
         config = _make_config(
             images=ImagesConfig(
@@ -1043,6 +1164,7 @@ class TestImagesInHelmValues:
         assert images["nautobot"]["tag"] == "local"
 
     def test_airgapped_registry_maps_uploaded_source_paths(self):
+        """Map bundled source-image paths into the upload registry namespace."""
         config = _make_config(
             cluster=ClusterConfig(
                 hostname="test.example.com",
@@ -1078,12 +1200,12 @@ class TestImagesInHelmValues:
             images["natsExporter"]["repository"]
             == "registry.example.com/nv-config-manager/natsio/prometheus-nats-exporter"
         )
-        assert images["natsExporter"]["tag"] == "0.20.1"
+        assert images["natsExporter"]["tag"] == "0.20.3"
         assert (
             images["redisExporter"]["repository"]
             == "registry.example.com/nv-config-manager/oliver006/redis_exporter"
         )
-        assert images["redisExporter"]["tag"] == "v1.90.0"
+        assert images["redisExporter"]["tag"] == "v1.95.0"
         assert (
             images["temporalServer"]["repository"]
             == "registry.example.com/nv-config-manager/nvidian/cfa/nv-config-manager-temporal"
@@ -1098,8 +1220,8 @@ class TestImagesInHelmValues:
             == "registry.example.com/nv-config-manager/spiffe/spiffe-helper"
         )
         assert (
-            values["oidc"]["proxy"]["image"]["repository"]
-            == "registry.example.com/nv-config-manager/oauth2-proxy/oauth2-proxy"
+            images["oidcProxy"]["repository"]
+            == "registry.example.com/nv-config-manager/nvidian/cfa/nv-config-manager-oidc-proxy"
         )
         assert (
             values["renderService"]["templatePlugins"]["installerImage"]
@@ -1134,6 +1256,22 @@ class TestImagesInHelmValues:
         assert values.get("grafana", {}).get("enabled") is not True
         assert values.get("loki", {}).get("enabled") is not True
         assert values["monitoring"]["prometheus"]["namespace"] == "nv-config-manager"
+
+    @pytest.mark.parametrize(
+        "key", ["redisExporter", "nats", "natsBox", "natsExporter", "spiffeHelper"]
+    )
+    def test_infrastructure_image_defaults_match_chart(self, key):
+        """Installer registry defaults must preserve the chart's security updates."""
+        chart_values = Path(__file__).resolve().parents[2] / "deploy" / "helm" / "values.yaml"
+        entry = yaml.safe_load(chart_values.read_text())
+        if key in _GLOBAL_IMAGE_DEFAULTS:
+            path = ("global", "images", key)
+            repository, tag = _GLOBAL_IMAGE_DEFAULTS[key]
+        else:
+            path, repository, tag = _NESTED_IMAGE_DEFAULTS[key]
+        for component in path:
+            entry = entry[component]
+        assert (entry["repository"], entry["tag"]) == (repository, tag)
 
     def test_all_global_images_registered_for_registry_override(self):
         """Every chart global.images key must be in the installer's override tables.

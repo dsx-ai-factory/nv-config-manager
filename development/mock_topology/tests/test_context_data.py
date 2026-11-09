@@ -337,3 +337,90 @@ def test_managed_devices_template_allows_devices_without_platform() -> None:
     managed_devices_template = (MOCK_TOPOLOGY_DESIGNS / "managed_devices.yaml.j2").read_text()
 
     assert "device.platform is defined" in managed_devices_template
+
+
+def test_air_superpod_hyperreach_labels_are_loaded_into_nautobot() -> None:
+    """Preserve HyperReach lane labels when rendering Nautobot interface data."""
+    host = _load_device(
+        MOCK_TOPOLOGY_CONTEXT / "air_superpod" / "devices" / "su02-hyperreach-host.json"
+    )
+    environment = Environment(loader=FileSystemLoader(MOCK_TOPOLOGY_DESIGNS))
+    rendered = environment.get_template("interfaces.yaml.j2").render(
+        json={"devices": [host]}, global_defaults={"status": "Active"}
+    )
+    interfaces = {i["!create_or_update:name"]: i for i in yaml.safe_load(rendered)["interfaces"]}
+    assert interfaces["eth1"]["label"] == "C1-2-L1"
+    assert interfaces["eth2"]["label"] == "C1-2-L2"
+    assert "label" not in interfaces["eth0"]
+
+
+def test_air_superpod_installs_hyperreach_host_in_chassis_bay() -> None:
+    """The intended neighbor must be a child device with a distinct chassis name."""
+    devices = _devices_by_name(MOCK_TOPOLOGY_CONTEXT / "air_superpod")
+    host = devices["su02-hyperreach-host"]
+    chassis = devices[host["parent_bay"]["device"]["name"]]
+    environment = Environment(loader=FileSystemLoader(MOCK_TOPOLOGY_DESIGNS))
+    rendered = environment.get_template("device_bays.yaml.j2").render(
+        json={"devices": list(devices.values())}
+    )
+
+    assert yaml.safe_load(rendered)["device_bays"] == [
+        {
+            "!create_or_update:name": "line-card-1",
+            "!create_or_update:device": f"!ref:device-{chassis['name']}",
+            "installed_device": f"!ref:device-{host['name']}",
+        }
+    ]
+    assert chassis["_air"]["enabled"] is False
+    assert chassis["name"] != host["name"]
+    for index, leaf in enumerate(("su01-cin-leaf-r01", "su01-cin-leaf-r02"), 1):
+        lane = _interface_by_name(host, f"eth{index}")
+        advertised = host["_air"]["lldp"][f"eth{index}"]
+        assert (
+            _interface_by_name(devices[leaf], "swp2")["connected_interface"]["device"]["name"]
+            == host["name"]
+        )
+        assert advertised["port_description"] == f"{chassis['name']} {lane['label']}"
+        assert advertised["name"] != lane["name"]
+        assert not lane.get("mac_address")
+
+
+def test_hyperreach_device_types_keep_parent_child_roles_on_reimport() -> None:
+    """Do not overwrite a child type's 0U height with auto-discovered defaults."""
+    definitions = _load_yaml(MOCK_TOPOLOGY_CONTEXT / "common" / "device_types.yaml")
+    devices = _devices_by_name(MOCK_TOPOLOGY_CONTEXT / "air_superpod")
+    discovered = [
+        {
+            "manufacturer": device["device_type"]["manufacturer"]["name"],
+            "model": device["device_type"]["model"],
+        }
+        for device in (devices["su02-hyperreach-host"], devices["su02-hyperreach-chassis"])
+    ]
+    environment = Environment(loader=FileSystemLoader(MOCK_TOPOLOGY_DESIGNS))
+    rendered = yaml.safe_load(
+        environment.get_template("device_types.yaml.j2").render(
+            json={"device_types": discovered}, **definitions
+        )
+    )
+    types = rendered["device_types"]
+    for model, role, height in (
+        ("AIR Hyper-reach Chassis", "parent", 1),
+        ("AIR Hyper-reach Line Card", "child", 0),
+    ):
+        matches = [item for item in types if item["!create_or_update:model"] == model]
+        assert len(matches) == 1
+        assert matches[0]["subdevice_role"] == role
+        assert matches[0]["u_height"] == height
+    assert {
+        "!create_or_update:name": "line-card-1",
+        "!create_or_update:device_type__model": "AIR Hyper-reach Chassis",
+        "label": "Hyper-reach fixture child",
+    } in rendered["device_bay_templates"]
+
+
+def test_device_bay_design_is_empty_for_standalone_devices() -> None:
+    environment = Environment(loader=FileSystemLoader(MOCK_TOPOLOGY_DESIGNS))
+    rendered = environment.get_template("device_bays.yaml.j2").render(
+        json={"devices": [{"name": "standalone"}]}
+    )
+    assert yaml.safe_load(rendered) == {"device_bays": []}

@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import { PHASE_PRODUCTION_BUILD } from "next/constants.js";
 
 import legacyWorkflowRedirects from "@/config/legacy-workflow-redirects.json";
 import workflowFormIds from "@/config/workflow-form-ids.json";
@@ -106,8 +107,17 @@ describe("buildWorkflowRedirects", () => {
 });
 
 describe("next.config.mjs redirects()", () => {
+  it("uses the mock-free TypeScript config only for production builds", () => {
+    expect(
+      nextConfig(PHASE_PRODUCTION_BUILD).typescript?.tsconfigPath
+    ).toBe("tsconfig.build.json");
+    expect(nextConfig("phase-test").typescript?.tsconfigPath).toBe(
+      "tsconfig.json"
+    );
+  });
+
   it("serves redirects for every previously shipped form URL", async () => {
-    const redirects = await nextConfig.redirects?.();
+    const redirects = await nextConfig("phase-test").redirects?.();
 
     expect(redirects).toEqual(
       buildWorkflowRedirects(legacyWorkflowRedirects, workflowFormIds)

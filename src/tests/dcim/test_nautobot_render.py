@@ -14,6 +14,8 @@
 # limitations under the License.
 """Tests for the built-in provider's Render contract implementation."""
 
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, call
 
 import pytest
@@ -28,6 +30,14 @@ from nv_config_manager_dcim_nautobot_2x.render import (
 )
 
 from nv_config_manager.dcim import IntendedConfigurationUpdate, RenderDataRequest
+from nv_config_manager_workflows.activities.cable_validation.helpers import (
+    _check_lldp_validity,
+    _check_port_description_validity,
+)
+from nv_config_manager_workflows.clients.device.models import (
+    DeviceNeighborData,
+    InterfaceNeighborData,
+)
 
 
 def _client() -> NautobotDCIMClient:
@@ -552,3 +562,111 @@ async def test_intended_interface_neighbors_are_provider_owned():
     assert interfaces[0].connected_interface_name == "swp2"
     assert interfaces[0].connected_device and interfaces[0].connected_device.name == "leaf-2"
     assert client.graphql_query.await_args.args[1] == {"device_id": "device-id"}
+
+
+@pytest.mark.asyncio
+async def test_intended_interface_neighbors_resolve_parent_bay_chassis() -> None:
+    """A line card installed in a chassis DeviceBay keeps its own identity and role,
+    with the chassis surfaced separately as a hyper-reach port-description alias.
+    """
+    client = _client()
+    client.graphql_query = AsyncMock(
+        return_value={
+            "data": {
+                "interfaces": [
+                    {
+                        "name": "swp1",
+                        "tags": [],
+                        "connected_interface": {
+                            "name": "C1/1/L1",
+                            "mac_address": "00:11:22:33:44:55",
+                            "device": {
+                                "name": "chassis-01-C11U11-pcie1",
+                                "serial": "linecard-serial",
+                                "position": None,
+                                "role": None,
+                                "rack": None,
+                                "parent_bay": {
+                                    "device": {
+                                        "name": "chassis-01-C11U11",
+                                        "serial": "chassis-serial",
+                                        "position": 11,
+                                        "role": {"name": "GPU"},
+                                        "rack": {"name": "rack-1"},
+                                    }
+                                },
+                            },
+                        },
+                    }
+                ]
+            }
+        }
+    )
+
+    interfaces = await client.get_intended_interface_neighbors("device-id")
+
+    assert len(interfaces) == 1
+    connected_device = interfaces[0].connected_device
+    assert connected_device is not None
+    assert connected_device.name == "chassis-01-C11U11-pcie1"
+    assert connected_device.serial == "linecard-serial"
+    assert connected_device.role is None
+    assert connected_device.rack is None
+    assert connected_device.position is None
+    assert connected_device.chassis_name == "chassis-01-C11U11"
+
+
+@pytest.mark.asyncio
+async def test_air_hyperreach_fixture_requires_parent_chassis_for_validation() -> None:
+    """The actual AIR fixture must pass through chassis resolution, never the fallback."""
+    fixture = (
+        Path(__file__).resolve().parents[3]
+        / "development/mock_topology/context/air_superpod/devices/su02-hyperreach-host.json"
+    )
+    host = json.loads(fixture.read_text())["data"]["device"]
+    lane = next(interface for interface in host["interfaces"] if interface["name"] == "eth1")
+    advertised = host["_air"]["lldp"]["eth1"]
+    client = _client()
+    client.graphql_query = AsyncMock(
+        return_value={
+            "data": {
+                "interfaces": [
+                    {
+                        "name": "swp2",
+                        "tags": [],
+                        "connected_interface": {
+                            "name": lane["name"],
+                            "label": lane["label"],
+                            "device": host,
+                        },
+                    }
+                ]
+            }
+        }
+    )
+    interface = (await client.get_intended_interface_neighbors("cin-leaf-id"))[0]
+    device = interface.connected_device
+    assert device is not None
+    assert device.chassis_name == "su02-hyperreach-chassis"
+    assert device.name == "su02-hyperreach-host"
+    assert interface.connected_interface_mac is None
+    intended = InterfaceNeighborData(
+        name=interface.connected_interface_name,
+        label=interface.connected_interface_label,
+        device_name=device.name,
+        chassis_name=device.chassis_name,
+    )
+    actual = DeviceNeighborData(
+        neighbors={
+            "swp2": InterfaceNeighborData(
+                name=advertised["name"],
+                device_name=host["name"],
+                port_description=advertised["port_description"],
+            )
+        }
+    )
+    assert not _check_lldp_validity("swp2", intended, actual)
+    assert _check_port_description_validity("swp2", intended, actual)
+    assert not _check_port_description_validity(
+        "swp2", intended.model_copy(update={"chassis_name": None}), actual
+    )

@@ -21,6 +21,7 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | Package | License | URL |
 |---------|---------|-----|
 | click | BSD-3-Clause | https://github.com/pallets/click |
+| idna | BSD-3-Clause | https://github.com/kjd/idna |
 | requests | Apache-2.0 | https://github.com/psf/requests |
 | pydantic | MIT | https://github.com/pydantic/pydantic |
 | pydantic-settings | MIT | https://github.com/pydantic/pydantic-settings |
@@ -33,21 +34,31 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | aiohttp | Apache-2.0 | https://github.com/aio-libs/aiohttp |
 | aiohttp-retry | MIT | https://github.com/inyutin/aiohttp_retry |
 | httpx | BSD-3-Clause | https://github.com/encode/httpx |
+| anyio | MIT | https://github.com/agronholm/anyio |
 | urllib3 | MIT | https://github.com/urllib3/urllib3 |
 | boto3 | Apache-2.0 | https://github.com/boto/boto3 |
 | aioboto3 | Apache-2.0 | https://github.com/terrycain/aioboto3 |
 | sqlalchemy | MIT | https://github.com/sqlalchemy/sqlalchemy |
 | asyncpg | Apache-2.0 | https://github.com/MagicStack/asyncpg |
 | alembic | MIT | https://github.com/sqlalchemy/alembic |
+| mako | MIT | https://github.com/sqlalchemy/mako |
 | redis | MIT | https://github.com/redis/redis-py |
 | nats-py | Apache-2.0 | https://github.com/nats-io/nats.py |
 | nkeys | Apache-2.0 | https://github.com/nats-io/nkeys.py |
 | temporalio | MIT | https://github.com/temporalio/sdk-python |
+| opentelemetry-exporter-otlp-proto-grpc | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python |
+| opentelemetry-instrumentation-fastapi | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python-contrib |
+| opentelemetry-instrumentation-asgi | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python-contrib |
+| opentelemetry-instrumentation-aiohttp-client | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python-contrib |
+| opentelemetry-instrumentation-httpx | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python-contrib |
+| opentelemetry-instrumentation-requests | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python-contrib |
 | protobuf | BSD-3-Clause | https://github.com/protocolbuffers/protobuf |
 | pyeapi | BSD-3-Clause | https://github.com/arista-eosplus/pyeapi |
+| junos-eznc | Apache-2.0 | https://github.com/Juniper/py-junos-eznc |
 | netmiko | MIT | https://github.com/ktbyers/netmiko |
 | macaddress | MIT | https://github.com/mentalisttraceur/python-macaddress |
 | netaddr | BSD-3-Clause | https://github.com/netaddr/netaddr |
+| types-netaddr | Apache-2.0 | https://github.com/python/typeshed |
 | paramiko | LGPL-2.1 | https://github.com/paramiko/paramiko |
 | pynacl | Apache-2.0 | https://github.com/pyca/pynacl |
 | cryptography | Apache-2.0/BSD-3-Clause | https://github.com/pyca/cryptography |
@@ -58,7 +69,9 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | semver | BSD-3-Clause | https://github.com/python-semver/python-semver |
 | numpy | BSD-3-Clause | https://github.com/numpy/numpy |
 | pandas | BSD-3-Clause | https://github.com/pandas-dev/pandas |
+| pandas-stubs | BSD-3-Clause | https://github.com/pandas-dev/pandas-stubs |
 | openpyxl | MIT | https://foss.heptapod.net/openpyxl/openpyxl |
+| types-openpyxl | Apache-2.0 | https://github.com/python/typeshed |
 | elasticsearch | Apache-2.0 | https://github.com/elastic/elasticsearch-py |
 | requests-aws4auth | MIT | https://github.com/tedder/requests-aws4auth |
 | brotli | MIT | https://github.com/google/brotli |
@@ -68,6 +81,19 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | py-markdown-table | MIT | https://github.com/hvalev/py-markdown-table |
 | mkdocs | BSD-2-Clause | https://github.com/mkdocs/mkdocs |
 | certifi | MPL-2.0 | https://github.com/certifi/python-certifi |
+| jsonschema | MIT | https://github.com/python-jsonschema/jsonschema |
+| graphql-core | MIT | https://github.com/graphql-python/graphql-core |
+| mcp | MIT | https://github.com/modelcontextprotocol/python-sdk |
+| python-dateutil | Apache-2.0/BSD-3-Clause | https://github.com/dateutil/dateutil |
+| typing-extensions | PSF-2.0 | https://github.com/python/typing_extensions |
+| hvac | Apache-2.0 | https://github.com/hvac/hvac |
+| libpass | BSD-3-Clause; see its LICENSE for incorporated-code notices | https://github.com/notypecheck/passlib |
+| packaging | Apache-2.0 OR BSD-2-Clause | https://github.com/pypa/packaging |
+| opentelemetry-api | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python |
+| kubernetes | Apache-2.0 | https://github.com/kubernetes-client/python |
+| pyyaml | MIT | https://github.com/yaml/pyyaml |
+| textual | MIT | https://github.com/Textualize/textual |
+| textual-fspicker | MIT | https://github.com/davep/textual-fspicker |
 
 ### Development Dependencies
 
@@ -83,7 +109,6 @@ The following Python packages are dependencies of NVIDIA Config Manager. See `py
 | pytest-timeout | MIT | https://github.com/pytest-dev/pytest-timeout |
 | testcontainers | Apache-2.0 | https://github.com/testcontainers/testcontainers-python |
 | aiosqlite | MIT | https://github.com/omnilib/aiosqlite |
-| jsonschema | MIT | https://github.com/python-jsonschema/jsonschema |
 | responses | Apache-2.0 | https://github.com/getsentry/responses |
 | mock | BSD-2-Clause | https://github.com/testing-cabal/mock |
 | ruff | MIT | https://github.com/astral-sh/ruff |

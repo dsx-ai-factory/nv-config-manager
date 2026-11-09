@@ -1,8 +1,8 @@
-module github.com/nvidia/nv-config-manager/components/nats-ready
+module github.com/dsx-ai-factory/nv-config-manager/components/nats-ready
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/nats-io/nats.go v1.47.0

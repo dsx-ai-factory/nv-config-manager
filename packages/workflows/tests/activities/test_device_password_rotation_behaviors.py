@@ -33,6 +33,7 @@ from nv_config_manager_workflows.activities.device_password_rotation import (
 )
 from nv_config_manager_workflows.activities.device_password_rotation.helpers import (
     _validate_cumulus_diff,
+    _validate_iosxr_diff,
     _validate_junos_diff,
 )
 
@@ -63,15 +64,168 @@ nv set system aaa user cumulus hashed-password $6$newpassword"""
 
     def test_unsupported_platform_fails(self) -> None:
         """Test that unsupported platform fails validation."""
-        diff = """- username admin privilege 15 secret sha512 $6$oldpass
-+ username admin privilege 15 secret sha512 $6$newpass"""
+        diff = """- username admin password 7 oldpass
++ username admin password 7 newpass"""
 
-        input_data = ValidatePasswordDiffInput(diff=diff, username="admin", platform="arista")
+        input_data = ValidatePasswordDiffInput(diff=diff, username="admin", platform="mlnxos")
 
         result = asyncio.run(validate_password_diff(input_data))
         assert result.is_valid is False
         assert len(result.invalid_lines) == 2
-        assert result.error_message == "No diff parser available for platform: arista"
+        assert result.error_message == "No diff parser available for platform: mlnxos"
+
+    # EOS session diffs as ``show session-config named <id> diffs`` prints them.
+    EOS_DIFF = """--- system:/running-config
++++ session:/8f1c-session-config
+@@ -12,7 +12,7 @@
+ no aaa root
+ !
+-username admin privilege 15 role network-admin secret sha512 $6$salt$oldhash
++username admin privilege 15 role network-admin secret sha512 $6$salt$newhash
+ !
+ management api http-commands
+    no shutdown"""
+
+    def test_eos_platform_integration(self) -> None:
+        """An EOS diff that only swaps the user's hash is valid."""
+        input_data = ValidatePasswordDiffInput(diff=self.EOS_DIFF, username="admin", platform="eos")
+
+        result = asyncio.run(validate_password_diff(input_data))
+
+        assert result.is_valid is True
+        assert result.invalid_lines == []
+        assert result.valid_lines == [
+            "-username admin privilege 15 role network-admin secret sha512 $6$salt$oldhash",
+            "+username admin privilege 15 role network-admin secret sha512 $6$salt$newhash",
+        ]
+
+    def test_eos_added_password_line_without_a_removed_one_fails(self) -> None:
+        """A + line with no matching - line creates the account; it is not a rotation."""
+        diff = "+username ops privilege 15 role network-admin secret sha512 $6$s$h"
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="ops", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert result.error_message is not None
+        assert "without replacing one" in result.error_message
+
+    def test_eos_more_than_one_matching_change_fails(self) -> None:
+        """Auto-approval covers one replaced password line, not several."""
+        line = "username admin privilege 15 role network-admin secret sha512 $6$s${}"
+        diff = "\n".join(
+            [
+                f"-{line.format('old1')}",
+                f"+{line.format('new1')}",
+                f"-{line.format('old2')}",
+                f"+{line.format('new2')}",
+            ]
+        )
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="admin", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert result.error_message == "Diff replaces more than one password line for user 'admin'"
+
+    def test_eos_privilege_change_alongside_password_fails(self) -> None:
+        diff = (
+            "-username admin privilege 15 role network-admin secret sha512 $6$s$old\n"
+            "+username admin privilege 1 role network-admin secret sha512 $6$s$new"
+        )
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="admin", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert result.error_message == "Diff changes more than the password of user 'admin'"
+
+    def test_eos_root_platform_integration(self) -> None:
+        diff = "-aaa root secret sha512 $6$s$old\n+aaa root secret sha512 $6$s$new"
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="root", platform="eos")
+            )
+        )
+        assert result.is_valid is True
+        assert len(result.valid_lines) == 2
+
+    def test_eos_mixed_changes_fails(self) -> None:
+        diff = self.EOS_DIFF + "\n+ntp server 192.0.2.10"
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="admin", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert result.invalid_lines == ["+ntp server 192.0.2.10"]
+        assert result.error_message == "Diff contains non-password changes for user 'admin'"
+
+    def test_eos_role_change_alongside_password_fails(self) -> None:
+        """Only the hash may differ between the removed and the added line."""
+        diff = (
+            "-username admin privilege 15 role network-operator secret sha512 $6$s$old\n"
+            "+username admin privilege 15 role network-admin secret sha512 $6$s$new"
+        )
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="admin", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert result.error_message == "Diff changes more than the password of user 'admin'"
+
+    def test_eos_wrong_user_password_fails(self) -> None:
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=self.EOS_DIFF, username="ops", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert len(result.invalid_lines) == 2
+
+    def test_eos_unhashed_or_md5_secret_fails(self) -> None:
+        for diff in (
+            "+username admin privilege 15 secret 0 plaintext",
+            "+username admin privilege 15 secret 5 $1$s$md5",
+        ):
+            result = asyncio.run(
+                validate_password_diff(
+                    ValidatePasswordDiffInput(diff=diff, username="admin", platform="eos")
+                )
+            )
+            assert result.is_valid is False
+
+    def test_eos_header_only_diff_fails(self) -> None:
+        diff = "--- system:/running-config\n+++ session:/x-session-config\n@@ -1,2 +1,2 @@\n hostname leaf1"
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="admin", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert result.error_message == "Diff contains no password changes for user 'admin'"
+
+    @pytest.mark.parametrize(
+        "changed_line",
+        [
+            "-------------",  # a removed banner separator ("-" plus "------------")
+            "+++ banner text",  # an added line whose text starts with "++ "
+        ],
+    )
+    def test_eos_change_that_looks_like_a_diff_header_fails(self, changed_line: str) -> None:
+        """Inside a hunk, a line starting with "---" or "+++" is a change, not a header."""
+        diff = f"{self.EOS_DIFF}\n{changed_line}"
+        result = asyncio.run(
+            validate_password_diff(
+                ValidatePasswordDiffInput(diff=diff, username="admin", platform="eos")
+            )
+        )
+        assert result.is_valid is False
+        assert result.invalid_lines == [changed_line]
 
     def test_mixed_changes_fails(self) -> None:
         """Test that diff with password + other changes fails."""
@@ -167,6 +321,90 @@ nv set system aaa user admin password $6$newpassword"""
         assert len(result.invalid_lines) == 2
         assert any("host-name" in line for line in result.invalid_lines)
         assert len(result.valid_lines) == 2
+
+    def test_iosxr_platform_integration(self) -> None:
+        """A secret-only change under the target user's block is a valid rotation."""
+        diff = "  username admin\n-   secret 10 $6$oldHash$aaaa\n+   secret 10 $6$newHash$bbbb\n"
+
+        input_data = ValidatePasswordDiffInput(diff=diff, username="admin", platform="iosxr")
+
+        result = asyncio.run(validate_password_diff(input_data))
+        assert result.is_valid is True
+        assert len(result.valid_lines) == 2
+        assert result.invalid_lines == []
+
+    def test_iosxr_mixed_changes_fail(self) -> None:
+        """A secret change plus any other change is rejected."""
+        diff = (
+            "  username admin\n"
+            "-   secret 10 $6$oldHash$aaaa\n"
+            "+   secret 10 $6$newHash$bbbb\n"
+            "- hostname OLD\n"
+            "+ hostname NEW\n"
+        )
+
+        result = _validate_iosxr_diff(diff, "admin")
+
+        assert result.is_valid is False
+        assert len(result.valid_lines) == 2
+        assert len(result.invalid_lines) == 2
+
+    def test_iosxr_secret_changed_in_place_is_a_valid_rotation(self) -> None:
+        diff = "  username admin\n#   secret 10 $6$oldHash$aaaa\n#   secret 10 $6$newHash$bbbb\n"
+
+        result = _validate_iosxr_diff(diff, "admin")
+
+        assert result.is_valid is True
+        assert len(result.valid_lines) == 2
+
+    def test_iosxr_hash_marked_non_password_change_fails(self) -> None:
+        """A hostname changed in place must not ride along with a removed and added secret."""
+        diff = (
+            "  username admin\n"
+            "-   secret 10 $6$oldHash$aaaa\n"
+            "+   secret 10 $6$newHash$bbbb\n"
+            "# hostname OLD\n"
+            "# hostname NEW\n"
+        )
+
+        result = _validate_iosxr_diff(diff, "admin")
+
+        assert result.is_valid is False
+        assert len(result.invalid_lines) == 2
+        assert all("hostname" in line for line in result.invalid_lines)
+
+    def test_iosxr_wrong_user_or_wrong_depth_fails(self) -> None:
+        wrong_user = "  username operator\n-   secret 10 $6$a$b\n+   secret 10 $6$c$d\n"
+        deeper = (
+            "  username admin\n    group root-lr\n-     secret 10 $6$a$b\n+     secret 10 $6$c$d\n"
+        )
+
+        assert _validate_iosxr_diff(wrong_user, "admin").is_valid is False
+        assert _validate_iosxr_diff(deeper, "admin").is_valid is False
+
+    def test_iosxr_whole_account_added_or_removed_fails(self) -> None:
+        removed = "- username admin\n-   group root-lr\n-   secret 10 $6$a$b\n"
+
+        assert _validate_iosxr_diff(removed, "admin").is_valid is False
+
+    def test_iosxr_secret_only_removed_or_only_added_fails(self) -> None:
+        """A lone removal deletes the credential; a lone addition leaves two."""
+        removed = "  username admin\n-   secret 10 $6$a$b\n"
+        added = "  username admin\n+   secret 10 $6$c$d\n"
+        two_replacements = (
+            "  username admin\n-   secret 10 $6$a$b\n-   secret 10 $6$e$f\n+   secret 10 $6$c$d\n"
+        )
+
+        for diff in (removed, added, two_replacements):
+            result = _validate_iosxr_diff(diff, "admin")
+            assert result.is_valid is False
+            assert "replace the secret" in (result.error_message or "")
+
+    def test_iosxr_diff_without_secret_change_fails(self) -> None:
+        result = _validate_iosxr_diff("  username admin\n", "admin")
+
+        assert result.is_valid is False
+        assert "no password changes" in (result.error_message or "")
 
     def test_junos_wrong_user_password_fails(self) -> None:
         """Test that a Junos password change for a different login user fails."""
@@ -347,9 +585,22 @@ class TestValidatePlatformSupport:
         result = asyncio.run(validate_platform_support(input_data))
         assert result.normalized_platform == "junos"
 
+    def test_iosxr_platform_supported(self) -> None:
+        """Test that Cisco IOS XR platform is supported."""
+        input_data = ValidatePlatformSupportInput(platform=Platform.CISCO_IOS_XR)
+
+        result = asyncio.run(validate_platform_support(input_data))
+        assert result.normalized_platform == "iosxr"
+
+    def test_eos_platform_supported(self) -> None:
+        input_data = ValidatePlatformSupportInput(platform=Platform.ARISTA_EOS)
+
+        result = asyncio.run(validate_platform_support(input_data))
+        assert result.normalized_platform == "eos"
+
     def test_unsupported_platform_fails(self) -> None:
         """Test that unsupported platform raises error."""
-        input_data = ValidatePlatformSupportInput(platform=Platform.ARISTA_EOS)
+        input_data = ValidatePlatformSupportInput(platform=Platform.MLNX_OS)
 
         with pytest.raises(ApplicationError) as exc_info:
             asyncio.run(validate_platform_support(input_data))

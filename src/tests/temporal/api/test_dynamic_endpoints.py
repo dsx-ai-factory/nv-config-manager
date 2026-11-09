@@ -19,9 +19,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from temporalio.exceptions import ApplicationError
 
+from nv_config_manager.common.auth import SSOIdentity
 from nv_config_manager.temporal.api import dynamic_endpoints
 from nv_config_manager.temporal.api.dynamic_endpoints import (
     create_workflow_endpoint,
@@ -57,6 +58,17 @@ class _CallerOwnedInput(BaseModel):
     user_domain: str | None = None
 
 
+class _NonNullableDomainInput(BaseModel):
+    host: str
+    user_domain: Annotated[str, FormExcluded()] = ""
+
+
+class _ExtraAllowedInput(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    host: str
+
+
 class _UnsupportedOwnedInput(BaseModel):
     host: str
     owner: Annotated[str | None, ServerOwned()] = None
@@ -79,6 +91,13 @@ class _AttributedWorkflow(WorkflowMetadataMixin):
     workflow_description = "Workflow with server-owned attribution"
     workflow_input_class = _AttributedInput
     workflow_api_endpoint = "/attributed"
+
+
+class _NonNullableDomainWorkflow(WorkflowMetadataMixin):
+    workflow_name = "Non-nullable domain"
+    workflow_description = "Workflow whose attribution domain cannot be null"
+    workflow_input_class = _NonNullableDomainInput
+    workflow_api_endpoint = "/non-nullable-domain"
 
 
 class _UnsupportedOwnedWorkflow(WorkflowMetadataMixin):
@@ -108,7 +127,7 @@ async def test_endpoint_canonicalizes_input_before_start(mocker):
 
     endpoint = create_workflow_endpoint(_CanonWorkflow, _Input, "/x")
     request = MagicMock()
-    request.state.user = "user@nvidia.com"
+    request.state.user = "user"
 
     body = _Input(host="ufm01")
     response = await endpoint(body, request)
@@ -129,7 +148,7 @@ async def test_endpoint_replaces_owned_user_but_preserves_form_excluded_domain(m
     mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
     endpoint = create_workflow_endpoint(_AttributedWorkflow, _AttributedInput, "/attributed")
     request = MagicMock()
-    request.state.user = "trusted@example.com"
+    request.state.user = "trusted"
 
     await endpoint(
         _AttributedInput(
@@ -141,7 +160,7 @@ async def test_endpoint_replaces_owned_user_but_preserves_form_excluded_domain(m
     )
 
     submitted = cast(_AttributedInput, captured["body"])
-    assert submitted.user == "trusted@example.com"
+    assert submitted.user == "trusted"
     assert submitted.user_domain == "attacker.example"
 
 
@@ -157,7 +176,7 @@ async def test_endpoint_preserves_unmarked_identity_fields(mocker):
     mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
     endpoint = create_workflow_endpoint(_AttributedWorkflow, _CallerOwnedInput, "/attributed")
     request = MagicMock()
-    request.state.user = "trusted@example.com"
+    request.state.user = "trusted"
 
     await endpoint(
         _CallerOwnedInput(
@@ -175,18 +194,20 @@ async def test_endpoint_preserves_unmarked_identity_fields(mocker):
 
 @pytest.mark.parametrize("value", [None, ""])
 @pytest.mark.asyncio
-async def test_endpoint_populates_falsey_unmarked_legacy_identity_fields(mocker, value):
-    """Legacy models retain the falsey identity fallback used before form metadata."""
+async def test_endpoint_uses_authenticated_email_domain(mocker, monkeypatch, value):
+    """The full trusted identity supplies domains removed from normalized usernames."""
     captured: dict[str, BaseModel] = {}
 
     async def _fake_start(request, workflow_class, body):
         captured["body"] = body
         return "wid-1"
 
+    monkeypatch.setenv("NV_CONFIG_MANAGER_DOMAIN", "deployment.example")
     mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
     endpoint = create_workflow_endpoint(_AttributedWorkflow, _CallerOwnedInput, "/attributed")
     request = MagicMock()
-    request.state.user = "trusted@example.com"
+    request.state.user = "trusted"
+    request.state.identity = SSOIdentity(email=" trusted@partner.example ", user="trusted")
 
     await endpoint(
         _CallerOwnedInput(host="device-1", user=value, user_domain=value),
@@ -194,8 +215,98 @@ async def test_endpoint_populates_falsey_unmarked_legacy_identity_fields(mocker,
     )
 
     submitted = cast(_CallerOwnedInput, captured["body"])
-    assert submitted.user == "trusted@example.com"
-    assert submitted.user_domain == "example.com"
+    assert submitted.user == "trusted"
+    assert submitted.user_domain == "partner.example"
+
+
+@pytest.mark.parametrize("identity", ["trusted", "trusted @ partner.example"])
+@pytest.mark.asyncio
+async def test_endpoint_uses_configured_domain_without_usable_identity_domain(
+    mocker, monkeypatch, identity
+):
+    """Deployment configuration supplies the domain when identity has no usable domain."""
+    captured: dict[str, BaseModel] = {}
+
+    async def _fake_start(request, workflow_class, body):
+        captured["body"] = body
+        return "wid-1"
+
+    monkeypatch.setenv("NV_CONFIG_MANAGER_DOMAIN", "deployment.example")
+    mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
+    endpoint = create_workflow_endpoint(_AttributedWorkflow, _CallerOwnedInput, "/attributed")
+    request = MagicMock()
+    request.state.user = "trusted"
+    request.state.identity = SSOIdentity(email=identity, user="trusted")
+
+    await endpoint(_CallerOwnedInput(host="device-1"), request)
+
+    submitted = cast(_CallerOwnedInput, captured["body"])
+    assert submitted.user_domain == "deployment.example"
+
+
+@pytest.mark.asyncio
+async def test_endpoint_leaves_domain_none_without_identity_domain_or_config(mocker, monkeypatch):
+    """A nullable attribution domain stays unset without a trusted source."""
+    captured: dict[str, BaseModel] = {}
+
+    async def _fake_start(request, workflow_class, body):
+        captured["body"] = body
+        return "wid-1"
+
+    monkeypatch.delenv("NV_CONFIG_MANAGER_DOMAIN", raising=False)
+    mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
+    endpoint = create_workflow_endpoint(_AttributedWorkflow, _CallerOwnedInput, "/attributed")
+    request = MagicMock()
+    request.state.user = "trusted"
+    request.state.identity = SSOIdentity(email="trusted", user="trusted")
+
+    await endpoint(_CallerOwnedInput(host="device-1"), request)
+
+    submitted = cast(_CallerOwnedInput, captured["body"])
+    assert submitted.user_domain is None
+
+
+@pytest.mark.asyncio
+async def test_endpoint_rejects_unresolved_non_nullable_domain(mocker, monkeypatch):
+    """An unresolved domain fails before an invalid workflow input reaches Temporal."""
+    monkeypatch.delenv("NV_CONFIG_MANAGER_DOMAIN", raising=False)
+    start = mocker.patch.object(dynamic_endpoints, "start_workflow", new=mocker.AsyncMock())
+    endpoint = create_workflow_endpoint(
+        _NonNullableDomainWorkflow,
+        _NonNullableDomainInput,
+        "/non-nullable-domain",
+    )
+    request = MagicMock()
+    request.state.user = "trusted"
+    request.state.identity = SSOIdentity(email="trusted", user="trusted")
+
+    with pytest.raises(HTTPException, match="non-nullable 'user_domain'") as exc_info:
+        await endpoint(_NonNullableDomainInput(host="device-1"), request)
+
+    assert exc_info.value.status_code == 422
+    start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_endpoint_does_not_inject_undeclared_extra_domain(mocker, monkeypatch):
+    """An accepted extra is not treated as a declared attribution field."""
+    captured: dict[str, BaseModel] = {}
+
+    async def _fake_start(request, workflow_class, body):
+        captured["body"] = body
+        return "wid-1"
+
+    monkeypatch.delenv("NV_CONFIG_MANAGER_DOMAIN", raising=False)
+    mocker.patch.object(dynamic_endpoints, "start_workflow", new=_fake_start)
+    endpoint = create_workflow_endpoint(_AttributedWorkflow, _ExtraAllowedInput, "/attributed")
+    request = MagicMock()
+    request.state.user = "trusted"
+    request.state.identity = SSOIdentity(email="trusted", user="trusted")
+
+    await endpoint(_ExtraAllowedInput(host="device-1", user_domain=""), request)
+
+    submitted = cast(_ExtraAllowedInput, captured["body"])
+    assert submitted.model_extra == {"user_domain": ""}
 
 
 def test_invalid_server_owned_form_marker_does_not_remove_execution_endpoint() -> None:
@@ -233,7 +344,7 @@ async def test_ib_pkey_endpoint_submits_canonical_lock_input(mocker):
         "/ngc/ib_pkey_member_add",
     )
     request = MagicMock()
-    request.state.user = "user@nvidia.com"
+    request.state.user = "user"
 
     response = await endpoint(
         IBPKeyMemberAddInput(
@@ -273,7 +384,7 @@ async def test_endpoint_returns_422_for_canonicalization_failure(mocker):
     start = mocker.patch.object(dynamic_endpoints, "start_workflow", new=mocker.AsyncMock())
     endpoint = create_workflow_endpoint(_CanonWorkflow, _Input, "/x")
     request = MagicMock()
-    request.state.user = "user@nvidia.com"
+    request.state.user = "user"
 
     with pytest.raises(HTTPException, match="UFM device not found") as exc_info:
         await endpoint(_Input(host="attacker.example.com"), request)
@@ -299,7 +410,7 @@ async def test_device_cable_endpoint_rejects_deferred_status_updates(mocker):
         "/ngc/device_cable_validation",
     )
     request = MagicMock()
-    request.state.user = "user@nvidia.com"
+    request.state.user = "user"
 
     with pytest.raises(HTTPException, match="only valid for site cable validation") as exc_info:
         await endpoint(

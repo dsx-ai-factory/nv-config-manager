@@ -26,6 +26,95 @@ _JUNOS_EDIT_HEADER_RE = re.compile(r"^\[edit\s+(.+)\]$")
 _JUNOS_PASSWORD_LINE_RE = re.compile(
     r'^[+-]\s*encrypted-password\s+"\$[0-9]\$\S+";(\s*##\s*SECRET-DATA)?$'
 )
+# EOS session diffs are unified diffs: "--- "/"+++ " file headers, "@@ -a,b +c,d @@" hunk
+# markers, context lines with a leading space, and changed lines whose sign is followed
+# directly by the text. A changed line can itself start with "--" or "++" (a banner
+# separator, say), so file headers are only recognised before the first hunk.
+_EOS_DIFF_FILE_HEADER_RE = re.compile(r"^(?:---|\+\+\+) ")
+_EOS_DIFF_HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@")
+
+
+_IOSXR_CHANGE_RE = re.compile(r"^(?P<marker>[+#-]) (?P<pad> *)(?P<text>\S.*)$")
+_IOSXR_CONTEXT_RE = re.compile(r"^(?P<pad> *)(?P<text>\S.*)$")
+_IOSXR_SECRET_RE = re.compile(r"^(secret|password)\s+\d+\s+\S+$")
+
+
+def _validate_iosxr_diff(diff: str, username: str) -> ValidatePasswordDiffOutput:
+    """Validate an IOS XR diff touches only the target user's secret.
+
+    The XR client renders a hierarchical diff: unchanged parents are indented two
+    spaces per level, removed and added lines start with ``-`` or ``+``, and a line the
+    router changed in place appears as two ``#`` lines (old, then new). A valid password
+    rotation changes only ``secret <type> <hash>`` directly under ``username <name>``,
+    either as one ``-`` and one ``+`` line or as a ``#`` pair. A ``#`` line anywhere else
+    is a non-password change.
+    """
+    valid_lines: list[str] = []
+    invalid_lines: list[str] = []
+    parents: dict[int, str] = {}
+
+    for raw_line in diff.split("\n"):
+        if not raw_line.strip():
+            continue
+        change = _IOSXR_CHANGE_RE.match(raw_line)
+        if change:
+            depth = len(change.group("pad")) // 2
+            text = change.group("text")
+            if (
+                depth == 1
+                and parents.get(0) == f"username {username}"
+                and _IOSXR_SECRET_RE.match(text)
+            ):
+                valid_lines.append(raw_line.strip())
+            else:
+                invalid_lines.append(raw_line.strip())
+                activity.logger.warning("Unexpected line found outside target password stanza")
+            continue
+        context = _IOSXR_CONTEXT_RE.match(raw_line)
+        if context:
+            # the activity strips the diff, so the first context line may have lost its two spaces
+            depth = max(0, (len(context.group("pad")) - 2) // 2)
+            parents = {k: v for k, v in parents.items() if k < depth}
+            parents[depth] = context.group("text")
+        else:
+            invalid_lines.append(raw_line.strip())
+
+    removed = [line for line in valid_lines if line.startswith("-")]
+    added = [line for line in valid_lines if line.startswith("+")]
+    replaced = [line for line in valid_lines if line.startswith("#")]
+    is_replacement = (len(removed) == 1 and len(added) == 1 and not replaced) or (
+        len(replaced) == 2 and not removed and not added
+    )
+    if not invalid_lines and is_replacement:
+        activity.logger.info(f"IOS XR password diff validation successful for user {username}")
+        return ValidatePasswordDiffOutput(
+            is_valid=True, invalid_lines=[], valid_lines=valid_lines, error_message=None
+        )
+    if not invalid_lines and not valid_lines:
+        return ValidatePasswordDiffOutput(
+            is_valid=False,
+            invalid_lines=[],
+            valid_lines=[],
+            error_message=f"Diff contains no password changes for user '{username}'",
+        )
+    if not invalid_lines:
+        # A secret only removed or only added is not a rotation: it would delete the
+        # credential or leave two.
+        return ValidatePasswordDiffOutput(
+            is_valid=False,
+            invalid_lines=valid_lines,
+            valid_lines=[],
+            error_message=(
+                f"Diff for user '{username}' must replace the secret: "
+                "exactly one removed and one added secret line, or one changed in place"
+            ),
+        )
+    return ValidatePasswordDiffOutput(
+        is_valid=False,
+        invalid_lines=invalid_lines,
+        valid_lines=valid_lines,
+        error_message=f"Diff contains non-password changes for user '{username}'",
+    )
 
 
 def _validate_cumulus_diff(diff: str, username: str) -> ValidatePasswordDiffOutput:
@@ -109,4 +198,98 @@ def _validate_junos_diff(diff: str, username: str) -> ValidatePasswordDiffOutput
         invalid_lines=invalid_lines,
         valid_lines=valid_lines,
         error_message=error_msg,
+    )
+
+
+def _eos_password_signature(line: str, username: str) -> tuple[str, ...] | None:
+    """Return a changed line's tokens without the hash, if it sets the user's sha512 password.
+
+    The line must read "username <user> ... secret sha512 <hash>", or
+    "aaa root secret sha512 <hash>" for root, whose account is configured
+    outside "username". Any other line returns None.
+    """
+    tokens = tuple(line[1:].split())
+    if len(tokens) < 5 or not tokens[-1].startswith("$6$"):
+        return None
+    signature = tokens[:-1]
+    if username == "root":
+        return signature if signature == ("aaa", "root", "secret", "sha512") else None
+    if signature[:2] != ("username", username) or signature[-2:] != ("secret", "sha512"):
+        return None
+    return signature
+
+
+def _validate_eos_diff(diff: str, username: str) -> ValidatePasswordDiffOutput:
+    """Validate an EOS session diff touches only the target user's sha512 secret.
+
+    The policy for auto-approval: exactly one removed and one added line, each
+    setting the user's sha512 password, identical apart from the hash. So a
+    change of role or privilege cannot ride along with the rotation, an added
+    line alone (a new account) is not a rotation, and neither is a diff with
+    several matching changes.
+    """
+    valid_lines: list[str] = []
+    invalid_lines: list[str] = []
+    removed: list[tuple[str, ...]] = []
+    added: list[tuple[str, ...]] = []
+
+    in_hunk = False
+    for raw_line in diff.split("\n"):
+        line = raw_line.rstrip()
+        if not line.strip() or line[0] == " ":
+            continue  # unchanged context
+        if _EOS_DIFF_HUNK_RE.match(line):
+            in_hunk = True
+            continue
+        if not in_hunk and _EOS_DIFF_FILE_HEADER_RE.match(line):
+            continue  # file headers come before the first hunk
+        signature = _eos_password_signature(line, username) if line[0] in "+-" else None
+        if signature is None:
+            invalid_lines.append(line)
+            activity.logger.warning("Unexpected line in EOS password diff")
+            continue
+        valid_lines.append(line)
+        (removed if line[0] == "-" else added).append(signature)
+
+    def rejected(
+        error_msg: str, *, invalid: list[str], valid: list[str]
+    ) -> ValidatePasswordDiffOutput:
+        return ValidatePasswordDiffOutput(
+            is_valid=False, invalid_lines=invalid, valid_lines=valid, error_message=error_msg
+        )
+
+    if invalid_lines:
+        return rejected(
+            f"Diff contains non-password changes for user '{username}'",
+            invalid=invalid_lines,
+            valid=valid_lines,
+        )
+    if not added:
+        return rejected(
+            f"Diff contains no password changes for user '{username}'",
+            invalid=[],
+            valid=valid_lines,
+        )
+    if not removed:
+        return rejected(
+            f"Diff sets a password for user '{username}' without replacing one, "
+            "which creates the account rather than rotating its password",
+            invalid=valid_lines,
+            valid=[],
+        )
+    if len(removed) != 1 or len(added) != 1:
+        return rejected(
+            f"Diff replaces more than one password line for user '{username}'",
+            invalid=valid_lines,
+            valid=[],
+        )
+    if removed[0] != added[0]:
+        return rejected(
+            f"Diff changes more than the password of user '{username}'",
+            invalid=valid_lines,
+            valid=[],
+        )
+    activity.logger.info(f"EOS password diff validation successful for user {username}")
+    return ValidatePasswordDiffOutput(
+        is_valid=True, invalid_lines=[], valid_lines=valid_lines, error_message=None
     )

@@ -12,14 +12,18 @@
 # =============================================================================
 FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim@sha256:4f5d923c9dcea037f57bda425dd209f3ec643da2f0b74227f68d09dab0b3bb36 AS builder
 
+# Use the emSign remediation release instead of the base image's bundled uv.
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /usr/local/bin/
+
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
 
 # Install build dependencies for native extensions + git (required by Nautobot's GitPython)
-COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
+COPY --from=scripts configure-apt-mirror.sh python-ca.py /tmp/
 RUN set -eux; \
     /tmp/configure-apt-mirror.sh "$APT_MIRROR_DEBIAN" "$APT_MIRROR_GPG_KEY_URL" debian && \
     apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     g++ \
     gcc \
     git=1:2.39.5-0+deb12u3 \
@@ -32,6 +36,8 @@ RUN set -eux; \
     libxml2-dev \
     libxslt1-dev \
     zlib1g-dev && \
+    python /tmp/python-ca.py && \
+    uv pip install --system 'pip>=26.2.2' && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/nautobot
@@ -78,7 +84,17 @@ RUN mkdir -p /opt/nautobot/static \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.4@sha256:377041587967c3d0c96d8d8027a0b39b7f4ae122d7a1f9180b177efd41faca3c
+FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.10@sha256:f7190d4046f9f30ea842604a1c7cc71be03ab27fe78cbfbb15c876f3b7c80641
+
+# Replace the pinned runtime's trust store, including hashed certificate paths.
+# Copying only the bundle would leave distrusted roots reachable through capath.
+USER 0:0
+COPY --from=scripts python-ca.py /tmp/python-ca.py
+RUN ["python", "/tmp/python-ca.py", "--reset"]
+COPY --from=builder /etc/ssl/certs/ /etc/ssl/certs/
+COPY --from=builder /usr/share/ca-certificates/ /usr/share/ca-certificates/
+# Check the actual runtime bundle, including the affected cross-sign trust anchor.
+RUN ["python", "/tmp/python-ca.py"]
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

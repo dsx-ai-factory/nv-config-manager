@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 
-from nv_config_manager.common.client import (
+from nv_config_manager.common.client.config_store import (
     ConfigStoreClient,
     ConfigStoreFileNotFound,
 )

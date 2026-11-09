@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 
 from nv_config_manager.common.auth import SSOIdentity, require_authenticated_identity
-from nv_config_manager.common.config import get_storage_client
+from nv_config_manager.common.config.storage import get_storage_client
 from nv_config_manager.ztp.api.schemas import ChecksumResponse, FileInfo, ObjectInfo
 from nv_config_manager.ztp.api.streaming import create_object_storage_streaming_response
 from nv_config_manager.ztp.storage import (

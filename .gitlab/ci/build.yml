@@ -47,11 +47,14 @@
     DOCKER_TLS_CERTDIR: ""
     DOCKER_DRIVER: overlay2
   before_script:
-    - apk add -q make bash git coreutils
+    - apk add -q make bash git coreutils jq python3
     - echo "Testing Docker connectivity..."
     - docker info
     - docker version
     - uname -m
+    - uv_container="$(docker create "$NVCM_CI_IMAGE_UV" /uv)"
+    - docker cp "$uv_container:/uv" /usr/local/bin/uv
+    - docker rm "$uv_container"
     - |
       image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh)" || exit $?
       eval "$image_target_exports"
@@ -70,6 +73,10 @@
       template_engine_base="${template_engine_base/-rc/rc}"
       export TEMPLATE_ENGINE_VERSION="${template_engine_base}+g${CI_COMMIT_SHORT_SHA}"
       echo "Template engine version: ${TEMPLATE_ENGINE_VERSION}"
+  artifacts:
+    paths:
+      - audited-images/
+    expire_in: 1 week
 
 # Build all images natively on amd64 runner (default branch and release tags)
 docker-build-main-amd64:
@@ -98,7 +105,8 @@ docker-build-main-amd64:
     - echo "Building all images natively on amd64 (default branch/tag)..."
     - make docker-buildx-setup-native
     - make docker-build-all PLATFORM=linux/amd64 VERSION=$CI_COMMIT_SHORT_SHA-amd64 REGISTRY=${NVCM_IMAGE_REPOSITORY} TEMPLATE_ENGINE_VERSION=$TEMPLATE_ENGINE_VERSION NAUTOBOT_APP_OVERLAYS_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION} NAUTOBOT_NV_CONFIG_MANAGER_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION}
-    - echo "All amd64 images pushed to configured registry"
+    - bash .gitlab/ci/scripts/image_trust_gate.sh main amd64
+    - echo "All amd64 image digests audited"
 
 # Build all images natively on arm64 runner (default branch and release tags)
 docker-build-main-arm64:
@@ -125,7 +133,8 @@ docker-build-main-arm64:
     - echo "Building all images natively on arm64 (default branch/tag)..."
     - make docker-buildx-setup-native
     - make docker-build-all PLATFORM=linux/arm64 VERSION=$CI_COMMIT_SHORT_SHA-arm64 REGISTRY=${NVCM_IMAGE_REPOSITORY} TEMPLATE_ENGINE_VERSION=$TEMPLATE_ENGINE_VERSION NAUTOBOT_APP_OVERLAYS_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION} NAUTOBOT_NV_CONFIG_MANAGER_VERSION=${CI_COMMIT_TAG:-$TEMPLATE_ENGINE_VERSION}
-    - echo "All arm64 images pushed to configured registry"
+    - bash .gitlab/ci/scripts/image_trust_gate.sh main arm64
+    - echo "All arm64 image digests audited"
 
 # Create multi-arch manifests from arch-specific images (default branch and release tags)
 docker-manifest-main:
@@ -172,7 +181,7 @@ docker-manifest-main:
     - docker buildx create --use --name manifest-builder --driver docker-container --bootstrap 2>/dev/null || docker buildx use manifest-builder
   script:
     - echo "Creating multi-arch manifests (default branch/tag)..."
-    - make docker-manifest-create VERSION_BASE=$CI_COMMIT_SHORT_SHA VERSION_FINAL=$CI_COMMIT_SHORT_SHA REGISTRY=${NVCM_IMAGE_REPOSITORY}
+    - bash .gitlab/ci/scripts/image_trust_gate.sh manifests
     - echo "✅ All multi-arch manifests created (amd64 + arm64)"
     - bash .gitlab/ci/scripts/record_main_image_digests.sh
   artifacts:

@@ -39,6 +39,45 @@ PLUGIN_TEMPLATE_ROOT = (
     / "nv_config_manager_superpod_templates/templates"
 )
 BRIDGE_TEMPLATE = "cumulus-linux/superpod-demo-common/include/bridge.j2"
+INTERFACE_TEMPLATE = "cumulus-linux/superpod-demo-common/include/interface.j2"
+
+
+def test_hyperreach_port_stays_full_width_alongside_spx_breakouts() -> None:
+    """An unaddressed LLDP fixture port is not an implicit two-way breakout."""
+    location = RenderLocation(name="SPO01", kind="Site")
+    render_data = RenderData(
+        device=DeviceRenderData(
+            identity=RenderDeviceIdentity(
+                id="cin-leaf",
+                name="su01-cin-leaf-r01",
+                platform="Cumulus Linux",
+                role="CIN-LEAF",
+                model="SN5600",
+                location=location,
+            ),
+            interfaces=tuple(
+                RenderInterface(name=name, type="400GBASE_X_QSFPDD", enabled=True, mtu=9216)
+                for name in ("swp2", "swp3s0", "swp3s1")
+            ),
+            firmware=RenderFirmwareData(desired_version="5.16.1"),
+        ),
+        location=LocationRenderData(location=location),
+    )
+    renderer = Renderer(enable_plugins=False)
+    renderer.environment.loader = ChoiceLoader(
+        [FileSystemLoader(PLUGIN_TEMPLATE_ROOT), renderer.environment.loader]
+    )
+    renderer.environment.globals["superpod_spectrumx"] = True
+
+    interfaces = yaml.safe_load(renderer.render(INTERFACE_TEMPLATE, render_data))["interface"]
+
+    assert interfaces["swp2"]["link"] == {"mtu": 9216, "state": {"up": {}}}
+    assert interfaces["swp2"]["type"] == "swp"
+    assert "ipv4" not in interfaces["swp2"]
+    assert "bridge" not in interfaces["swp2"]
+    assert interfaces["swp3"]["link"]["breakout"] == {"2x": {}}
+    assert interfaces["swp3s0"]["link"]["state"] == {"up": {}}
+    assert interfaces["swp3s1"]["link"]["state"] == {"up": {}}
 
 
 def test_bridge_uses_provider_neutral_overlay_data() -> None:

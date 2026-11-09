@@ -202,7 +202,7 @@ username admin secret {{ password|encrypt("sha512", site=device_data|site_name) 
 tacacs-server key {{ ("tacacs_key_r1"|load_secret(site=device_data|site_name))|encrypt("ciscot7", site=device_data|site_name) }}
 ```
 
-In development or testing, set `NV_CONFIG_MANAGER_SKIP_VAULT=1` to use dummy secret values.
+In development or testing, set `NV_CONFIG_MANAGER_SKIP_VAULT=1` to use dummy secret values. To read secrets directly from Vault, set `VAULT_ADDR` (and `VAULT_NAMESPACE` if your Vault uses namespaces); there is no default address.
 
 ## ISIS
 

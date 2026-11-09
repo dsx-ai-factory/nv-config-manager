@@ -23,7 +23,7 @@ import json
 import time
 from typing import Any
 
-from nv_config_manager.common.client import RedisClient as BaseRedisClient
+from nv_config_manager.common.client.redis import RedisClient as BaseRedisClient
 
 # Version for the KEA config cache key.
 # Bump this when the cached config format becomes incompatible with new releases

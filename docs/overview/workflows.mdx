@@ -50,17 +50,27 @@ Use [Controlling Running Workflows](../user-guides/workflow-lifecycle/index.mdx)
 
 ## Workflow Types
 
-Config Manager supports multiple workflow categories visible in the Temporal UI:
+The built-in registry contains the following Temporal workflow types. Installed
+plugins can add types. `BatchDeployWorkflow` and `TenantDeployWorkflow` are
+internal child workflows; start them through their parent workflows rather than
+through standalone launcher forms, API endpoints, or CLI commands.
 
 - `BackupWorkflow`
 - `SiteBackupWorkflow`
 - `BatchDeployWorkflow`
+- `ConfigDiffWorkflow`
 - `ConnectedHostMetadataWorkflow`
 - `DeployWorkflow`
 - `DeviceCableValidationWorkflow`
 - `DevicePasswordRotationWorkflow`
+- `DiagnosticsWorkflow`
 - `HelloWorld` (example/test workflow)
 - `HelloWorldApproval` (example with approval)
+- `IBPKeyCreationWorkflow`
+- `IBPKeyMemberAddWorkflow`
+- `IBPKeyMemberDeleteWorkflow`
+- `IBPKeyMemberUpdateWorkflow`
+- `IBPortGuidDiscoveryWorkflow`
 - `InfinibandCableValidationWorkflow`
 - `InfinibandGetUnhealthyPortsWorkflow`
 - `InfinibandMlnxOSUpgradeWorkflow`
@@ -72,6 +82,7 @@ Config Manager supports multiple workflow categories visible in the Temporal UI:
 - `SiteCableValidationWorkflow`
 - `SitePasswordRotationWorkflow`
 - `SwitchOSUpgradeWorkflow`
+- `TenantDeployWorkflow`
 - `ValidateHardwareWorkflow`
 - `SpXOverlayAssignmentWorkflow`
 - `SpXOverlayCreationWorkflow`
@@ -88,6 +99,8 @@ Available through REST API at `/v1/workflow/`:
 | :------- | :----- | :---------- |
 | `/` | GET | List workflows |
 | `/types` | GET | Get registered workflow types |
+| `/metadata` | GET | Get API-enabled workflows; add `?include=form` for launcher form metadata |
+| `/{form_id}/form` | GET | Get a workflow's browser form schema and UI capabilities |
 | `/{workflow_id}` | GET | Get workflow execution details |
 | `/{workflow_id}/approve/{stage_name}` | POST | Approve a workflow stage |
 | `/{workflow_id}/reject/{stage_name}` | POST | Reject a workflow stage |
@@ -96,18 +109,26 @@ Available through REST API at `/v1/workflow/`:
 
 ### Workflow Execution
 
-Each built-in workflow has a concrete POST endpoint, for example `POST /v1/workflow/ngc/backup`. Examples:
+API-enabled built-in network workflows have concrete POST endpoints under
+`/v1/workflow/ngc`, as listed below. For example, start a backup with
+`POST /v1/workflow/ngc/backup`. Internal child workflows have no POST endpoint.
 
 | Endpoint | Description |
 | :------- | :---------- |
 | `/backup` | Execute BackupWorkflow |
 | `/site_backup` | Execute SiteBackupWorkflow |
-| `/batch_deploy` | Execute BatchDeployWorkflow |
+| `/config_diff` | Execute ConfigDiffWorkflow |
 | `/connected_host_metadata` | Execute ConnectedHostMetadataWorkflow |
 | `/cumulus_hardware_validation` | Execute ValidateHardwareWorkflow |
 | `/deploy` | Execute DeployWorkflow |
 | `/device_cable_validation` | Execute DeviceCableValidationWorkflow |
 | `/device_password_rotation` | Execute DevicePasswordRotationWorkflow |
+| `/diagnostics` | Execute DiagnosticsWorkflow |
+| `/ib_pkey_creation` | Execute IBPKeyCreationWorkflow |
+| `/ib_pkey_member_add` | Execute IBPKeyMemberAddWorkflow |
+| `/ib_pkey_member_delete` | Execute IBPKeyMemberDeleteWorkflow |
+| `/ib_pkey_member_update` | Execute IBPKeyMemberUpdateWorkflow |
+| `/ib_port_guid_discovery` | Execute IBPortGuidDiscoveryWorkflow |
 | `/infiniband_cable_validation` | Execute InfinibandCableValidationWorkflow |
 | `/infiniband_get_unhealthy_ports` | Execute InfinibandGetUnhealthyPortsWorkflow |
 | `/infiniband_mlnx_os_upgrade` | Execute InfinibandMlnxOSUpgradeWorkflow |
@@ -123,6 +144,15 @@ Each built-in workflow has a concrete POST endpoint, for example `POST /v1/workf
 | `/spx_overlay_creation` | Execute SpXOverlayCreationWorkflow |
 | `/spx_overlay_deletion` | Execute SpXOverlayDeletionWorkflow |
 | `/spx_overlay_tenant_change` | Execute SpXOverlayTenantChangeWorkflow |
+
+The example workflows use `POST /v1/workflow/hello_world` and
+`POST /v1/workflow/hello_world_approval`, without the `ngc` path segment.
+
+Browser launcher URLs use a separate stable form ID, such as
+`/workflows/new/backup`. Use `form_id` from `GET /v1/workflow/metadata?include=form`
+instead of deriving it from a class name or execution endpoint. The
+[dynamic API guide](../temporal/temporal-api.mdx) describes discovery and
+request validation.
 
 ## Workflow CLI Commands
 
@@ -143,6 +173,7 @@ uv run workflow-cli validate-hardware \
   --site datacenter01 \
   --tenant tenant01 \
   --roles leaf-switch,spine-switch \
-  --status active \
+  --device-type-ids "" \
+  --status Active \
   --raise-for-invalid true
 ```

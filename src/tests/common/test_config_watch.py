@@ -27,7 +27,7 @@ from unittest.mock import patch
 import pytest
 
 from nv_config_manager.common import config_watch
-from nv_config_manager.common.config import clear_config_cache, load_config
+from nv_config_manager.common.config.loader import clear_config_cache, load_config
 from nv_config_manager.common.config_watch import _watch, changed_keys, restart_on_config_change
 from nv_config_manager.common.ini import (
     file_digest,

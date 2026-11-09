@@ -11,6 +11,38 @@ shared session, supplies trusted identity headers and an ID-token Authorization
 header, and forwards each hostname to its internal service. API clients continue
 to use the `svc-*` hostnames with a Bearer token.
 
+The project-owned `global.images.oidcProxy` image retains the upstream binary
+and refreshes its public CA bundle to distrust the compromised emSign roots.
+This mitigates the normal public-trust path while awaiting an
+[upstream release](https://github.com/oauth2-proxy/oauth2-proxy/issues/3578).
+The Go runtime remains unchanged, so scanners may still report CVE-2026-111943.
+The old upstream defaults migrate automatically to the wrapper, including with
+`helm upgrade --reuse-values`. By default, the wrapper repository follows
+`global.images.nvConfigManager.repository` with an `-oidc-proxy` suffix, so it
+uses the configured project registry. If the main image repository does not end
+in `/nv-config-manager`, set `global.images.oidcProxy.repository` explicitly;
+the chart cannot infer a custom naming scheme.
+Intentional custom `oidc.proxy.image` overrides
+remain supported and bypass this wrapper. Their images must contain refreshed
+CA stores; retaining an unrefreshed image explicitly opts out of the mitigation.
+Helm notes flag these custom overrides. For mirrored or airgapped installs,
+mirror the project wrapper, clear the legacy repository/tag overrides, and set
+`global.images.oidcProxy.repository` to the bare repository name, without a tag
+or digest suffix. Set `global.images.oidcProxy.tag` or
+`global.images.oidcProxy.digest` separately. A non-empty digest takes precedence
+over the tag and persists when values are reused during an upgrade. To select
+a tag instead, clear `global.images.oidcProxy.digest` by setting it to `""`.
+An explicit legacy `oidc.proxy.image.pullPolicy` still takes precedence,
+including `Never` for preloaded disconnected installs.
+The upstream binary pin is maintained in `build/oidc-proxy.Dockerfile`.
+Repository-only installer `images.overrides.oidcProxy` settings retain their
+upstream compatibility image/tag and bypass the emSign CA mitigation unless
+the CA-refreshed wrapper is selected. Set the wrapper repository and its
+release tag explicitly in the installer override, then regenerate Helm values.
+Helm notes remind operators to verify CA stores for all explicit installer
+OIDC image repositories, including overrides with a tag. An explicit tag alone
+does not establish whether the image contains the refreshed CA bundle.
+
 Every route strips inbound identity headers before forwarding, including routes
 that intentionally bypass browser authentication for native API tokens. When
 `oidc.endSessionEndpoint` is configured, logout clears the shared proxy session
@@ -120,6 +152,74 @@ kubectl get httproute -n <config-manager-namespace>
 kubectl describe httproute -n <config-manager-namespace> <route-name>
 ```
 
+## Gateway retries
+
+With Envoy Gateway or kgateway, `gateway.retry` makes the gateway retry requests that never
+reached a backend: a refused connection or a refused HTTP/2 stream. These are
+most likely while pods are rolling or scaling in, and replaying them cannot
+apply a write twice. It is on by default:
+
+```yaml
+gateway:
+  retry:
+    enabled: true
+    numRetries: 2 # total attempts is numRetries + 1
+    safeMethods:
+      enabled: true
+```
+
+With `oidc.enabled`, browser routes are served through the OIDC proxy, so a
+backend that has gone away surfaces as a `502` from the proxy rather than a
+refused connection. `safeMethods` adds a `safe-methods` rule to each browser
+route. The rule matches only `GET` and `HEAD`. A `BackendTrafficPolicy` or
+kgateway `TrafficPolicy` attached to the rule also retries `502` responses.
+Other methods keep only connection-level retries because a `502` cannot be
+distinguished from a write that already committed.
+
+The OIDC proxy's upstream timeout is set to the route's gateway timeout:
+`gateway.timeout.requestTimeout`, or `networkZtp.upload.timeout` for ZTP. A
+backend that is too slow is therefore ended by the gateway with a `504`, which
+is not retried, rather than by the proxy with a `502`, which would be. This
+holds only while the gateway enforces the same timeout; see
+[With an existing Gateway](#with-an-existing-gateway) for when it does not.
+
+### With an existing Gateway
+
+On kgateway, the retry is attached to every route the chart renders through
+route-level `TrafficPolicy` resources, so `gateway.create: false` does not change
+which routes are retried. Other routes on a shared Gateway are not affected.
+
+On Envoy Gateway with `gateway.create: false`, the chart does not create the
+Gateway-level `BackendTrafficPolicy` that carries the retry for most routes. In
+that mode:
+
+- The chart retries nothing on most routes, including `svc-*` API routes and
+  browser writes. Any retry configured by the platform Gateway's own policy
+  still applies to them.
+- The ZTP upload routes are retried, because they carry their own policy for
+  the longer upload timeouts.
+- With `oidc.enabled`, browser `GET` and `HEAD` requests are retried, and the
+  chart's `gateway.timeout.*` values apply to them. If the platform Gateway has
+  its own `BackendTrafficPolicy`, the chart's policy is merged over it for
+  those requests. The chart's timeouts take precedence. Other settings in the
+  platform policy, such as rate limits, are retained.
+
+To keep the platform Gateway's own settings for browser reads, set
+`gateway.retry.safeMethods.enabled: false`. To disable the chart's retries
+entirely, set `gateway.retry.enabled: false`. Neither setting changes retries
+configured by the platform Gateway's own policy; change that policy to disable
+them.
+
+Neither setting removes the OIDC proxy's upstream timeout. The proxy always
+uses `gateway.timeout.requestTimeout` (`300s` by default), but in this mode the
+chart enforces that timeout at the gateway only for browser `GET` and `HEAD`
+requests, and only while `safeMethods` is enabled. Other browser requests, and
+all of them once either setting is turned off, are bounded by the platform
+Gateway's timeout. If the platform timeout is longer, a slow backend is ended
+by the proxy with a `502` rather than by the gateway with a `504`, and any
+platform retry on `502` replays it. Set `gateway.timeout.requestTimeout` to the
+platform Gateway's request timeout in these installations.
+
 ## Upgrading an Argo CD deployment
 
 This guidance applies when upgrading to Config Manager 1.3.1 or later. That
@@ -141,9 +241,9 @@ Before bumping the chart revision in an Argo CD ApplicationSet:
    path must contain both mapped properties; `cookie-secret` decodes to exactly
    32 bytes. Existing client-secret-only paths must be populated before the
    chart revision is updated.
-1. Mirror or permit pulling the pinned `oidc.proxy.image`, then set its
-   repository and tag in the environment overlay when the cluster cannot pull
-   from the default registry.
+1. Mirror or permit pulling `global.images.oidcProxy` along with the other
+   project-owned images. Set its repository and tag or digest in the environment
+   overlay when the cluster cannot pull from the default registry.
 1. Confirm that `networkPolicy.gatewayNamespace` admits the Gateway
    data-plane namespace, render the exact shared and site-specific values
    layers, and verify the Gateway is `Programmed`, HTTPRoutes are `Accepted`,

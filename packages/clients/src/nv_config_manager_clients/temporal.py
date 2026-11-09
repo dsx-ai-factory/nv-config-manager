@@ -45,7 +45,7 @@ class TemporalClient(ServiceClient):
     def __init__(
         self,
         base_url: str,
-        user_domain: str,
+        user_domain: str | None = None,
         client_certificate: tuple[str, str] | None = None,
         headers: HeaderProvider = None,
         *,
@@ -68,7 +68,7 @@ class TemporalClient(ServiceClient):
         cls,
         base_url: str,
         headers: HeaderProvider,
-        user_domain: str = "nvidia.com",
+        user_domain: str | None = None,
         *,
         allow_insecure_auth: bool = False,
     ) -> Self:

@@ -528,6 +528,21 @@ class TestLoadPlatforms:
             "napalm_driver": "junos",
         } in platforms
 
+    def test_bundled_platforms_include_cisco_ios_xr_with_its_manufacturer(self):
+        mod = _import_module()
+        data_dir = Path(mod.__file__).resolve().parents[1] / "data"
+
+        platforms = yaml.safe_load((data_dir / "platforms.yaml").read_text())
+        manufacturers = yaml.safe_load((data_dir / "manufacturers.yaml").read_text())
+
+        assert {
+            "name": "Cisco IOS XR",
+            "manufacturer": "Cisco",
+            "description": "Cisco IOS XR network operating system",
+            "napalm_driver": "iosxr",
+        } in platforms
+        assert "Cisco" in {manufacturer["name"] for manufacturer in manufacturers}
+
     def test_creates_platform_with_manufacturer(self, tmp_path):
         mod = _import_module()
         from nautobot.dcim.models import Manufacturer, Platform
@@ -750,6 +765,21 @@ class TestLoadConfigContexts:
             "http-port",
         } <= option_names
 
+    def test_bundled_arista_ztp_context_points_option_67_at_the_boot_script(self) -> None:
+        """The bundled Arista EOS context points DHCP option 67 at the rendered boot script."""
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        ztp_context = next(context for context in config_contexts if context["name"] == "Arista EOS ZTP DHCP Options")
+        assert ztp_context["platforms"] == ["Arista EOS"]
+        interfaces = ztp_context["data"]["dhcp"]["options"]["interface_names"]
+        assert set(interfaces) == {"Management1", "Management0"}
+        for options in interfaces.values():
+            assert options["reservation_options"] == {
+                "boot-file-name": "http://{{ ztp_server }}/v1/device/{{ device_id }}/boot-script"
+            }
+
     def test_bundled_juniper_ztp_context_targets_junos_and_full_config(self):
         data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
         with data_path.open() as f:
@@ -769,6 +799,18 @@ class TestLoadConfigContexts:
             "vme",
             "re0:mgmt-0",
         }
+
+    def test_bundled_cisco_xr_ztp_context_targets_xr_and_full_config(self):
+        data_path = Path(__file__).resolve().parents[1] / "nv_config_manager_jobs/data/config_contexts.yaml"
+        with data_path.open() as f:
+            config_contexts = yaml.safe_load(f)
+
+        ztp_context = next(context for context in config_contexts if context["name"] == "Cisco IOS XR ZTP DHCP Options")
+        assert ztp_context["platforms"] == ["Cisco IOS XR"]
+        interfaces = ztp_context["data"]["dhcp"]["options"]["interface_names"]
+        assert set(interfaces) == {"MgmtEth0/RP0/CPU0/0"}
+        reservation = interfaces["MgmtEth0/RP0/CPU0/0"]["reservation_options"]
+        assert "/config/full-config" in reservation["boot-file-name"]
 
     def test_creates_config_context_with_roles_and_platforms(self, tmp_path):
         mod = _import_module()

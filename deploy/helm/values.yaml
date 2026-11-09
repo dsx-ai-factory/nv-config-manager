@@ -87,6 +87,9 @@ global:
   baseDomain: config-manager.example.com
   # Environment identifier (dev, test, staging, agg-prod, etc.)
   environment: dev
+  # Optional fallback domain for server-generated attribution identities. This
+  # does not affect service hostnames; configure those with gateway.baseHostname.
+  defaultUserDomain: ""
   # Whether this is an aggregate deployment
   aggregate: false
   # Kubernetes namespace for all services
@@ -180,19 +183,19 @@ global:
       tag: "7-alpine"
     redisExporter:
       repository: docker.io/oliver006/redis_exporter
-      tag: "v1.90.0"
+      tag: "v1.95.0"
     nats:
       repository: docker.io/library/nats
-      tag: "2.14-alpine"
+      tag: "2.14.9-alpine"
     natsBox:
       repository: docker.io/natsio/nats-box
-      tag: "0.14.3"
+      tag: "0.20.2"
     # prometheus-nats-exporter sidecar (optional; nautobotNats.metrics.enabled).
     # The historical values prefix does not imply that Nautobot must be enabled.
     # Polls the NATS monitoring endpoint and exposes nats_* Prometheus metrics.
     natsExporter:
       repository: docker.io/natsio/prometheus-nats-exporter
-      tag: "0.20.1"
+      tag: "0.20.3"
     # Project-owned Temporal images use distroless runtimes. temporalServer
     # and temporalUi may be replaced with compatible upstream or locally built
     # images. temporalBootstrap is intentionally project-owned: it contains
@@ -210,6 +213,14 @@ global:
       repository: registry.example.com/nvidia/nv-config-manager-temporal-ui
       pullPolicy: Always
       digest: ""
+    # Upstream OAuth2 Proxy with refreshed public CA stores.
+    oidcProxy:
+      # Empty uses the nvConfigManager repository with an -oidc-proxy suffix.
+      repository: ""
+      pullPolicy: Always
+      digest: ""
+      # Installer provenance: custom images require operators to verify CA stores.
+      installerImageOverride: false
 # =============================================================================
 # Local Development - Mock SSO Authentication
 # =============================================================================
@@ -922,6 +933,28 @@ gateway:
     maxConnectionDuration: 0s
     # TCP connect timeout - time to establish connection to backend
     connectTimeout: 10s
+  # Retry policy for requests the gateway never managed to hand to a backend.
+  # Envoy does not retry at all unless this is set, so a single refused
+  # connection reaches the client as a 503. That is most likely while endpoints
+  # are churning - a rollout, or an autoscaler scaling in - where a pod stops
+  # accepting connections a moment before the gateway stops routing to it.
+  # Only connection failures and refused streams are retried, both of which mean
+  # the request never reached a backend, so a write is never applied twice. The
+  # triggers and backoff (100ms base, 1s cap) are fixed in the template.
+  # Applies under both gateway controllers. On Envoy Gateway with
+  # gateway.create=false there is no Gateway-level policy to carry this, so only
+  # the ZTP upload routes and the safeMethods rules below are retried; kgateway
+  # attaches it to every route the chart renders either way.
+  retry:
+    enabled: true
+    # Total attempts is numRetries + 1.
+    numRetries: 2
+    # Also retries the 502 the OIDC browser proxy returns when it cannot reach
+    # a backend, for GET and HEAD only, because a 502 cannot be distinguished
+    # from a write that already committed. Only takes effect when oidc.enabled
+    # puts the proxy in the request path.
+    safeMethods:
+      enabled: true
   # CORS configuration
   cors:
     enabled: true
@@ -1043,9 +1076,13 @@ oidc:
     # and nonce validation remain enabled.
     insecureAllowUnverifiedEmail: false
     image:
-      repository: quay.io/oauth2-proxy/oauth2-proxy
-      tag: v7.15.5
-      pullPolicy: IfNotPresent
+      # Old upstream defaults migrate to global.images.oidcProxy. Intentional
+      # custom images remain overrides and must provide refreshed CA stores.
+      repository: ""
+      tag: ""
+      # Empty inherits global.images.oidcProxy.pullPolicy. Explicit legacy
+      # policies (including Never on disconnected nodes) remain supported.
+      pullPolicy: ""
     resources:
       requests:
         cpu: 10m
@@ -1640,6 +1677,87 @@ networkDhcp:
         allowedGroups: []
   # Deployment configuration
   replicas: 3
+  # Container probes, keyed by container: kea, healthcheck, api, confgen.
+  # The defaults below reproduce the probes the chart has always rendered.
+  # Each of liveness / readiness / startup accepts:
+  #   enabled: false      omit the probe (default true when unset).
+  #   <any probe field>   copied onto the Kubernetes probe as-is:
+  #                       initialDelaySeconds, periodSeconds, timeoutSeconds,
+  #                       successThreshold, failureThreshold,
+  #                       terminationGracePeriodSeconds. Zero is honored; set a
+  #                       field to null to drop a default.
+  #   httpGet | tcpSocket | exec | grpc
+  #                       replaces the default handler. The same type is merged
+  #                       over the default (override only `httpGet.path` and the
+  #                       port is kept); a different type replaces it.
+  # Keep these invariants unless you know what you are doing:
+  #   - liveness uses /livez (Kea process health) and must NOT use the strict
+  #     /healthcheck endpoint: a config mismatch must never restart Kea.
+  #   - readiness on healthcheck/api is the strict /healthcheck (Kea online AND
+  #     desired config applied); the external DHCP NLB targets it.
+  #   - confgen liveness is a heartbeat exec probe; its thresholds are looser
+  #     than the others (10 x 30s) so in-loop recovery wins over a restart.
+  # readiness and startup are off by default where no such probe existed
+  # (kea, confgen) and startup everywhere; enabling one uses the container's
+  # default handler.
+  # Example (give the api container more room before a restart):
+  #   networkDhcp:
+  #     probes:
+  #       api:
+  #         liveness: { failureThreshold: 20 }
+  probes:
+    kea:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
+    healthcheck:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    api:
+      liveness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 120
+        periodSeconds: 10
+        timeoutSeconds: 3
+      readiness:
+        enabled: true
+        failureThreshold: 10
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 3
+      startup:
+        enabled: false
+    confgen:
+      liveness:
+        enabled: true
+        initialDelaySeconds: 180
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 10
+      readiness:
+        enabled: false
+      startup:
+        enabled: false
   # Resources
   resources:
     dhcp:
@@ -1696,6 +1814,11 @@ temporal:
   # connecting them to a user-managed Temporal service.
   server:
     enabled: true
+  # Number of Temporal history shards used when initializing a new cluster.
+  # Leave null to derive it from services.history.replicas for compatibility.
+  # Temporal ignores changes after the first run; changing an existing cluster's
+  # persisted shard count requires an approved shard migration.
+  numHistoryShards: null
   # Gateway routing - subdomain based
   gateway:
     api:
@@ -1715,7 +1838,10 @@ temporal:
     devUi:
       # Hostname: temporal.<baseHostname> (Temporal native UI)
       hostname: "temporal.{{ .Values.gateway.baseHostname }}"
-      # Optional: restrict access to specific groups
+      # Optional: restrict access to specific groups (values of oidc.groupsClaim).
+      # Enforced by the OIDC proxy. Temporal Web has no authorization of its
+      # own, so if empty every authenticated user can view and act on every
+      # workflow.
       allowedGroups: []
       # Temporal Web is OIDC-only except for its health endpoint, which the
       # blackbox probe must reach without a login redirect.
@@ -1884,6 +2010,21 @@ temporal:
   # matchLabels:
   # app.kubernetes.io/component: nv-config-manager-worker
 
+  # Workflow plugins for the worker, API, scheduler host, and MCP.
+  # Each image provides plugin wheels under /plugin-wheels. Wheels install
+  # offline with --no-deps, so the image carries only the plugin and packages
+  # the service image lacks. Every process loads the same set.
+  # Requires a service image from NVCM 1.4.0 or later.
+  # images entries: {name, image, pullPolicy}
+  # rbac entries: {name, read_roles, execute_roles}, one per plugin API
+  # workflow, appended to rbac.workflows. A workflow without a row returns 403.
+  workflowPlugins:
+    enabled: false
+    # Match the glibc-based NVCM runtime so compiled wheels remain compatible.
+    installerImage: python:3.13-bookworm
+    images: []
+    rbac: []
+
   # Scheduler (for automatic backup scheduling and plugin-contributed schedulers).
   # By default only the built-in backup scheduler is enabled, and it is deployed
   # only with the built-in Nautobot provider (see requiresDcimProvider below).
@@ -1932,6 +2073,15 @@ temporal:
         memory: 256Mi
       limits:
         memory: 512Mi
+  # Temporal server persistence settings
+  persistence:
+    # Extra libpq connection parameters for both the default and visibility
+    # datastores. connect_timeout bounds each reconnect dial; without it a
+    # dial to an unreachable Postgres primary blocks for the kernel TCP
+    # timeout (~2m) after a CNPG failover.
+    connectAttributes:
+      connect_timeout: "10"
+
   # Dynamic configuration for Temporal server
   # See: https://docs.temporal.io/references/dynamic-configuration
   dynamicConfig: []
@@ -2211,7 +2361,7 @@ spiffe:
   helper:
     image:
       repository: ghcr.io/spiffe/spiffe-helper
-      tag: "0.8.0"
+      tag: "0.12.3"
       pullPolicy: IfNotPresent
     # Resources for the spiffe-helper sidecar
     resources:
@@ -3085,6 +3235,16 @@ monitoring:
     # per-environment when probes need to match a site-specific alerting /
     # dashboard regex.
     jobNamePrefix: ""
+    # Bundled NATS (nautobotNats.enabled or externalServices.nats.local) has
+    # no gateway route, so its probe targets the in-cluster monitoring
+    # endpoint (`http://<release>-nats.<namespace>.svc:8222/healthz`). The
+    # namespace-isolation NetworkPolicy opens 8222 only to
+    # monitoring.prometheus.namespace, where the exporter must run.
+    nats:
+      enabled: true
+      # Override when the blackbox exporter runs outside the cluster and
+      # cannot resolve cluster-local service names.
+      target: ""
   # PodMonitors: each PodMonitor is enabled when podMonitors.enabled AND the
   # target service is enabled. CNPG scrapes also require podMonitors.cnpg.enabled
   # (and cnpg.enabled + each cluster's enabled flag).

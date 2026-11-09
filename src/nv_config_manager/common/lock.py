@@ -21,17 +21,14 @@ Falls back to a no-op lock in local development where no shared Redis is availab
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 from nv_config_manager_infrastructure.lock import NoopLock as _FakeLock
 from nv_config_manager_infrastructure.lock import TokenLockBackend
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
-from nv_config_manager.common.config import redis_client
+from nv_config_manager.common.client.factory import redis_client
+from nv_config_manager.common.client.redis import RedisClient
 from nv_config_manager.common.config.environment import is_local_environment
-
-if TYPE_CHECKING:
-    from nv_config_manager.common.client import RedisClient
 
 log = logging.getLogger(__name__)
 

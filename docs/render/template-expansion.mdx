@@ -268,7 +268,7 @@ uv run template-cli render \
   --entrypoint startup.yaml.j2
 ```
 
-Without `--vault`, `template-cli render` disables Vault lookups and returns placeholder secret values. Use this mode for render tests, not for production device configuration.
+Without `--vault`, `template-cli render` disables Vault lookups and returns placeholder secret values. Use this mode for render tests, not for production device configuration. With `--vault`, set `VAULT_ADDR` (and `VAULT_NAMESPACE` if your Vault uses namespaces) and log in so `~/.vault-token` exists; the render fails if no Vault address is set.
 
 For regression coverage, add a portable `RenderData` cache and expected
 rendered output for every plugin role and entrypoint. Template tests do not

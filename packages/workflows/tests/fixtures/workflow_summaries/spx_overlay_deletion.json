@@ -1,0 +1,32 @@
+{
+  "workflows": [
+    {
+      "id": "docs-spx-overlay-deletion-01",
+      "workflow_type": "SpXOverlayDeletionWorkflow",
+      "workflow_input": {
+        "namespace_tag": "spectrumx",
+        "site": "string",
+        "overlay_id": "string"
+      },
+      "started_by": "demo",
+      "start_time": "2025-03-17T19:15:37.789363Z",
+      "close_time": "2025-03-17T19:15:38.546903Z",
+      "status": "COMPLETED",
+      "pending_approval": false,
+      "search_attributes": {
+        "BuildIds": [
+          "unversioned",
+          "unversioned:879c4b06769e4c688df8fc5a3be6937d"
+        ],
+        "User": ["demo"],
+        "PendingApproval": [false],
+        "FailedStage": [false],
+        "ReadRoles": ["all"],
+        "ExecuteRoles": ["all"]
+      },
+      "href": "https://temporal-ui.example.com/namespaces/default/workflows/docs-spx-overlay-deletion-01",
+      "failed_stage": false
+    }
+  ],
+  "next_page_token": null
+}

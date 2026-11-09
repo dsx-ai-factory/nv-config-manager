@@ -20,12 +20,14 @@ device queries, workflow integration, and NVIDIA Config Manager plugin interacti
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import aiohttp
 from nv_config_manager_dcim import (
     ConfigurationBackupIntent,
     ConfigurationBackupMetadata,
@@ -103,7 +105,13 @@ OVERLAYS_PLUGIN_BASE = "plugins/overlays"
 _BACKUP_ENABLED_DEVICES_QUERY = load_graphql_query(
     "workflow/operations.graphql", "GetBackupEnabledDevices"
 )
-_BACKUP_SUPPORTED_PLATFORMS = {"Arista EOS", "Cumulus Linux", "Juniper Junos", "NV-OS"}
+_BACKUP_SUPPORTED_PLATFORMS = {
+    "Arista EOS",
+    "Cisco IOS XR",
+    "Cumulus Linux",
+    "Juniper Junos",
+    "NV-OS",
+}
 _BACKUP_SUPPORTED_STATUSES = {"Provisioned", "Active"}
 
 _OS_IMAGE_DEVICE_QUERY = load_graphql_query("workflow/operations.graphql", "GetOSImageDevice")
@@ -137,6 +145,7 @@ _NAUTOBOT_PLATFORM_NAMES = {
     Platform.NV_OS: "NV-OS",
     Platform.MLNX_OS: "MLNX-OS",
     Platform.JUNIPER_JUNOS: "Juniper Junos",
+    Platform.CISCO_IOS_XR: "Cisco IOS XR",
     Platform.UFM: "UFM",
 }
 
@@ -200,8 +209,14 @@ class NautobotWorkflowClient(BaseNautobotClient):
                 _BACKUP_ENABLED_DEVICES_QUERY,
                 {"is_aggregate_managed": is_aggregate_managed},
             )
-        except ApplicationError as exc:
+        except (ApplicationError, TimeoutError, aiohttp.ClientError) as exc:
+            # The backup scheduler only survives DCIMError; a bare transport
+            # error here exits the process and crash-loops the pod.
             raise DCIMConnectivityError("Could not load backup-enabled devices") from exc
+        except json.JSONDecodeError as exc:
+            raise DCIMInvalidDataError(
+                "Nautobot returned invalid backup-enabled device data"
+            ) from exc
         try:
             return {
                 str(device["id"])
