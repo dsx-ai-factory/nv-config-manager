@@ -65,13 +65,26 @@ Key service metrics include:
 | DHCP | Config generation duration, config generation errors, Nautobot query errors, cache refresh failures, last refresh timestamp |
 | Config Store, ZTP, Temporal | FastAPI request metrics and service-specific metrics exposed by each component |
 
+Each render consumer polls the state of its exact durable consumer and publishes that state as `nv_config_manager_nats_consumer_*` gauges. The built-in dashboard uses these render-owned metrics, so displaying consumer backlog does not require access to the NATS HTTP monitoring endpoint or a NATS Prometheus exporter. Accurate idle backlog still requires the fixed durable's JetStream consumer-info permission, which the render runtime also uses for consumer lifecycle management.
+
 ### Temporal worker metrics
 
-When `monitoring.enabled` and `monitoring.podMonitors.enabled` are set, the Config Manager Temporal worker serves its Temporal SDK metrics (`temporal_workflow_*`, `temporal_activity_*`, and similar) on a `metrics` port (8000), and the chart renders a PodMonitor for it. Scraping labels each series with the pod's Kubernetes namespace, so results can be separated per deployment with the `namespace` label. The SDK's own Temporal namespace tag is kept as `exported_namespace`, matching the Temporal server metrics. Workflow results carry `workflow_type`.
+When `monitoring.enabled` and `monitoring.podMonitors.enabled` are set, the chart renders a PodMonitor for the Config Manager Temporal worker.
+The worker serves its Temporal SDK metrics on port 8000, named `metrics`.
+These metrics include `temporal_workflow_*`, `temporal_activity_*`, and related families.
 
-The worker has one metrics exporter. While the PodMonitor is rendered the worker's SDK metrics are scraped and are no longer pushed over OTLP, even when `observability.enabled` is set; traces are unaffected. Scraped series use the PodMonitor's `job` label (`<namespace>/<worker deployment name>`) instead of `nv-config-manager-temporal-worker`, so update dashboards and alerts that matched the OTLP `job`. Metric names and units are unchanged: `temporal_*` names, with durations in milliseconds. The other Temporal components (API, scheduler, archive) keep exporting SDK metrics over OTLP.
+Scraping adds the pod's Kubernetes namespace to each series. Use the `namespace` label to distinguish deployments.
+The SDK's Temporal namespace tag becomes `exported_namespace`, matching the Temporal server metrics.
+Workflow results include `workflow_type`.
 
-Each render consumer polls the state of its exact durable consumer and publishes that state as `nv_config_manager_nats_consumer_*` gauges. The built-in dashboard uses these render-owned metrics, so displaying consumer backlog does not require access to the NATS HTTP monitoring endpoint or a NATS Prometheus exporter. Accurate idle backlog still requires the fixed durable's JetStream consumer-info permission, which the render runtime also uses for consumer lifecycle management.
+The worker has one metrics exporter. When the PodMonitor is rendered, its SDK metrics are scraped instead of pushed over OTLP.
+This also applies when `observability.enabled` is set. Tracing is unaffected.
+
+Scraped series use the PodMonitor's `job` label: `<namespace>/<worker deployment name>`.
+Previously, OTLP series used `nv-config-manager-temporal-worker`.
+Update dashboards and alerts that match the old `job` label.
+Duration values remain in milliseconds.
+The Temporal API, scheduler, and archive continue exporting SDK metrics over OTLP when observability is enabled.
 
 ## Tracing
 
