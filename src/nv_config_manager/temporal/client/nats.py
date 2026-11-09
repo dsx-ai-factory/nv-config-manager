@@ -63,6 +63,7 @@ class NatsConsumer(BaseNatsConsumer):
         subject: str,
         queue_suffix: str,
         handler: Callable[[Msg], Awaitable[None]],
+        liveness_timeout: float | None = None,
     ) -> None:
         """Initialize the consumer from config."""
         super().__init__(
@@ -70,5 +71,6 @@ class NatsConsumer(BaseNatsConsumer):
             subject=subject,
             queue_suffix=queue_suffix,
             handler=handler,
+            liveness_timeout=liveness_timeout,
             **nats_consumer_settings(queue_suffix=queue_suffix),
         )

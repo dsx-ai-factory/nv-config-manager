@@ -793,10 +793,22 @@ spec:
           value: {{ .Values.global.environment }}
         - name: TEMPORAL_API_HOST
           value: {{ tpl .Values.temporal.gateway.api.hostname . | quote }}
+        - name: CONSUMER_LIVENESS_PORT
+          value: {{ .Values.temporal.archive.healthPort | quote }}
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-archive") | nindent 8 }}
         {{- end }}
+        ports:
+        - name: health
+          containerPort: {{ .Values.temporal.archive.healthPort }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 4
         resources:
           {{- toYaml .Values.temporal.archive.resources | nindent 10 }}
         volumeMounts:

@@ -22,4 +22,7 @@ from nv_config_manager_infrastructure.nats.client import (
     nats_server_for_logging as nats_server_for_logging,
 )
 from nv_config_manager_infrastructure.nats.consumer import NatsConsumer as NatsConsumer
+from nv_config_manager_infrastructure.nats.consumer import (
+    start_liveness_server as start_liveness_server,
+)
 from nv_config_manager_infrastructure.nats.producer import NatsProducer as NatsProducer

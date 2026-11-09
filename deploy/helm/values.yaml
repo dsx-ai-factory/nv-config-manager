@@ -2067,6 +2067,8 @@ temporal:
   archive:
     enabled: false
     replicas: 1
+    # Port for the archive consumer's /healthz liveness endpoint
+    healthPort: 8001
     resources:
       requests:
         cpu: 200m

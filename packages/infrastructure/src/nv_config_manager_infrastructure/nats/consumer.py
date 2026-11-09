@@ -16,9 +16,14 @@
 
 import asyncio
 import logging
+import math
 import signal
 import ssl
+import threading
+import time
 from collections.abc import Awaitable, Callable
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, cast
 
 from nats.aio.msg import Msg
@@ -36,6 +41,8 @@ from nv_config_manager_infrastructure.nats.client import NatsClient
 
 logger = get_logger(__name__, category=LogCategory.NATS)
 
+LIVENESS_CHECK_INTERVAL_SECONDS = 15.0
+
 
 class NatsConsumer(NatsClient):
     """NATS JetStream consumer for subscribing to messages."""
@@ -48,9 +55,14 @@ class NatsConsumer(NatsClient):
         handler: Callable[[Msg], Awaitable[None]],
         durable_name: str | None = None,
         deliver_subject: str | None = None,
+        liveness_timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
-        """Initialize the stream, subject, durable, and message handler."""
+        """Initialize the stream, subject, durable, and message handler.
+
+        When liveness_timeout is set, main() polls the durable and liveness()
+        fails once it has made no progress for that long.
+        """
         super().__init__(**kwargs)
         self.stream = stream
         self.subject = subject
@@ -59,6 +71,21 @@ class NatsConsumer(NatsClient):
         self.deliver_subject = deliver_subject
         self.handler = handler
         self._loop: asyncio.AbstractEventLoop | None = None
+        if liveness_timeout is not None:
+            if not math.isfinite(liveness_timeout):
+                raise ValueError(
+                    f"Consumer liveness timeout {liveness_timeout:g} must be a finite number "
+                    "of seconds, or a stalled consumer would never be restarted"
+                )
+            if liveness_timeout <= CONSUMER_ACK_WAIT_SECONDS:
+                raise ValueError(
+                    f"Consumer liveness timeout {liveness_timeout:g} must exceed the consumer "
+                    f"ack wait of {CONSUMER_ACK_WAIT_SECONDS}s, or a slow handler would "
+                    "restart the pod before its message is redelivered"
+                )
+        self.liveness_timeout = liveness_timeout
+        self._last_progress = time.monotonic()
+        self._last_sequences: tuple[int, int] | None = None
 
     @property
     def full_queue_name(self) -> str:
@@ -108,10 +135,67 @@ class NatsConsumer(NatsClient):
                 self.full_queue_name,
             )
 
-            while not self.conn.is_closed:
-                await asyncio.sleep(1)
+            monitor = None
+            if self.liveness_timeout is not None:
+                self._last_progress = time.monotonic()
+                monitor = asyncio.create_task(self._monitor_liveness(jetstream))
+            try:
+                while not self.conn.is_closed:
+                    await asyncio.sleep(1)
+            finally:
+                if monitor is not None:
+                    monitor.cancel()
+                    await asyncio.gather(monitor, return_exceptions=True)
         finally:
             await self.conn.close()
+
+    def liveness(self) -> tuple[bool, str]:
+        """Report whether the durable has made progress recently enough.
+
+        A push consumer whose deliveries stop raises nothing, so the process would
+        otherwise stay Running while archiving nothing.
+        """
+        if self.conn is None or self.conn.is_closed:
+            return False, "NATS connection is not open"
+        stalled_for = time.monotonic() - self._last_progress
+        if self.liveness_timeout is not None and stalled_for > self.liveness_timeout:
+            return False, (
+                f"durable {self.full_queue_name} made no progress for {stalled_for:.0f}s "
+                f"(limit {self.liveness_timeout:.0f}s)"
+            )
+        return True, f"durable {self.full_queue_name} last made progress {stalled_for:.0f}s ago"
+
+    def _record_consumer_info(self, consumer_info: ConsumerInfo) -> None:
+        """Count the durable as progressing when it is caught up or its sequences advance.
+
+        Replicas share the durable, so this reads its cluster-wide sequences rather
+        than counting this pod's messages, which would fail an idle replica while
+        the others do the work. Redeliveries do not advance the stream sequences.
+        """
+        delivered = consumer_info.delivered.stream_seq if consumer_info.delivered else 0
+        acked = consumer_info.ack_floor.stream_seq if consumer_info.ack_floor else 0
+        outstanding = (consumer_info.num_pending or 0) + (consumer_info.num_ack_pending or 0)
+        advanced = (delivered, acked) != self._last_sequences
+        self._last_sequences = (delivered, acked)
+        if outstanding == 0 or advanced:
+            self._last_progress = time.monotonic()
+
+    async def _monitor_liveness(self, jetstream: JetStreamContext) -> None:
+        """Poll the durable so liveness reflects whether it is still progressing."""
+        while self.conn is not None and not self.conn.is_closed:
+            try:
+                consumer_info = await jetstream.consumer_info(self.stream, self.full_queue_name)
+            except Exception as e:
+                logger.warning(
+                    "Consumer info for %s on stream %s failed: %s",
+                    self.full_queue_name,
+                    self.stream,
+                    e,
+                )
+            else:
+                if self.conn.is_connected:
+                    self._record_consumer_info(consumer_info)
+            await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SECONDS)
 
     def _expected_consumer_config(self) -> ConsumerConfig:
         """Build the exact push-consumer configuration owned by this runtime."""
@@ -214,3 +298,29 @@ class NatsConsumer(NatsClient):
 
         if self._loop:
             self._loop.create_task(close_connection())
+
+
+def start_liveness_server(consumer: NatsConsumer, port: int) -> ThreadingHTTPServer:
+    """Serve the consumer's liveness on /healthz from a daemon thread."""
+
+    class LivenessHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path.rstrip("/") not in ("/healthz", ""):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            live, detail = consumer.liveness()
+            body = detail.encode()
+            self.send_response(HTTPStatus.OK if live else HTTPStatus.SERVICE_UNAVAILABLE)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            """Drop per-request logging so probes do not flood the log."""
+
+    server = ThreadingHTTPServer(("", port), LivenessHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server

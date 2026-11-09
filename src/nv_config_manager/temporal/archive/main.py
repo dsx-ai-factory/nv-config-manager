@@ -26,6 +26,8 @@ from typing import Any
 import boto3
 from elasticsearch import Elasticsearch
 from nats.aio.msg import Msg
+from nv_config_manager_infrastructure.nats import start_liveness_server
+from nv_config_manager_infrastructure.nats.admin import CONSUMER_ACK_WAIT_SECONDS
 from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
 
 from nv_config_manager.common.client.nvdataflow import NVDataflowClient
@@ -212,7 +214,11 @@ def main() -> None:
         subject=subject,
         queue_suffix="archive",
         handler=handle_archive_msg,
+        liveness_timeout=float(
+            os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
+        ),
     )
+    start_liveness_server(consumer, port=int(os.getenv("CONSUMER_LIVENESS_PORT", "8001")))
     consumer.run()
 
 

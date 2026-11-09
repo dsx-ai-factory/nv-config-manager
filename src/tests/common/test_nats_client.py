@@ -16,6 +16,8 @@
 
 from configparser import ConfigParser
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
 import pytest
 from nats.js.api import (
@@ -23,10 +25,12 @@ from nats.js.api import (
     DeliverPolicy,
     DiscardPolicy,
     RetentionPolicy,
+    SequenceInfo,
     StorageType,
     StreamConfig,
 )
 from nats.js.errors import BadRequestError, NotFoundError
+from nv_config_manager_infrastructure.nats import start_liveness_server
 
 from nv_config_manager.common.client.nats import (
     DEFAULT_NATS_API_PREFIX,
@@ -632,3 +636,171 @@ async def test_consumer_run_rejects_running_event_loop():
 
     main.assert_not_called()
     assert consumer._loop is None
+
+
+def _liveness_consumer(liveness_timeout: float = 600) -> NatsConsumer:
+    consumer = NatsConsumer(
+        stream="nv-config-manager",
+        subject="nv-config-manager.workflow.result",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+        liveness_timeout=liveness_timeout,
+    )
+    consumer.conn = MagicMock(is_closed=False, is_connected=True)
+    return consumer
+
+
+def _durable_info(
+    delivered: int, acked: int, num_pending: int = 0, num_ack_pending: int = 0
+) -> MagicMock:
+    return MagicMock(
+        delivered=SequenceInfo(consumer_seq=delivered, stream_seq=delivered),
+        ack_floor=SequenceInfo(consumer_seq=acked, stream_seq=acked),
+        num_pending=num_pending,
+        num_ack_pending=num_ack_pending,
+    )
+
+
+@pytest.mark.parametrize("liveness_timeout", [float("nan"), float("inf"), 360, 120])
+def test_consumer_rejects_liveness_timeout_that_cannot_restart_safely(liveness_timeout):
+    """The budget must be finite and outlast the ack wait of one slow message."""
+    with pytest.raises(ValueError, match="liveness timeout"):
+        _liveness_consumer(liveness_timeout)
+
+
+def test_consumer_liveness_fails_when_connection_is_closed():
+    """A closed connection is never live."""
+    consumer = _liveness_consumer()
+    consumer.conn.is_closed = True
+
+    assert consumer.liveness() == (False, "NATS connection is not open")
+
+
+def test_consumer_liveness_fails_after_durable_stops_progressing():
+    """Outstanding messages with unchanged sequences stall liveness."""
+    consumer = _liveness_consumer()
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=8, num_pending=5))
+    consumer._last_progress -= 601
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=8, num_pending=5))
+
+    live, detail = consumer.liveness()
+
+    assert not live
+    assert "made no progress for 601s" in detail
+
+
+@pytest.mark.parametrize(
+    "info",
+    [
+        _durable_info(delivered=11, acked=8, num_pending=4),
+        _durable_info(delivered=10, acked=9, num_pending=5),
+        _durable_info(delivered=10, acked=10),
+    ],
+    ids=["delivered-advanced", "ack-floor-advanced", "caught-up"],
+)
+def test_consumer_liveness_refreshes_when_durable_progresses_or_is_idle(info):
+    """Advancing sequences or an empty backlog keep the consumer live."""
+    consumer = _liveness_consumer()
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=8, num_pending=5))
+    consumer._last_progress -= 601
+
+    consumer._record_consumer_info(info)
+
+    assert consumer.liveness()[0]
+
+
+def test_consumer_liveness_ignores_redeliveries():
+    """A redelivered message advances only the consumer sequence, which is not progress."""
+    consumer = _liveness_consumer()
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=9, num_ack_pending=1))
+    consumer._last_progress -= 601
+    redelivered = _durable_info(delivered=10, acked=9, num_ack_pending=1)
+    redelivered.delivered = SequenceInfo(consumer_seq=12, stream_seq=10)
+
+    consumer._record_consumer_info(redelivered)
+
+    assert not consumer.liveness()[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("consumer_info", "connected", "refreshed"),
+    [
+        (AsyncMock(return_value=_durable_info(delivered=1, acked=1)), True, True),
+        (AsyncMock(side_effect=TimeoutError("consumer info timed out")), True, False),
+        (AsyncMock(return_value=_durable_info(delivered=1, acked=1)), False, False),
+    ],
+    ids=["info-succeeds", "info-fails", "reconnecting"],
+)
+async def test_consumer_monitor_refreshes_only_from_connected_consumer_info(
+    consumer_info, connected, refreshed
+):
+    """Failed or stale consumer info lets liveness run out."""
+    consumer = _liveness_consumer()
+    consumer._last_progress -= 601
+    type(consumer.conn).is_closed = PropertyMock(side_effect=[False, True])
+    consumer.conn.is_connected = connected
+    jetstream = MagicMock(consumer_info=consumer_info)
+
+    with patch(
+        "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        await consumer._monitor_liveness(jetstream)
+
+    consumer_info.assert_awaited_once_with("nv-config-manager", "nv-config-manager-archive")
+    sleep.assert_awaited_once_with(15.0)
+    type(consumer.conn).is_closed = PropertyMock(return_value=False)
+    assert consumer.liveness()[0] is refreshed
+
+
+@pytest.mark.asyncio
+async def test_consumer_main_monitors_durable_when_liveness_is_enabled():
+    """main() starts polling the durable alongside the subscription."""
+    consumer = _liveness_consumer()
+    conn = MagicMock(is_connected=True)
+    conn.close = AsyncMock()
+    checks = iter([False, False, True])
+    type(conn).is_closed = PropertyMock(side_effect=lambda: next(checks, True))
+    conn.jetstream.return_value.consumer_info = AsyncMock(
+        return_value=MagicMock(config=consumer._expected_consumer_config())
+    )
+    conn.jetstream.return_value.subscribe_bind = AsyncMock()
+    monitor = AsyncMock()
+
+    with (
+        patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
+        patch.object(consumer, "_monitor_liveness", monitor),
+        patch(
+            "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+    ):
+        await consumer.main()
+
+    monitor.assert_called_once_with(conn.jetstream.return_value)
+    conn.close.assert_awaited_once()
+
+
+def test_liveness_server_reports_consumer_liveness():
+    """/healthz returns 200 while live, 503 once stalled, and 404 elsewhere."""
+    consumer = _liveness_consumer()
+    server = start_liveness_server(consumer, port=0)
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(f"{url}/healthz", timeout=5) as response:
+            assert response.status == 200
+            assert b"last made progress" in response.read()
+
+        consumer._last_progress -= 601
+        with pytest.raises(HTTPError) as stalled:
+            urlopen(f"{url}/healthz", timeout=5)
+        assert stalled.value.code == 503
+
+        with pytest.raises(HTTPError) as missing:
+            urlopen(f"{url}/metrics", timeout=5)
+        assert missing.value.code == 404
+    finally:
+        server.shutdown()
+        server.server_close()
