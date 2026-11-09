@@ -31,7 +31,9 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
+        apply_activity_timeout,
         apply_approved_configuration,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
@@ -48,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
     from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins import ArchiveMixin, DeviceMixin
+    from nv_config_manager_workflows.secret_redaction import redact_device_secrets
     from nv_config_manager_workflows.stage import (
         StageInput,
         StageMixin,
@@ -252,7 +255,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         diff = await workflow.execute_activity(
             perform_candidate_diff,
             DiffActivityInput(device_data=result.device, configuration=stage_input.intended_config),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():
@@ -275,7 +278,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
         )
 
         if not diff_validation.is_valid:
-            invalid_diff_content = (
+            invalid_diff_content = redact_device_secrets(
                 "\n".join(diff_validation.invalid_lines) if diff_validation.invalid_lines else diff
             )
 
@@ -283,7 +286,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
             error_message += (
                 f"{diff_validation.error_message or 'Diff contains non-password changes.'}\n\n"
             )
-            error_message += f"Diff:\n{diff}"
+            error_message += f"Diff:\n{redact_device_secrets(diff)}"
 
             raise DiffValidationError(
                 message=error_message,
@@ -293,7 +296,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
             )
 
         self.get_stage_by_name(stage_name).requires_approval = False
-        markdown = f"Password Rotation Configuration Diff (Auto-Approved password only changes for '{stage_input.username}'):\n```\n{diff}\n```"
+        markdown = f"Password Rotation Configuration Diff (Auto-Approved password only changes for '{stage_input.username}'):\n```\n{redact_device_secrets(diff)}\n```"
         return DevicePasswordRotationWorkflow.PerformDiffStageOutput(
             approved=True, diff=diff, display=markdown
         )
@@ -326,7 +329,7 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
                 configuration=stage_input.intended_config,
                 approved_diff=stage_input.approved_diff,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=apply_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
 

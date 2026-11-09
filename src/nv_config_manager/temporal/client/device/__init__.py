@@ -25,6 +25,7 @@ from nv_config_manager.temporal.client.device.base import (
     COMMIT_CONFIRM_ROLLBACK_SECONDS,
     NetworkConnection,
 )
+from nv_config_manager.temporal.client.device.cisco_xr import CiscoIosXrConnection
 from nv_config_manager.temporal.client.device.cumulus import CumulusConnection, NVOSConnection
 from nv_config_manager.temporal.client.device.exceptions import (
     ConfigApplyFailureException,
@@ -56,6 +57,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 __all__ = [
     "COMMIT_CONFIRM_ROLLBACK_SECONDS",
     "AristaConnection",
+    "CiscoIosXrConnection",
     "ConfigApplyFailureException",
     "ConfigSyntaxException",
     "CumulusConnection",

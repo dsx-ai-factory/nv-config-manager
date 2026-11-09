@@ -20,6 +20,10 @@
   description: Juniper networking equipment
   deployment_types: [all, superpod]
 
+- name: Cisco
+  description: Cisco networking equipment
+  deployment_types: [all, superpod]
+
 # Server Vendors
 - name: Dell
   description: Dell servers and storage
