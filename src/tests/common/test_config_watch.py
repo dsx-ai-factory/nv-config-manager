@@ -169,6 +169,13 @@ def test_an_unreadable_file_is_not_a_change(ini: Path) -> None:
     assert _watch_while(ini, change=ini.unlink) == []
 
 
+def test_a_change_that_is_not_valid_utf8_still_stops_the_process(ini: Path) -> None:
+    """Undecodable bytes are still a change, and must not end the watch instead."""
+    signals = _watch_while(ini, change=lambda: ini.write_bytes(b"[nats]\npassword = \xff\xfe\n"))
+
+    assert signals == [(os.getpid(), signal.SIGTERM)]
+
+
 def test_the_restart_is_spread_across_replicas(ini: Path) -> None:
     """Every replica sees the change at once, so they must not all exit at once."""
     with patch("nv_config_manager.common.config_watch.random.uniform", return_value=0.0) as uniform:
