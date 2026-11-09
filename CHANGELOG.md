@@ -12,7 +12,7 @@ version before the selected release candidate is promoted.
 
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
-  `monitoring.podMonitors.enabled` is set. Series now carry the pod's
+  `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
   Kubernetes `namespace` label, so workflow results can be separated per
   deployment. These metrics are no longer pushed over OTLP, and their `job`
   label changes from `nv-config-manager-temporal-worker` to the PodMonitor's
