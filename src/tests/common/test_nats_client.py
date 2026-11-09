@@ -649,6 +649,7 @@ def _liveness_consumer(liveness_timeout: float = 600) -> NatsConsumer:
         liveness_timeout=liveness_timeout,
     )
     consumer.conn = MagicMock(is_closed=False, is_connected=True)
+    consumer._subscribed = True
     return consumer
 
 
@@ -668,6 +669,19 @@ def test_consumer_rejects_liveness_timeout_that_cannot_restart_safely(liveness_t
     """The budget must be finite and outlast the ack wait of one slow message."""
     with pytest.raises(ValueError, match="liveness timeout"):
         _liveness_consumer(liveness_timeout)
+
+
+def test_consumer_liveness_stays_live_until_subscribed():
+    """A slow connect or durable check does not fail the probe before startup finishes."""
+    consumer = _liveness_consumer()
+    consumer._subscribed = False
+    consumer.conn = None
+    consumer._last_progress -= 3600
+
+    assert consumer.liveness() == (
+        True,
+        "durable nv-config-manager-archive is not subscribed yet",
+    )
 
 
 def test_consumer_liveness_fails_when_connection_is_closed():
@@ -768,6 +782,7 @@ async def test_consumer_main_monitors_durable_when_liveness_is_enabled():
     )
     conn.jetstream.return_value.subscribe_bind = AsyncMock()
     monitor = AsyncMock()
+    consumer._subscribed = False
 
     with (
         patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
@@ -780,6 +795,7 @@ async def test_consumer_main_monitors_durable_when_liveness_is_enabled():
         await consumer.main()
 
     monitor.assert_called_once_with(conn.jetstream.return_value)
+    assert consumer._subscribed
     conn.close.assert_awaited_once()
 
 

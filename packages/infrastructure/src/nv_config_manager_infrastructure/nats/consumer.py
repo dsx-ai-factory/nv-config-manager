@@ -86,6 +86,7 @@ class NatsConsumer(NatsClient):
         self.liveness_timeout = liveness_timeout
         self._last_progress = time.monotonic()
         self._last_sequences: tuple[int, int] | None = None
+        self._subscribed = False
 
     @property
     def full_queue_name(self) -> str:
@@ -134,6 +135,7 @@ class NatsConsumer(NatsClient):
                 self.stream,
                 self.full_queue_name,
             )
+            self._subscribed = True
 
             monitor = None
             if self.liveness_timeout is not None:
@@ -153,8 +155,11 @@ class NatsConsumer(NatsClient):
         """Report whether the durable has made progress recently enough.
 
         A push consumer whose deliveries stop raises nothing, so the process would
-        otherwise stay Running while archiving nothing.
+        otherwise stay Running while archiving nothing. Startup reports live until
+        the subscription is bound, since a startup failure already exits main().
         """
+        if not self._subscribed:
+            return True, f"durable {self.full_queue_name} is not subscribed yet"
         if self.conn is None or self.conn.is_closed:
             return False, "NATS connection is not open"
         stalled_for = time.monotonic() - self._last_progress
