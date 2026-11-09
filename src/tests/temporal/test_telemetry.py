@@ -21,6 +21,7 @@ import pytest
 from nv_config_manager.temporal import telemetry
 
 OTLP_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
+PROMETHEUS_ENV = "TEMPORAL_METRICS_PROMETHEUS_ADDRESS"
 
 
 @pytest.fixture(autouse=True)
@@ -33,8 +34,9 @@ def _reset_runtime():
 
 @pytest.fixture
 def _clean_env(monkeypatch):
-    """Remove the OTLP endpoint so each test controls it explicitly."""
+    """Remove the OTLP endpoint and Prometheus address so each test controls them explicitly."""
     monkeypatch.delenv(OTLP_ENV, raising=False)
+    monkeypatch.delenv(PROMETHEUS_ENV, raising=False)
     return monkeypatch
 
 
@@ -46,12 +48,14 @@ def otel_mocks():
         mock.patch.object(telemetry, "Runtime") as runtime_cls,
         mock.patch.object(telemetry, "TelemetryConfig") as telemetry_config_cls,
         mock.patch.object(telemetry, "OpenTelemetryConfig") as otel_config_cls,
+        mock.patch.object(telemetry, "PrometheusConfig") as prometheus_config_cls,
     ):
         yield {
             "setup_tracing": setup_tracing,
             "runtime_cls": runtime_cls,
             "telemetry_config_cls": telemetry_config_cls,
             "otel_config_cls": otel_config_cls,
+            "prometheus_config_cls": prometheus_config_cls,
         }
 
 
@@ -102,6 +106,54 @@ class TestSetupTelemetryEnabled:
         telemetry.setup_telemetry("svc")
 
         otel_mocks["otel_config_cls"].assert_called_once_with(url="http://collector:4317")
+
+
+class TestSetupTelemetryPrometheus:
+    """setup_telemetry() serves SDK metrics on a Prometheus endpoint when asked."""
+
+    def test_address_configures_prometheus_runtime(self, _clean_env, otel_mocks):
+        """A configured address exposes SDK metrics for a PodMonitor to scrape."""
+        _clean_env.setenv(PROMETHEUS_ENV, "0.0.0.0:8000")
+
+        result = telemetry.setup_telemetry("svc")
+
+        otel_mocks["setup_tracing"].assert_called_once_with("svc")
+        otel_mocks["prometheus_config_cls"].assert_called_once_with(bind_address="0.0.0.0:8000")
+        otel_mocks["otel_config_cls"].assert_not_called()
+        otel_mocks["telemetry_config_cls"].assert_called_once_with(
+            metrics=otel_mocks["prometheus_config_cls"].return_value
+        )
+        assert result is otel_mocks["runtime_cls"].return_value
+        assert telemetry._runtime is result
+
+    def test_prometheus_wins_over_otlp_for_metrics(self, _clean_env, otel_mocks):
+        """A Runtime has one metrics exporter, so Prometheus takes precedence over OTLP."""
+        _clean_env.setenv(PROMETHEUS_ENV, "0.0.0.0:8000")
+        _clean_env.setenv(OTLP_ENV, "http://collector:4317")
+
+        telemetry.setup_telemetry("svc")
+
+        otel_mocks["prometheus_config_cls"].assert_called_once_with(bind_address="0.0.0.0:8000")
+        otel_mocks["otel_config_cls"].assert_not_called()
+        otel_mocks["setup_tracing"].assert_called_once_with("svc")
+
+    def test_address_is_stripped(self, _clean_env, otel_mocks):
+        """Surrounding whitespace on the address is trimmed before use."""
+        _clean_env.setenv(PROMETHEUS_ENV, "  0.0.0.0:8000  ")
+
+        telemetry.setup_telemetry("svc")
+
+        otel_mocks["prometheus_config_cls"].assert_called_once_with(bind_address="0.0.0.0:8000")
+
+    @pytest.mark.parametrize("value", ["", "   ", "\t\n"])
+    def test_blank_address_is_disabled(self, _clean_env, otel_mocks, value):
+        """Empty or whitespace address leaves the Prometheus endpoint off."""
+        _clean_env.setenv(PROMETHEUS_ENV, value)
+
+        telemetry.setup_telemetry("svc")
+
+        otel_mocks["prometheus_config_cls"].assert_not_called()
+        otel_mocks["telemetry_config_cls"].assert_called_once_with()
 
 
 class TestGetRuntime:
