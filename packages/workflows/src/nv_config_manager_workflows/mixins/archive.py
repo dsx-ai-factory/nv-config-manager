@@ -37,6 +37,7 @@ class WorkflowResultLog(BaseModel):
     start_time: str
     publish_time: str
     search_attributes: SearchAttributes
+    namespace: str | None = None
 
     @staticmethod
     def from_workflow_info(info: workflow.Info) -> WorkflowResultLog:
@@ -47,6 +48,7 @@ class WorkflowResultLog(BaseModel):
             start_time=info.start_time.isoformat(),
             publish_time=workflow.now().isoformat(),
             search_attributes=info.search_attributes,
+            namespace=info.namespace,
         )
 
 

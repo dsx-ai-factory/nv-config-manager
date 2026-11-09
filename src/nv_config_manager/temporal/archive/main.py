@@ -118,6 +118,10 @@ async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_D
         logging.error("Discarding archive event without a usable publish_time: %s", data)
         await msg.term()
         return
+    if not isinstance(data.get("namespace", ""), str):
+        logging.error("Discarding archive event whose namespace is not a string: %s", data)
+        await msg.term()
+        return
 
     workflow_id = data["workflow_id"]
     try:
@@ -181,17 +185,26 @@ async def _past_retention(temporal_client: Client, data: dict[str, Any]) -> bool
     return retention > timedelta(0) and datetime.now(UTC) - published > retention
 
 
-async def _namespace_holds_workflows(temporal_client: Client) -> bool:
-    """Whether this process has seen workflows in the namespace, so it is the right one.
+async def _workflow_is_gone(temporal_client: Client, data: dict[str, Any]) -> bool:
+    """Whether a NOT_FOUND lookup means the event's workflow no longer exists.
 
-    A misconfigured namespace answers every lookup with NOT_FOUND; one that holds
-    workflows proves a NOT_FOUND is about the event's own workflow.
+    An event names the namespace its workflow ran in, so a NOT_FOUND from that
+    namespace is conclusive, and one from another namespace means the archive is
+    misconfigured. An event from a producer that predates the field is discarded
+    once a lookup in this process has succeeded or the event is past retention.
     """
-    global _namespace_confirmed
-    if not _namespace_confirmed:
-        async for _ in temporal_client.list_workflows(limit=1, page_size=1):
-            _namespace_confirmed = True
-    return _namespace_confirmed
+    event_namespace = data.get("namespace")
+    if event_namespace is not None:
+        if event_namespace != temporal_client.namespace:
+            logging.error(
+                "Workflow %s ran in Temporal namespace %r, but the archive reads %r",
+                data["workflow_id"],
+                event_namespace,
+                temporal_client.namespace,
+            )
+            return False
+        return True
+    return _namespace_confirmed or await _past_retention(temporal_client, data)
 
 
 async def _archive_workflow(data: dict[str, Any]) -> None:
@@ -204,17 +217,11 @@ async def _archive_workflow(data: dict[str, Any]) -> None:
     except HTTPException as exc:
         # A missing workflow never comes back, and retrying it would hold an
         # in-flight slot for the whole max_deliver window. A 404 can also mean the
-        # wrong namespace, so it is retried unless the namespace is proven right or
-        # the event is past retention.
-        if exc.status_code == 404:
-            if await _past_retention(temporal_client, data):
-                raise ArchiveRejectedError(
-                    f"workflow {data['workflow_id']} is past Temporal retention"
-                ) from exc
-            if await _namespace_holds_workflows(temporal_client):
-                raise ArchiveRejectedError(
-                    f"workflow {data['workflow_id']} does not exist in Temporal"
-                ) from exc
+        # archive reads the wrong namespace, so then it is retried.
+        if exc.status_code == 404 and await _workflow_is_gone(temporal_client, data):
+            raise ArchiveRejectedError(
+                f"workflow {data['workflow_id']} does not exist in Temporal"
+            ) from exc
         raise
     _namespace_confirmed = True
     workflow_details = workflow_response.model_dump(mode="json")
