@@ -151,6 +151,151 @@ class TestInitCommand:
         assert "Unsupported ZTP platform 'sonic'" in result.output
 
 
+class TestIntegrationTestCommand:
+    @pytest.mark.parametrize("sso", [False, True])
+    def test_runs_without_install_config(self, tmp_path: Path, sso):
+        """Explicit target and optional SSO flags work without any installer config."""
+        kubeconfig = tmp_path / "kubeconfig"
+        kubeconfig.touch()
+        args = [
+            "test",
+            "--namespace",
+            "acceptance",
+            "--release-name",
+            "site",
+            "--kubeconfig",
+            str(kubeconfig),
+        ]
+        if sso:
+            args += [
+                "--sso",
+                "--oidc-client-id",
+                "acceptance-tests",
+                "--oidc-issuer-url",
+                "http://keycloak.identity.svc/realms/test",
+            ]
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            result = CliRunner().invoke(main, args)
+        assert result.exit_code == 0, result.output
+        config = deployer.call_args.args[0]
+        assert config.cluster.namespace == "acceptance"
+        assert config.cluster.release_name == "site"
+        assert config.sso.enabled is sso
+        if sso:
+            assert config.sso.client_id == "acceptance-tests"
+            assert config.sso.issuer_url == "http://keycloak.identity.svc/realms/test"
+        deployer.return_value.run_integration_tests.assert_called_once_with(
+            kubeconfig=kubeconfig, oidc_client_secret_name=None, oidc_token_file=None
+        )
+        deployer.return_value.run.assert_not_called()
+
+    @pytest.mark.parametrize("args", [[], ["--namespace", "site"], ["--release-name", "site"]])
+    def test_requires_explicit_target_without_config(self, args):
+        """A config-free invocation must identify both namespace and release."""
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            result = CliRunner().invoke(main, ["test", *args])
+        assert result.exit_code == 2
+        assert "both --namespace and --release-name" in result.output
+        deployer.assert_not_called()
+
+    def test_flags_override_config_without_rewriting_it(self, tmp_path: Path):
+        """CLI overrides take precedence, including over a stored internal issuer."""
+        config_path = tmp_path / "install.yaml"
+        config = NVConfigManagerInstallConfig()
+        config.sso.enabled = True
+        config.sso.internal_issuer = "http://old-keycloak/realms/test"
+        config.to_yaml(config_path)
+        original = config_path.read_text()
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            result = CliRunner().invoke(
+                main,
+                [
+                    "test",
+                    str(config_path),
+                    "--namespace",
+                    "acceptance",
+                    "--release-name",
+                    "site",
+                    "--oidc-client-id",
+                    "acceptance-tests",
+                    "--oidc-issuer-url",
+                    "https://new-keycloak/realms/test",
+                ],
+            )
+        assert result.exit_code == 0, result.output
+        effective = deployer.call_args.args[0]
+        assert effective.cluster.namespace == "acceptance"
+        assert effective.cluster.release_name == "site"
+        assert effective.sso.client_id == "acceptance-tests"
+        assert effective.sso.issuer_url == "https://new-keycloak/realms/test"
+        assert effective.sso.internal_issuer == ""
+        assert config_path.read_text() == original
+
+    def test_rejects_oidc_settings_without_sso(self):
+        """Do not silently ignore issuer or client settings with authentication disabled."""
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            result = CliRunner().invoke(
+                main,
+                [
+                    "test",
+                    "--namespace",
+                    "site",
+                    "--release-name",
+                    "site",
+                    "--oidc-client-id",
+                    "test",
+                ],
+            )
+        assert result.exit_code == 1
+        assert "OIDC settings require --sso" in result.output
+        deployer.assert_not_called()
+
+    @pytest.mark.parametrize("success", [True, False])
+    def test_runs_tests_without_deployment(self, tmp_path: Path, success):
+        """Map test success to the exit status without invoking deployment."""
+        config_path = tmp_path / "install.yaml"
+        NVConfigManagerInstallConfig().to_yaml(config_path)
+        kubeconfig = tmp_path / "kubeconfig"
+        kubeconfig.touch()
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            deployer.return_value.run_integration_tests.return_value = success
+            result = CliRunner().invoke(
+                main, ["test", str(config_path), "--kubeconfig", str(kubeconfig)]
+            )
+        assert result.exit_code == (0 if success else 1)
+        deployer.return_value.run_integration_tests.assert_called_once_with(
+            kubeconfig=kubeconfig, oidc_client_secret_name=None, oidc_token_file=None
+        )
+        deployer.return_value.run.assert_not_called()
+
+    def test_reports_setup_failure(self, tmp_path: Path):
+        """A setup exception becomes a failing CLI diagnostic."""
+        config_path = tmp_path / "install.yaml"
+        NVConfigManagerInstallConfig().to_yaml(config_path)
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            deployer.return_value.run_integration_tests.side_effect = RuntimeError("no kubeconfig")
+            result = CliRunner().invoke(main, ["test", str(config_path)])
+        assert result.exit_code == 1
+        assert "no kubeconfig" in result.output
+
+    def test_passes_oidc_credential_options(self, tmp_path: Path):
+        """Pass a protected token-file path through to the standalone runner."""
+        config_path = tmp_path / "install.yaml"
+        NVConfigManagerInstallConfig().to_yaml(config_path)
+        token_path = tmp_path / "token"
+        token_path.write_text("test-token")
+        with patch("nv_config_manager_installer.cli.Deployer") as deployer:
+            result = CliRunner().invoke(
+                main, ["test", str(config_path), "--oidc-token-file", str(token_path)]
+            )
+            assert result.exit_code == 0
+            assert deployer.return_value.run_integration_tests.call_args.kwargs == {
+                "kubeconfig": None,
+                "oidc_token_file": token_path,
+                "oidc_client_secret_name": None,
+            }
+
+
 class TestDeployCommand:
     def test_deploy_missing_config(self):
         runner = CliRunner()
