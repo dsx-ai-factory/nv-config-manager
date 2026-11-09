@@ -165,7 +165,7 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 
 **Exception types**:
 
-- `DCIMError` - DCIM provider API errors, logged and counted, ACK (not retried)
+- `DCIMError` - DCIM provider API errors, logged, ACK (not retried). An error from the event handler's own lookups increments the event failed counter. An error while checking one device's render status during enqueue only skips that device: it is logged and the event still counts as processed, so the failed counter does not show it
 - `RenderException` - Template rendering failures, ACK (do not retry)
 - `DeviceNotEnabledError` - Device not enabled for rendering, ACK
 - `EventParseError` - Malformed event data, fail counter incremented
