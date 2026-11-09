@@ -114,11 +114,16 @@ async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_D
         logging.error("No workflow ID in archive message: %s", data)
         await msg.ack()
         return
+    if not isinstance(data["workflow_id"], str):
+        logging.error("Discarding archive event whose workflow ID is not a string: %s", data)
+        await msg.term()
+        return
     if _publish_time(data) is None:
         logging.error("Discarding archive event without a usable publish_time: %s", data)
         await msg.term()
         return
-    if not isinstance(data.get("namespace", ""), str):
+    namespace = data.get("namespace")
+    if namespace is not None and not isinstance(namespace, str):
         logging.error("Discarding archive event whose namespace is not a string: %s", data)
         await msg.term()
         return

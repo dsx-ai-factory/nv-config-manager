@@ -197,6 +197,19 @@ async def test_event_without_workflow_id_is_acked() -> None:
     assert _settled(msg) == ["ack"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workflow_id", [42, ["wf-1"], {"id": "wf-1"}, True])
+async def test_event_with_non_string_workflow_id_is_discarded(workflow_id: object) -> None:
+    """A workflow ID Temporal cannot look up would fail every retry, so it is terminated."""
+    event = {"workflow_id": workflow_id, "publish_time": "2026-10-11T00:00:00+00:00"}
+    msg = _msg(payload=json.dumps(event).encode())
+    with patch.object(archive_main, "_archive_workflow", new_callable=AsyncMock) as archive:
+        await handle_archive_msg(msg)
+
+    archive.assert_not_awaited()
+    assert _settled(msg) == ["term"]
+
+
 @pytest.fixture
 def nvdataflow_backend(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     """Run _archive_nvdataflow against a fake client, whatever backend was imported."""
@@ -412,6 +425,24 @@ async def test_event_with_non_string_namespace_is_discarded(
 
     archive.assert_not_awaited()
     assert _settled(msg) == ["term"]
+
+
+@pytest.mark.asyncio
+async def test_event_with_null_namespace_is_archived(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An explicit null namespace is treated like an event that does not name one."""
+    archive = AsyncMock()
+    monkeypatch.setattr(archive_main, "_archive_workflow", archive)
+    event = {
+        "workflow_id": "wf-1",
+        "namespace": None,
+        "publish_time": datetime.now(UTC).isoformat(),
+    }
+    msg = _msg(payload=json.dumps(event).encode())
+
+    await handle_archive_msg(msg)
+
+    archive.assert_awaited_once()
+    assert _settled(msg) == ["ack"]
 
 
 @pytest.mark.asyncio
