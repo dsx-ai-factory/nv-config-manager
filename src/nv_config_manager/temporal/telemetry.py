@@ -28,13 +28,25 @@ When no endpoint is configured, observability is disabled: no exporters are
 created and a plain Runtime is returned, so deployments without a collector
 do not attempt to export to a nonexistent endpoint.
 
+Alternatively, when TEMPORAL_METRICS_PROMETHEUS_ADDRESS is set (injected by the
+Helm chart on the NVIDIA Config Manager worker when its PodMonitor is
+rendered), the SDK core serves the same built-in metrics on a Prometheus
+/metrics endpoint instead of pushing them over OTLP. A Prometheus scrape labels
+each sample with the pod's Kubernetes namespace, which OTLP-pushed series do
+not carry. A Runtime has a single metrics exporter, so this replaces OTLP
+metric export for the process; tracing is unaffected. PrometheusConfig keeps its
+default of no unit suffix (``temporal_request_latency_bucket``); a collector that
+translates OTLP units, such as the bundled Alloy, stores
+``temporal_request_latency_milliseconds_bucket`` instead. See
+docs/overview/observability.mdx.
+
 After setup_telemetry() returns, call get_runtime() to retrieve the
 Runtime for passing to Client.connect(runtime=...).
 """
 
 import os
 
-from temporalio.runtime import OpenTelemetryConfig, Runtime, TelemetryConfig
+from temporalio.runtime import OpenTelemetryConfig, PrometheusConfig, Runtime, TelemetryConfig
 
 from nv_config_manager.common.telemetry import setup_tracing
 
@@ -42,17 +54,27 @@ _runtime: Runtime | None = None
 
 
 def setup_telemetry(service_name: str) -> Runtime:
-    """Initialize OTel tracing and build a Temporal Runtime with OTel metrics.
+    """Initialize OTel tracing and build a Temporal Runtime with SDK metrics.
 
     Reads:
+      TEMPORAL_METRICS_PROMETHEUS_ADDRESS — host:port to serve SDK metrics on a
+                                     Prometheus endpoint; takes precedence over
+                                     OTLP for metrics when set
       OTEL_EXPORTER_OTLP_ENDPOINT  — OTLP gRPC endpoint; observability is
                                      disabled (no exporters) when unset/empty
       OTEL_SERVICE_NAME            — overrides service_name argument when set
       ENVIRONMENT                  — used as deployment.environment resource attribute
     """
     global _runtime
+    prometheus_address = os.getenv("TEMPORAL_METRICS_PROMETHEUS_ADDRESS", "").strip()
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
     setup_tracing(service_name)
+    if prometheus_address:
+        _runtime = Runtime(
+            telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=prometheus_address))
+        )
+        return _runtime
+
     if not otlp_endpoint:
         _runtime = Runtime(telemetry=TelemetryConfig())
         return _runtime
