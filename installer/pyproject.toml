@@ -17,6 +17,8 @@ dependencies = [
     "pydantic>=2.10.2",
     # Security floor for standalone tool installs (GHSA-5239-wwwm-4pmq).
     "pygments>=2.20.0",
+    # Security floor for standalone tool installs (GHSA-8988-9cw3-xx77).
+    "urllib3>=2.8.0",
     "pyyaml>=6.0.2",
     "requests>=2.33.0",
     "textual>=3.1.0",
