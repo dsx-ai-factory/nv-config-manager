@@ -53,6 +53,34 @@ spec:
       {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
       # Wait for Redis to be ready (required for device metadata cache)
       {{- include "nv-config-manager.waitForRedis" . | nindent 6 }}
+      - name: wait-for-postgres
+        image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for config-store postgres..."
+          until nc -z {{ tpl .Values.externalServices.postgres.configStore.host . }} {{ .Values.externalServices.postgres.port }}; do
+            echo "waiting for postgres at {{ tpl .Values.externalServices.postgres.configStore.host . }}:{{ .Values.externalServices.postgres.port }}"
+            sleep 2
+          done
+          echo "Config-store postgres is ready"
+      # The schema must be at head before this image serves; a post-install/
+      # post-upgrade hook would run only after the rollout finishes. Replicas
+      # serialize on the advisory lock in db/migrations/env.py.
+      - name: migrate
+        image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
+        imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+        {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
+        workingDir: /code/nv-config-manager
+        command: ["alembic", "-c", "db/alembic.ini", "upgrade", "head"]
+        env:
+        - name: NV_CONFIG_MANAGER_INI
+          value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
+        - name: ENVIRONMENT
+          value: {{ .Values.global.environment }}
+        volumeMounts:
+        {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
       containers:
       - name: api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -128,74 +156,6 @@ spec:
   selector:
     app: {{ $configStoreName }}
     component: api
----
-# Config Store Database Migration Job
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: {{ $configStoreName }}-db-init
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    app: {{ $configStoreName }}
-    component: db-init
-  annotations:
-    # Helm hooks to handle Job immutability
-    "helm.sh/hook": post-install,post-upgrade
-    # Note: hook-succeeded removed temporarily for debugging - job will persist for ttlSecondsAfterFinished
-    "helm.sh/hook-delete-policy": before-hook-creation
-    "helm.sh/hook-weight": "5"
-spec:
-  ttlSecondsAfterFinished: 300
-  template:
-    metadata:
-      labels:
-        app: {{ $configStoreName }}
-        component: db-init
-      {{- if eq .Values.secrets.method "vault-agent" }}
-      annotations:
-        {{- include "nv-config-manager.vaultAgent.injectorAnnotationsJob" . | nindent 8 }}
-      {{- end }}
-    spec:
-      serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
-      restartPolicy: OnFailure
-      {{- if .Values.global.imagePullSecrets }}
-      imagePullSecrets:
-        {{- range .Values.global.imagePullSecrets }}
-        - name: {{ . }}
-        {{- end }}
-      {{- end }}
-      {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
-      initContainers:
-      # Wait for config-store postgres to be ready
-      - name: wait-for-postgres
-        image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
-        command:
-        - sh
-        - -c
-        - |
-          echo "Waiting for config-store postgres..."
-          until nc -z {{ tpl .Values.externalServices.postgres.configStore.host . }} {{ .Values.externalServices.postgres.port }}; do
-            echo "waiting for postgres at {{ tpl .Values.externalServices.postgres.configStore.host . }}:{{ .Values.externalServices.postgres.port }}"
-            sleep 2
-          done
-          echo "Config-store postgres is ready"
-      containers:
-      - name: db-init
-        image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
-        imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
-        {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
-        workingDir: /code/nv-config-manager
-        command: ["alembic", "-c", "db/alembic.ini", "upgrade", "head"]
-        env:
-        - name: NV_CONFIG_MANAGER_INI
-          value: {{ include "nv-config-manager.vaultAgent.configManagerIniPathApp" . | quote }}
-        - name: ENVIRONMENT
-          value: {{ .Values.global.environment }}
-        volumeMounts:
-        {{- include "nv-config-manager.vaultAgent.configManagerIniVolumeMount" . | nindent 8 }}
-      volumes:
-      {{- include "nv-config-manager.vaultAgent.projectedSATokenVolume" . | nindent 6 }}
-      {{- include "nv-config-manager.vaultAgent.configManagerIniVolume" . | nindent 6 }}
 ---
 # Config Store Cache Refresh Service
 {{- if .Values.configStore.cacheRefresh.enabled }}
