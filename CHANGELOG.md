@@ -8,6 +8,16 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+### Fixed
+
+- Config-store schema migrations now run in a `migrate` init container on each
+  config-store API pod, so a new API image never serves against the previous
+  schema. The `config-store-db-init` Job, a `post-install,post-upgrade` hook,
+  is removed: it ran only after every chart resource was healthy (ArgoCD
+  PostSync), and upgrades that change the schema, such as migration `004`,
+  returned HTTP 500 for config reads until then. Concurrent replicas
+  serialize on a PostgreSQL advisory lock.
+
 ### Changed
 
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a

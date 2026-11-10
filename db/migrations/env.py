@@ -18,7 +18,7 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -43,6 +43,11 @@ target_metadata = Base.metadata
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
+
+# Every config-store API replica runs `alembic upgrade head` before it starts.
+# The lock makes concurrent runners wait, so only the first applies revisions
+# and the rest see the schema already at head.
+MIGRATION_LOCK_ID = 0x6E76636D  # "nvcm"
 
 
 def run_migrations_offline() -> None:
@@ -72,6 +77,10 @@ def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
+        if connection.dialect.name == "postgresql":
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": MIGRATION_LOCK_ID}
+            )
         context.run_migrations()
 
 
