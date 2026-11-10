@@ -37,6 +37,43 @@ Place new build, container, and CI tooling tests in `ci/tests/` and service test
 in `src/tests/`. Keep tooling tests independent of application fixtures and
 application coverage.
 
+## Release Notes
+
+For user-facing features, behavior or API changes, configuration changes, fixes,
+security changes, and upgrade requirements, maintain release coverage in both
+[CHANGELOG.md](CHANGELOG.md) and the matching
+[Fern release notes](docs/fern/changelog/). You can update them in separate PRs
+at the following milestones.
+
+- **Root changelog:** Record release facts, user impact, compatibility changes,
+  and required operator actions under `Unreleased` as changes are made. Finalize
+  the `## X.Y.Z` section before creating the release candidate (RC) tag selected
+  for promotion. The promotion workflow extracts GitHub release notes from that
+  RC commit. Preserve the heading format. If later root changelog changes must
+  appear in the GitHub Release, create and validate a new RC before promotion.
+- **Fern changelog:** Maintain one announcement per release, with full details
+  under nested Added, Changed, Fixed, and Security headings as applicable.
+  Prepare or refine the announcement in separate PRs as needed, adding
+  explanations, examples, and links beyond the root changelog's release facts.
+  Use verified dates and clearly identify unreleased or candidate versions.
+  Do not imply stable availability before promotion.
+- **Before stable Fern publication:** Reconcile the announcement with the
+  selected RC's root changelog and the verified GitHub Release. Release scope,
+  availability, compatibility notes, and required operator actions must agree.
+  Wording and level of detail can differ. Confirm promotion before publishing
+  stable availability and the release date.
+- **Feature tags:** Tag the affected areas, such as `deployment`, `dhcp`,
+  `security`, `telemetry`, and `workflows`. These are examples, not an exclusive
+  list. Reuse existing tags when they fit and add clear new feature tags as
+  needed, avoiding synonyms for existing tags. Keep version numbers and release
+  status in the announcement headings rather than using them as filter tags.
+  When releases share a dated file, use per-announcement tags so their feature
+  labels remain distinct.
+
+Before handing off release-note changes, validate the changed resources with
+`make docs-lint`, `make docs-lint-fern`, and `git diff --check`. Internal-only
+changes do not need release notes unless they affect user-visible behavior.
+
 ## Python Imports
 
 All imports MUST be placed at the top of the file, following standard Python conventions (stdlib, third-party, local). Do NOT place imports inside functions, methods, or conditional blocks.
