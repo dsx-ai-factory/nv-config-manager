@@ -40,19 +40,28 @@ application coverage.
 ## Release Notes
 
 For user-facing features, behavior or API changes, configuration changes, fixes,
-security changes, and upgrade requirements, update both [CHANGELOG.md](CHANGELOG.md)
-and the matching [Fern release notes](docs/fern/changelog/) in the same PR.
-Keep the release scope, availability, compatibility notes, and required operator
-actions consistent between the two resources.
+security changes, and upgrade requirements, maintain release coverage in both
+[CHANGELOG.md](CHANGELOG.md) and the matching
+[Fern release notes](docs/fern/changelog/). You can update them in separate PRs
+at the following milestones.
 
-- **Root changelog:** Add work in progress under `Unreleased`, then finalize the
-  `## X.Y.Z` section before release promotion. The promotion workflow extracts
-  GitHub release notes from these headings; preserve that format.
+- **Root changelog:** Record release facts, user impact, compatibility changes,
+  and required operator actions under `Unreleased` as changes are made. Finalize
+  the `## X.Y.Z` section before creating the release candidate (RC) tag selected
+  for promotion. The promotion workflow extracts GitHub release notes from that
+  RC commit. Preserve the heading format. If later root changelog changes must
+  appear in the GitHub Release, create and validate a new RC before promotion.
 - **Fern changelog:** Maintain one announcement per release, with full details
   under nested Added, Changed, Fixed, and Security headings as applicable.
-  Update the existing announcement as the release evolves. Use verified dates
-  and clearly identify unreleased or candidate versions; do not imply stable
-  availability before promotion.
+  Prepare or refine the announcement in separate PRs as needed, adding
+  explanations, examples, and links beyond the root changelog's release facts.
+  Use verified dates and clearly identify unreleased or candidate versions.
+  Do not imply stable availability before promotion.
+- **Before stable Fern publication:** Reconcile the announcement with the
+  selected RC's root changelog and the verified GitHub Release. Release scope,
+  availability, compatibility notes, and required operator actions must agree.
+  Wording and level of detail can differ. Confirm promotion before publishing
+  stable availability and the release date.
 - **Feature tags:** Tag the affected areas, such as `deployment`, `dhcp`,
   `security`, `telemetry`, and `workflows`. These are examples, not an exclusive
   list. Reuse existing tags when they fit and add clear new feature tags as
@@ -61,10 +70,9 @@ actions consistent between the two resources.
   When releases share a dated file, use per-announcement tags so their feature
   labels remain distinct.
 
-Before handing off release-note changes, check both resources for omissions and
-contradictions, then run `make docs-lint`, `make docs-lint-fern`, and
-`git diff --check`. Internal-only changes do not need release notes unless they
-affect user-visible behavior.
+Before handing off release-note changes, validate the changed resources with
+`make docs-lint`, `make docs-lint-fern`, and `git diff --check`. Internal-only
+changes do not need release notes unless they affect user-visible behavior.
 
 ## Python Imports
 

@@ -4,7 +4,8 @@ Notable user-facing changes for NVIDIA Config Manager should be recorded here.
 
 This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
-version before the selected release candidate is promoted.
+version before creating the release candidate tag selected for promotion.
+The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
