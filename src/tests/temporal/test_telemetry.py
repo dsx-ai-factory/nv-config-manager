@@ -14,6 +14,10 @@
 # limitations under the License.
 """Tests for the Temporal telemetry layer."""
 
+import socket
+import time
+import urllib.request
+from datetime import timedelta
 from unittest import mock
 
 import pytest
@@ -154,6 +158,53 @@ class TestSetupTelemetryPrometheus:
 
         otel_mocks["prometheus_config_cls"].assert_not_called()
         otel_mocks["telemetry_config_cls"].assert_called_once_with()
+
+
+class TestPrometheusExporterOutput:
+    """Pin the metric names the real SDK exporter serves; no mocks are involved."""
+
+    @staticmethod
+    def _free_port() -> int:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()[1]
+
+    @staticmethod
+    def _scrape(port: int, prefix: str) -> list[str]:
+        """Return the sample names starting with ``prefix`` once the exporter has any."""
+        deadline = time.monotonic() + 10
+        while True:
+            body = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics").read().decode()  # noqa: S310
+            names = sorted({line.split("{")[0].split(" ")[0] for line in body.splitlines()})
+            matching = [name for name in names if name.startswith(prefix)]
+            if matching or time.monotonic() > deadline:
+                return matching
+            time.sleep(0.1)
+
+    def test_unit_is_not_appended_to_metric_names(self, _clean_env):
+        """A millisecond histogram is served as ``<name>_bucket``, not ``<name>_milliseconds_bucket``.
+
+        These are the names the OTLP path produces behind a collector that does not
+        translate units (the kiwi pipeline), so existing dashboards keep matching. A
+        collector that does add unit suffixes, such as the bundled Alloy, stores the
+        same series as ``temporal_request_latency_milliseconds_*``; the observability
+        docs list that rename. Enabling PrometheusConfig(unit_suffix=True) would flip
+        this, so this test fails if that default changes.
+        """
+        port = self._free_port()
+        _clean_env.setenv(PROMETHEUS_ENV, f"127.0.0.1:{port}")
+
+        runtime = telemetry.setup_telemetry("svc")
+        histogram = runtime.metric_meter.create_histogram_timedelta(
+            "temporal_request_latency", "request latency", unit="ms"
+        )
+        histogram.record(timedelta(milliseconds=12))
+
+        assert self._scrape(port, "temporal_request_latency") == [
+            "temporal_request_latency_bucket",
+            "temporal_request_latency_count",
+            "temporal_request_latency_sum",
+        ]
 
 
 class TestGetRuntime:

@@ -17,7 +17,10 @@ version before the selected release candidate is promoted.
   deployment. These metrics are no longer pushed over OTLP, and their `job`
   label changes from `nv-config-manager-temporal-worker` to the PodMonitor's
   `<namespace>/<worker deployment name>`; update dashboards and alerts that
-  match the old `job`. See
+  match the old `job`. The scraped endpoint adds no unit suffix, so deployments
+  whose OTLP collector does (such as the bundled Alloy, which stores
+  `temporal_request_latency_milliseconds_*`) also see the `_milliseconds` part
+  of those metric names disappear. See
   [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
 
 ## 1.4.2

@@ -34,7 +34,11 @@ rendered), the SDK core serves the same built-in metrics on a Prometheus
 /metrics endpoint instead of pushing them over OTLP. A Prometheus scrape labels
 each sample with the pod's Kubernetes namespace, which OTLP-pushed series do
 not carry. A Runtime has a single metrics exporter, so this replaces OTLP
-metric export for the process; tracing is unaffected.
+metric export for the process; tracing is unaffected. PrometheusConfig keeps its
+default of no unit suffix (``temporal_request_latency_bucket``); a collector that
+translates OTLP units, such as the bundled Alloy, stores
+``temporal_request_latency_milliseconds_bucket`` instead. See
+docs/overview/observability.mdx.
 
 After setup_telemetry() returns, call get_runtime() to retrieve the
 Runtime for passing to Client.connect(runtime=...).

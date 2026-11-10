@@ -84,6 +84,17 @@ Scraped series use the PodMonitor's `job` label: `<namespace>/<worker deployment
 Previously, OTLP series used `nv-config-manager-temporal-worker`.
 Update dashboards and alerts that match the old `job` label.
 Duration values remain in milliseconds.
+The scraped endpoint adds no unit suffix: a latency histogram is exposed as `temporal_request_latency_bucket`, `_sum`, and `_count`.
+This matches the series stored when the OTLP collector does not translate units.
+A collector that does, including the bundled Alloy (`otelcol.exporter.prometheus` adds unit suffixes by default), stores the same histogram as `temporal_request_latency_milliseconds_bucket`, `_sum`, and `_count`.
+On that path the scraped names differ from the OTLP names:
+
+| | OTLP through a unit-suffixing collector (before) | Scraped (after) |
+| :-- | :-- | :-- |
+| Workflow end-to-end latency | `temporal_workflow_endtoend_latency_milliseconds_bucket` | `temporal_workflow_endtoend_latency_bucket` |
+| Request latency | `temporal_request_latency_milliseconds_sum` | `temporal_request_latency_sum` |
+
+Update dashboards and alerts that use the suffixed names.
 The Temporal API, scheduler, and archive continue exporting SDK metrics over OTLP when observability is enabled.
 
 ## Tracing
