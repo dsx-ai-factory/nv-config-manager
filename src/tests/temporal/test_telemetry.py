@@ -16,6 +16,7 @@
 
 import socket
 import time
+import urllib.error
 import urllib.request
 from datetime import timedelta
 from unittest import mock
@@ -171,10 +172,27 @@ class TestPrometheusExporterOutput:
 
     @staticmethod
     def _scrape(port: int, prefix: str) -> list[str]:
-        """Return the sample names starting with ``prefix`` once the exporter has any."""
+        """Return the sample names starting with ``prefix`` once the exporter has any.
+
+        Each request has a short timeout so a stalled scrape cannot outlast the ten-second
+        deadline. Timeouts are retried until that deadline, after which the last one is
+        raised. Any other URL error (for example a refused connection) propagates at once.
+        """
         deadline = time.monotonic() + 10
         while True:
-            body = urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics").read().decode()  # noqa: S310
+            try:
+                with urllib.request.urlopen(  # noqa: S310
+                    f"http://127.0.0.1:{port}/metrics", timeout=1
+                ) as response:
+                    body = response.read().decode()
+            except (TimeoutError, urllib.error.URLError) as error:
+                is_timeout = isinstance(error, TimeoutError) or isinstance(
+                    error.reason, TimeoutError
+                )
+                if not is_timeout or time.monotonic() > deadline:
+                    raise
+                time.sleep(0.1)
+                continue
             names = sorted({line.split("{")[0].split(" ")[0] for line in body.splitlines()})
             matching = [name for name in names if name.startswith(prefix)]
             if matching or time.monotonic() > deadline:
