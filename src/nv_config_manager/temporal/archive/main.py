@@ -15,20 +15,30 @@
 """Temporal archive."""
 
 import argparse
+import asyncio
 import base64
 import gzip
 import json
 import logging
 import os
-from datetime import UTC, datetime
+from collections.abc import Generator
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import boto3
-from elasticsearch import Elasticsearch
+from elasticsearch import ApiError, BadRequestError, Elasticsearch
+from fastapi import HTTPException
 from nats.aio.msg import Msg
 from nv_config_manager_infrastructure.nats import start_liveness_server
-from nv_config_manager_infrastructure.nats.admin import CONSUMER_ACK_WAIT_SECONDS
+from nv_config_manager_infrastructure.nats.admin import (
+    ARCHIVE_CONSUMER_MAX_ACK_PENDING,
+    ARCHIVE_CONSUMER_MAX_DELIVER,
+    CONSUMER_ACK_WAIT_SECONDS,
+)
 from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
+from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
+from temporalio.client import Client
 
 from nv_config_manager.common.client.nvdataflow import NVDataflowClient
 from nv_config_manager.common.config.loader import load_config
@@ -62,17 +72,164 @@ ELASTICSEARCH_INDEX_MAPPING = {
 }
 
 
-async def handle_archive_msg(msg: Msg) -> None:
-    """Handler callback for archive messages."""
-    data = json.loads(msg.data.decode("utf-8"))
+ARCHIVE_RETRY_DELAY_SECONDS = 300
+# An archive still running at the ack wait would be redelivered while this
+# worker holds it, so it is abandoned and retried before then.
+ARCHIVE_TIMEOUT_SECONDS = CONSUMER_ACK_WAIT_SECONDS - 60
+NVDATAFLOW_SUCCESS_STATUSES = frozenset({201, 202})
+NVDATAFLOW_REJECTED_STATUSES = frozenset({400, 413})
+
+
+class ArchiveRejectedError(Exception):
+    """The record itself cannot be archived, so retrying cannot help."""
+
+
+@contextmanager
+def _rejecting_malformed_records() -> Generator[None]:
+    """Treat a record with a missing or mistyped field as rejected."""
+    try:
+        yield
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ArchiveRejectedError(f"the workflow record is malformed: {exc!r}") from exc
+
+
+async def handle_archive_msg(msg: Msg, max_deliver: int = ARCHIVE_CONSUMER_MAX_DELIVER) -> None:
+    """Archive one workflow result, then ack, retry, or discard its message.
+
+    A failed write goes back to JetStream with a delay instead of being acked,
+    so an outage leaves the backlog in the stream rather than dropping records.
+    ``max_deliver`` is the bound durable's limit; ``-1`` retries indefinitely.
+    """
+    try:
+        data = json.loads(msg.data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        logging.exception("Discarding unreadable archive message")
+        await msg.term()
+        return
+    if not isinstance(data, dict):
+        logging.error("Discarding archive message whose payload is not a JSON object")
+        await msg.term()
+        return
     logging.info("Received archive event: %s", data)
     if not data.get("workflow_id"):
         logging.error("No workflow ID in archive message: %s", data)
+        await msg.ack()
+        return
+    if not isinstance(data["workflow_id"], str):
+        logging.error("Discarding archive event whose workflow ID is not a string: %s", data)
+        await msg.term()
+        return
+    if _publish_time(data) is None:
+        logging.error("Discarding archive event without a usable publish_time: %s", data)
+        await msg.term()
+        return
+    namespace = data.get("namespace")
+    if namespace is not None and not isinstance(namespace, str):
+        logging.error("Discarding archive event whose namespace is not a string: %s", data)
+        await msg.term()
         return
 
+    workflow_id = data["workflow_id"]
+    try:
+        async with asyncio.timeout(ARCHIVE_TIMEOUT_SECONDS):
+            await _archive_workflow(data)
+    except ArchiveRejectedError:
+        logging.exception("Cannot archive workflow %s; discarding it", workflow_id)
+        await msg.term()
+        return
+    except Exception:
+        deliveries = msg.metadata.num_delivered
+        if max_deliver > 0 and deliveries >= max_deliver:
+            logging.exception(
+                "Giving up on archiving workflow %s after %d deliveries",
+                workflow_id,
+                deliveries,
+            )
+            await msg.term()
+            return
+        logging.exception(
+            "Failed to archive workflow %s on delivery %d; retrying in %ds",
+            workflow_id,
+            deliveries,
+            ARCHIVE_RETRY_DELAY_SECONDS,
+        )
+        await msg.nak(delay=ARCHIVE_RETRY_DELAY_SECONDS)
+        return
+    await msg.ack()
+
+
+_retention: timedelta | None = None
+_namespace_confirmed = False
+
+
+def _publish_time(data: dict[str, Any]) -> datetime | None:
+    """Return the event's timezone-aware publish time, which every producer sets."""
+    try:
+        published = datetime.fromisoformat(data["publish_time"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return published if published.tzinfo is not None else None
+
+
+async def _namespace_retention(temporal_client: Client) -> timedelta:
+    """Return the Temporal namespace's workflow retention, looked up once per process."""
+    global _retention
+    if _retention is None:
+        response = await temporal_client.workflow_service.describe_namespace(
+            DescribeNamespaceRequest(namespace=temporal_client.namespace)
+        )
+        _retention = response.config.workflow_execution_retention_ttl.ToTimedelta()
+    return _retention
+
+
+async def _past_retention(temporal_client: Client, data: dict[str, Any]) -> bool:
+    """Whether the event was published longer ago than Temporal keeps workflows."""
+    published = _publish_time(data)
+    if published is None:
+        return False
+    retention = await _namespace_retention(temporal_client)
+    return retention > timedelta(0) and datetime.now(UTC) - published > retention
+
+
+async def _workflow_is_gone(temporal_client: Client, data: dict[str, Any]) -> bool:
+    """Whether a NOT_FOUND lookup means the event's workflow no longer exists.
+
+    An event names the namespace its workflow ran in, so a NOT_FOUND from that
+    namespace is conclusive, and one from another namespace means the archive is
+    misconfigured. An event from a producer that predates the field is discarded
+    once a lookup in this process has succeeded or the event is past retention.
+    """
+    event_namespace = data.get("namespace")
+    if event_namespace is not None:
+        if event_namespace != temporal_client.namespace:
+            logging.error(
+                "Workflow %s ran in Temporal namespace %r, but the archive reads %r",
+                data["workflow_id"],
+                event_namespace,
+                temporal_client.namespace,
+            )
+            return False
+        return True
+    return _namespace_confirmed or await _past_retention(temporal_client, data)
+
+
+async def _archive_workflow(data: dict[str, Any]) -> None:
+    """Look up the finished workflow in Temporal and write it to the archive backend."""
+    global _namespace_confirmed
     temporal_client = await get_client()
     workflow_handle = temporal_client.get_workflow_handle(data["workflow_id"])
-    workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
+    try:
+        workflow_response = await WorkflowDetailResponse.from_handle(workflow_handle)
+    except HTTPException as exc:
+        # A missing workflow never comes back, and retrying it would hold an
+        # in-flight slot for the whole max_deliver window. A 404 can also mean the
+        # archive reads the wrong namespace, so then it is retried.
+        if exc.status_code == 404 and await _workflow_is_gone(temporal_client, data):
+            raise ArchiveRejectedError(
+                f"workflow {data['workflow_id']} does not exist in Temporal"
+            ) from exc
+        raise
+    _namespace_confirmed = True
     workflow_details = workflow_response.model_dump(mode="json")
 
     logging.debug("Response from temporal API: %s", workflow_details)
@@ -80,35 +237,40 @@ async def handle_archive_msg(msg: Msg) -> None:
     if ARCHIVE_BACKEND == "nvdataflow":
         await _archive_nvdataflow(workflow_details)
     else:
-        workflow_details["@timestamp"] = data["publish_time"]
-        _archive_elasticsearch(workflow_details)
+        with _rejecting_malformed_records():
+            workflow_details["@timestamp"] = data["publish_time"]
+        # The Elasticsearch client blocks, which would stall the other in-flight
+        # archive and keep the timeout from firing.
+        await asyncio.to_thread(_archive_elasticsearch, workflow_details)
 
 
 async def _archive_nvdataflow(workflow_details: Any) -> None:
     """Archive workflow details to nvdataflow."""
     compressed = gzip.compress(json.dumps(workflow_details).encode("utf-8"))
     encoded = base64.b64encode(compressed).decode("utf-8")
+    temporal_server = config["temporal"]["api_url"]
 
-    archive_data = {
-        "ts_created": int(datetime.now(UTC).timestamp() * 1000),
-        "ts_start_time": int(
-            datetime.fromisoformat(workflow_details["start_time"]).timestamp() * 1000
-        ),
-        "s_started_by": workflow_details["started_by"],
-        "s_status": workflow_details["status"],
-        "s_config_manager_temporal_server": config["temporal"]["api_url"],
-        "s_workflow_id": workflow_details["id"],
-        "s_workflow_type": workflow_details["workflow_type"],
-        "obj_search_attributes": workflow_details["search_attributes"],
-        "ni_body": encoded,
-    }
+    with _rejecting_malformed_records():
+        archive_data = {
+            "ts_created": int(datetime.now(UTC).timestamp() * 1000),
+            "ts_start_time": int(
+                datetime.fromisoformat(workflow_details["start_time"]).timestamp() * 1000
+            ),
+            "s_started_by": workflow_details["started_by"],
+            "s_status": workflow_details["status"],
+            "s_config_manager_temporal_server": temporal_server,
+            "s_workflow_id": workflow_details["id"],
+            "s_workflow_type": workflow_details["workflow_type"],
+            "obj_search_attributes": workflow_details["search_attributes"],
+            "ni_body": encoded,
+        }
 
-    # Handle close_time (now a string if it exists)
-    close_time_str = workflow_details.get("close_time")
-    if close_time_str is not None:
-        archive_data["ts_close_time"] = int(
-            datetime.fromisoformat(close_time_str).timestamp() * 1000
-        )
+        # Handle close_time (now a string if it exists)
+        close_time_str = workflow_details.get("close_time")
+        if close_time_str is not None:
+            archive_data["ts_close_time"] = int(
+                datetime.fromisoformat(close_time_str).timestamp() * 1000
+            )
 
     nvdataflow_config = config["temporal.nvdataflow"]
     async with NVDataflowClient(
@@ -120,13 +282,13 @@ async def _archive_nvdataflow(workflow_details: Any) -> None:
     ) as client:
         res_status_code = await client.post(data=archive_data)
 
-    if res_status_code != 201:
-        logging.error(
-            "Failed to archive workflow details to nvdataflow with status code %s",
-            res_status_code,
+    if res_status_code in NVDATAFLOW_REJECTED_STATUSES:
+        raise ArchiveRejectedError(f"nvdataflow rejected the record with status {res_status_code}")
+    if res_status_code not in NVDATAFLOW_SUCCESS_STATUSES:
+        raise RuntimeError(
+            f"Failed to archive workflow details to nvdataflow with status code {res_status_code}"
         )
-    else:
-        logging.info("Results written to nvdataflow. Archive handler complete")
+    logging.info("Results written to nvdataflow. Archive handler complete")
 
 
 def _archive_elasticsearch(workflow_details: Any) -> None:
@@ -165,17 +327,34 @@ def _archive_elasticsearch(workflow_details: Any) -> None:
         )
 
     logging.debug("Connected to ElasticSearch: %s", elastic.info())
-    index = f"{ELASTICSEARCH_INDEX_PREFIX}_{workflow_details['workflow_type'].lower()}"
+    with _rejecting_malformed_records():
+        index = f"{ELASTICSEARCH_INDEX_PREFIX}_{workflow_details['workflow_type'].lower()}"
+        # A write abandoned at the deadline can still land, so a retry of the same
+        # run overwrites it. A rerun reusing the workflow ID starts later.
+        document_id = f"{workflow_details['id']}@{workflow_details['start_time']}"
     if not elastic.indices.exists(index=index):
         logging.info("Creating ElasticSearch index: %s", index)
-        elastic.indices.create(
+        try:
+            elastic.indices.create(
+                index=index,
+                mappings=ELASTICSEARCH_INDEX_MAPPING,
+            )
+        except BadRequestError as exc:
+            # Another in-flight archive of the same workflow type created it first.
+            if exc.error != "resource_already_exists_exception":
+                raise
+    try:
+        elastic.index(
             index=index,
-            mappings=ELASTICSEARCH_INDEX_MAPPING,
+            id=document_id,
+            document=workflow_details,
         )
-    elastic.index(
-        index=index,
-        document=workflow_details,
-    )
+    except ApiError as exc:
+        if exc.meta.status in (400, 413):
+            raise ArchiveRejectedError(
+                f"Elasticsearch rejected the record with status {exc.meta.status}"
+            ) from exc
+        raise
     logging.info("Results written to elasticsearch. Archive handler complete")
 
 
@@ -209,11 +388,17 @@ def main() -> None:
     setup_telemetry("nv-config-manager-temporal-archive")
 
     stream, subject = nats_archive_config()
+
+    async def handler(msg: Msg) -> None:
+        await handle_archive_msg(msg, consumer.max_deliver)
+
     consumer = NatsConsumer(
         stream=stream,
         subject=subject,
         queue_suffix="archive",
-        handler=handle_archive_msg,
+        handler=handler,
+        manual_ack=True,
+        max_concurrent_handlers=ARCHIVE_CONSUMER_MAX_ACK_PENDING,
         liveness_timeout=float(
             os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
         ),

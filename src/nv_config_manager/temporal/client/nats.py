@@ -64,6 +64,8 @@ class NatsConsumer(BaseNatsConsumer):
         queue_suffix: str,
         handler: Callable[[Msg], Awaitable[None]],
         liveness_timeout: float | None = None,
+        manual_ack: bool = False,
+        max_concurrent_handlers: int | None = None,
     ) -> None:
         """Initialize the consumer from config."""
         super().__init__(
@@ -72,5 +74,7 @@ class NatsConsumer(BaseNatsConsumer):
             queue_suffix=queue_suffix,
             handler=handler,
             liveness_timeout=liveness_timeout,
+            manual_ack=manual_ack,
+            max_concurrent_handlers=max_concurrent_handlers,
             **nats_consumer_settings(queue_suffix=queue_suffix),
         )
