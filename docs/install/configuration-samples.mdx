@@ -30,6 +30,25 @@ services:
   nautobot: true
 ```
 
+## Custom Deployment Labels
+
+Set `cluster.custom_labels` to identify a deployment in Kubernetes resources
+and exported metrics. The installer maps these labels to `global.customLabels`
+in generated Helm values. You can also edit them on the TUI's **Cluster** screen.
+
+```yaml
+version: "1"
+cluster:
+  hostname: config-manager.example.com
+  environment: test
+  custom_labels:
+    example.com/team: network-operations
+    example.com/region: west
+```
+
+Use valid Kubernetes label names and values. The installer rejects labels that
+conflict with chart-managed identity labels, such as `app.kubernetes.io/name`.
+
 ## External DCIM provider
 
 The provider package is owned separately from Config Manager. Until the

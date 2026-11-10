@@ -1733,6 +1733,20 @@ mcp-auth.ini: |
 {{- end }}
 
 {{/*
+Renders "true" when the NVIDIA Config Manager Temporal worker should serve its
+SDK metrics on a Prometheus endpoint (and a PodMonitor should scrape it), and
+nothing otherwise. Scraping, unlike OTLP push, labels every series with the
+pod's Kubernetes namespace. Port 8000 is already admitted from
+monitoring.prometheus.namespace by the namespace-isolation NetworkPolicy.
+Usage: {{- if include "nv-config-manager.temporalWorkerMetricsEnabled" . }}
+*/}}
+{{- define "nv-config-manager.temporalWorkerMetricsEnabled" -}}
+{{- if and .Values.temporal.enabled .Values.monitoring.enabled .Values.monitoring.podMonitors.enabled -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 Self-signed CA certificate environment variables for Python/Node.js
 Usage: {{ include "nv-config-manager.selfSignedCA.env" . }}
 */}}

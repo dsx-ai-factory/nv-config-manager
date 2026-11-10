@@ -426,6 +426,14 @@ spec:
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-worker") | nindent 8 }}
         {{- end }}
+        {{- if include "nv-config-manager.temporalWorkerMetricsEnabled" . }}
+        # Serve SDK metrics for the PodMonitor; replaces OTLP metric export for this pod.
+        - name: TEMPORAL_METRICS_PROMETHEUS_ADDRESS
+          value: "0.0.0.0:8000"
+        ports:
+        - name: metrics
+          containerPort: 8000
+        {{- end }}
         resources:
           {{- toYaml .Values.temporal.configManagerWorker.resources | nindent 10 }}
         volumeMounts:
