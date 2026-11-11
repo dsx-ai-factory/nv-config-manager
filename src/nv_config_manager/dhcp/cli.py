@@ -623,7 +623,11 @@ async def _sync_kea_configuration_async(
     """Async implementation of sync configuration."""
     # Connect to the KEA server running in the same pod
     ini_config = load_config()
-    kea_client = KeaClient.from_config(ini_config, attached=True)
+    # The client's own HTTP timeout must not undercut the asyncio.wait_for
+    # deadlines below, or CONFIG_SYNC_KEA_TIMEOUT would have no effect.
+    kea_client = KeaClient.from_config(
+        ini_config, attached=True, timeout_seconds=KEA_OP_TIMEOUT_SECONDS
+    )
     redis_client = RedisClient.from_config(ini_config)
 
     try:

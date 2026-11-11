@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 from configparser import ConfigParser
 from enum import IntEnum
+from math import isfinite
 from typing import Any, Literal
 
 import aiohttp
@@ -34,6 +35,16 @@ from nv_config_manager.common.config.loader import load_config
 # Ready-only internal Service.
 KEA_SERVER_ENV = "NV_CONFIG_MANAGER_KEA_SERVER"
 KEA_PORT_ENV = "NV_CONFIG_MANAGER_KEA_PORT"
+
+# Per-container override for the total HTTP timeout (seconds) of each Kea
+# control request, used when the caller does not pass ``timeout_seconds``
+# explicitly. Applies to attached and non-attached clients alike.
+KEA_TIMEOUT_ENV = "NV_CONFIG_MANAGER_KEA_TIMEOUT"
+
+# Default total HTTP timeout for a single Kea control request. Callers that wrap
+# Kea calls in their own deadline (e.g. config-sync) should pass a value at or
+# above it so this inner timeout never fires first.
+DEFAULT_TIMEOUT_SECONDS = 10.0
 
 
 class IpVersion(IntEnum):
@@ -58,7 +69,11 @@ class KeaClient:
     """Async KEA REST Client."""
 
     @staticmethod
-    def from_config(config: ConfigParser | None = None, attached: bool = False) -> KeaClient:
+    def from_config(
+        config: ConfigParser | None = None,
+        attached: bool = False,
+        timeout_seconds: float | None = None,
+    ) -> KeaClient:
         """Create a KEA client from the configured server and port.
 
         When ``attached`` is set, the client always targets the co-located Kea
@@ -70,7 +85,22 @@ class KeaClient:
         uses this override to reach Kea through the internal bootstrap/validation
         Service so it can run ``config-test`` and seed Redis before pods are
         Ready, without weakening readiness for anyone else.
+
+        ``timeout_seconds`` is the total HTTP timeout applied to each request.
+        An explicit value wins; otherwise ``NV_CONFIG_MANAGER_KEA_TIMEOUT`` is
+        used when set, falling back to ``DEFAULT_TIMEOUT_SECONDS``.
         """
+        if timeout_seconds is None:
+            raw_timeout = os.environ.get(KEA_TIMEOUT_ENV)
+            if raw_timeout:
+                try:
+                    timeout_seconds = float(raw_timeout)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"{KEA_TIMEOUT_ENV} must be a number of seconds, got {raw_timeout!r}"
+                    ) from exc
+            else:
+                timeout_seconds = DEFAULT_TIMEOUT_SECONDS
         if config is None:
             config = load_config()
         if attached:
@@ -79,17 +109,31 @@ class KeaClient:
         else:
             host = os.environ.get(KEA_SERVER_ENV) or config["dhcp.kea"]["server"]
             port = int(os.environ.get(KEA_PORT_ENV) or config["dhcp.kea"]["port"])
-        return KeaClient(host=host, port=port)
+        return KeaClient(host=host, port=port, timeout_seconds=timeout_seconds)
 
-    def __init__(self, host: str | None = None, port: int = 8000) -> None:
-        """Initialize a KEA REST Client."""
+    def __init__(
+        self,
+        host: str | None = None,
+        port: int = 8000,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        """Initialize a KEA REST Client.
+
+        ``timeout_seconds`` bounds the total time of each HTTP request. Large
+        ``config-set`` payloads can take longer than the default under load.
+        """
+        if not isfinite(timeout_seconds):
+            raise ValueError(f"timeout_seconds must be a finite number, got {timeout_seconds}")
+        if timeout_seconds <= 0:
+            raise ValueError(f"timeout_seconds must be positive, got {timeout_seconds}")
         self.url = f"http://{host}:{port}/"
+        self.timeout_seconds = timeout_seconds
         self._session: aiohttp.ClientSession | None = None
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create the aiohttp session."""
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=10)
+            timeout = aiohttp.ClientTimeout(total=self.timeout_seconds)
             connector = aiohttp.TCPConnector()
             self._session = aiohttp.ClientSession(
                 timeout=timeout,
