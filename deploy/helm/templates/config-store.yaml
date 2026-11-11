@@ -57,6 +57,7 @@ spec:
       - name: api
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
         imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+        {{- include "nv-config-manager.preStopDrain" (dict "root" . "indent" 8) }}
         {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
         command: ["nv-config-manager-config-store-api"]
         args: []
