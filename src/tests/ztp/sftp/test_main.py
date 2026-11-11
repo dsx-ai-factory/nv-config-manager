@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import io
-from unittest.mock import AsyncMock, MagicMock, patch
+import socket
+import threading
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
-from paramiko import SFTPAttributes
+from paramiko import SFTPAttributes, Transport
 from paramiko.common import AUTH_SUCCESSFUL, OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED, OPEN_SUCCEEDED
 from paramiko.sftp import SFTP_OK
 
@@ -27,6 +29,7 @@ from nv_config_manager.ztp.sftp.main import (
     ZTPSFTPHandle,
     ZTPSFTPServer,
     ZTPSFTPSubsystemHandler,
+    _generate_host_keys,
     handle_connection,
     shutdown_event,
     start_server,
@@ -402,7 +405,7 @@ def test_handle_connection(mock_transport):
     # Create mock socket and address
     mock_socket = MagicMock()
     mock_addr = ("192.168.1.1", 12345)
-    mock_host_key = MagicMock()
+    mock_host_keys = (MagicMock(), MagicMock())
 
     # Mock transport and channel
     mock_channel = MagicMock()
@@ -418,10 +421,12 @@ def test_handle_connection(mock_transport):
     ]  # Will return True twice, then False
 
     # Run the connection handler
-    handle_connection(mock_socket, mock_addr, mock_host_key)
+    handle_connection(mock_socket, mock_addr, mock_host_keys)
 
     # Verify transport was set up and started
-    mock_transport_instance.add_server_key.assert_called_once_with(mock_host_key)
+    assert mock_transport_instance.add_server_key.call_args_list == [
+        call(key) for key in mock_host_keys
+    ]
     mock_transport_instance.set_subsystem_handler.assert_called_once_with(
         "sftp",
         ZTPSFTPSubsystemHandler,
@@ -430,6 +435,35 @@ def test_handle_connection(mock_transport):
     )
     mock_transport_instance.start_server.assert_called_once()
     mock_transport_instance.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "host_key_algorithm", ["ecdsa-sha2-nistp256", "rsa-sha2-256", "rsa-sha2-512"]
+)
+def test_device_host_key_negotiation(host_key_algorithm):
+    """Device clients can negotiate ECDSA without losing RSA SHA-2 support."""
+    server_socket, client_socket = socket.socketpair()
+    server = threading.Thread(
+        target=handle_connection,
+        args=(server_socket, ("192.0.2.1", 12345), _generate_host_keys()),
+        daemon=True,
+    )
+    client = Transport(client_socket)
+    client.get_security_options().key_types = (host_key_algorithm,)
+    server.start()
+    try:
+        client.start_client(timeout=5)
+        client.auth_password("test-user", "test-password")
+        channel = client.open_session(timeout=5)
+        assert client.is_authenticated()
+        assert client.host_key_type == host_key_algorithm
+        channel.close()
+    finally:
+        client.close()
+        client_socket.close()
+        server_socket.close()
+        server.join(timeout=5)
+    assert not server.is_alive()
 
 
 @pytest.mark.timeout(0)  # override default timeout, sftp startup takes a bit
