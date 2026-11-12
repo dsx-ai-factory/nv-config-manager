@@ -255,12 +255,12 @@ def test_liveness_fails_once_disconnected_past_budget(custom_ini: Callable[[str]
     consumer.nats_conn.is_connected = False
     assert consumer.disconnected_timeout < consumer.liveness_timeout
 
+    # The round trip is recent, so only the disconnect can fail the probe.
+    consumer._record_round_trip()
     consumer._mark_disconnected()
     live, _ = consumer.liveness()
     assert live is True
 
-    # The round trip is recent, so only the disconnect can fail the probe.
-    consumer._record_round_trip()
     assert consumer._disconnected_since is not None
     consumer._disconnected_since -= consumer.disconnected_timeout + 1
     live, detail = consumer.liveness()
@@ -295,6 +295,26 @@ def test_connected_client_ignores_a_stale_disconnect(custom_ini: Callable[[str],
     assert consumer._disconnected_since is not None
     consumer._disconnected_since -= consumer.disconnected_timeout + 1
 
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+def test_round_trip_clears_a_disconnect_without_reconnect_callback(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A later drop gets its full budget even if the earlier reconnect went unreported."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.nats_conn = MagicMock()
+
+    consumer._mark_disconnected()
+    assert consumer._disconnected_since is not None
+    consumer._disconnected_since -= consumer.disconnected_timeout + 1
+    consumer.nats_conn.is_connected = True
+    consumer._record_round_trip()
+
+    consumer.nats_conn.is_connected = False
+    consumer._mark_disconnected()
     live, _ = consumer.liveness()
     assert live is True
 

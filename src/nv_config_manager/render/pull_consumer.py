@@ -268,8 +268,14 @@ class PullConsumer:
         return True
 
     def _record_round_trip(self) -> None:
-        """Note a completed fetch, or a consumer info lookup made while a handler runs."""
+        """Note a completed fetch, or a consumer info lookup made while a handler runs.
+
+        A round trip also proves the connection is back, so it clears a
+        disconnect whose reconnect callback never arrived. Otherwise the next
+        drop would inherit the old timestamp and fail the probe at once.
+        """
         self._last_round_trip = time.monotonic()
+        self._disconnected_since = None
 
     def _mark_disconnected(self) -> None:
         """Note when the connection dropped, keeping the first drop across retries."""
