@@ -34,7 +34,6 @@ _TEMPLATE = "templates/render-service.yaml"
 _CONSUMERS = ("consumer-nautobot", "consumer-device")
 _BUDGET_ENV = (
     "CONSUMER_LIVENESS_TIMEOUT_SECONDS",
-    "CONSUMER_DISCONNECTED_TIMEOUT_SECONDS",
     "CONSUMER_HANDLER_MAX_AGE_SECONDS",
 )
 
@@ -95,17 +94,15 @@ def test_budget_overrides_reach_both_consumers() -> None:
     """Operators can lengthen the budgets without editing the rendered manifest."""
     docs = _render(
         "renderService.consumers.liveness.timeoutSeconds=900",
-        "renderService.consumers.liveness.disconnectedTimeoutSeconds=60",
         "renderService.consumers.liveness.handlerMaxAgeSeconds=14400",
     )
     for env in _consumer_env(docs).values():
         assert env["CONSUMER_LIVENESS_TIMEOUT_SECONDS"] == "900"
-        assert env["CONSUMER_DISCONNECTED_TIMEOUT_SECONDS"] == "60"
         assert env["CONSUMER_HANDLER_MAX_AGE_SECONDS"] == "14400"
 
 
 def test_explicit_zero_is_passed_through_for_the_consumer_to_reject() -> None:
     """Helm treats 0 as empty; dropping it would silently swap an invalid override for the default."""
-    docs = _render("renderService.consumers.liveness.disconnectedTimeoutSeconds=0")
+    docs = _render("renderService.consumers.liveness.timeoutSeconds=0")
     for env in _consumer_env(docs).values():
-        assert env["CONSUMER_DISCONNECTED_TIMEOUT_SECONDS"] == "0"
+        assert env["CONSUMER_LIVENESS_TIMEOUT_SECONDS"] == "0"

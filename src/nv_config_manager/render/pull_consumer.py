@@ -22,13 +22,9 @@ import math
 import os
 import signal
 import ssl
-import threading
 import time
 from asyncio import AbstractEventLoop
 from datetime import datetime
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
 
 import nats
 import nats.errors
@@ -37,6 +33,7 @@ from nats.aio.msg import Msg
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy
 from nats.js.errors import FetchTimeoutError, NotFoundError
+from nv_config_manager_infrastructure.liveness import start_liveness_server
 from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
 from prometheus_client import Counter, Gauge, start_http_server
 
@@ -208,20 +205,6 @@ class PullConsumer:
             )
         self._handler_started: float | None = None
 
-        # A client whose reconnect task dies is left neither closed nor
-        # connected, so the retry loop times out forever instead of exiting.
-        # Reconnects normally finish within seconds, so a connection that stays
-        # down past this budget fails the probe well before the round trip
-        # budget above runs out.
-        self.disconnected_timeout = float(os.getenv("CONSUMER_DISCONNECTED_TIMEOUT_SECONDS", "120"))
-        if not math.isfinite(self.disconnected_timeout) or self.disconnected_timeout <= 0:
-            raise ValueError(
-                f"CONSUMER_DISCONNECTED_TIMEOUT_SECONDS={self.disconnected_timeout:g} must be "
-                "a positive, finite number of seconds, or a consumer that never reconnects "
-                "would wait for the round trip budget"
-            )
-        self._disconnected_since: float | None = None
-
     def run(self) -> None:
         """Run the consumer."""
         try:
@@ -268,44 +251,15 @@ class PullConsumer:
         return True
 
     def _record_round_trip(self) -> None:
-        """Note a completed fetch, or a consumer info lookup made while a handler runs.
-
-        While the client is connected, a round trip also clears a disconnect
-        whose reconnect callback never arrived. Otherwise the next drop would
-        inherit the old timestamp and fail the probe at once. A fetch can still
-        end in FetchTimeoutError after the connection drops, so the clear has to
-        check the connection rather than trust the round trip alone.
-        """
+        """Note a completed fetch, or a consumer info lookup made while a handler runs."""
         self._last_round_trip = time.monotonic()
-        if self.nats_conn is not None and self.nats_conn.is_connected:
-            self._disconnected_since = None
-
-    def _mark_disconnected(self) -> None:
-        """Note when the connection dropped, keeping the first drop across retries."""
-        if self._disconnected_since is None:
-            self._disconnected_since = time.monotonic()
-
-    def _mark_reconnected(self) -> None:
-        """Clear the disconnect once the client is connected again."""
-        self._disconnected_since = None
 
     def liveness(self) -> tuple[bool, str]:
         """Report whether a server round trip has completed recently enough.
 
-        Also fails once the connection has been down longer than
-        disconnected_timeout, or the current handler has run longer than
-        handler_max_age.
+        Also fails once the current handler has run longer than handler_max_age.
         """
         now = time.monotonic()
-        disconnected_since = self._disconnected_since
-        connected = self.nats_conn is not None and self.nats_conn.is_connected
-        if disconnected_since is not None and not connected:
-            disconnected_for = now - disconnected_since
-            if disconnected_for > self.disconnected_timeout:
-                return False, (
-                    f"NATS disconnected for {disconnected_for:.0f}s "
-                    f"(limit {self.disconnected_timeout:.0f}s)"
-                )
         if self._handler_started is not None:
             handling_for = now - self._handler_started
             if handling_for > self.handler_max_age:
@@ -383,11 +337,9 @@ class PullConsumer:
             self.logger.error("Unhandled NATS error", exc_info=exc)
 
         async def disconnected_cb() -> None:
-            self._mark_disconnected()
             self.logger.warning("NATS connection disconnected.")
 
         async def reconnected_cb() -> None:
-            self._mark_reconnected()
             self.logger.warning("NATS connection reconnected.")
 
         self.nats_conn = await nats_connection(
@@ -900,37 +852,6 @@ def _lock_retry_delay(msg: Msg) -> int:
     """Return how long to wait before retrying a message that lost the device lock."""
     attempt = _num_delivered(msg) or 1
     return min(LOCK_RETRY_INITIAL_SECONDS << min(attempt - 1, 3), LOCK_RETRY_MAX_SECONDS)
-
-
-def start_liveness_server(consumer: PullConsumer, port: int = 8001) -> ThreadingHTTPServer:
-    """Serve consumer liveness on /healthz.
-
-    Without this the pod stays Running and Ready while the consumer makes no
-    progress, because the retry loop swallows every error and the process never
-    exits. Nothing outside the process can then restart it.
-    """
-
-    class LivenessHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-
-        def do_GET(self) -> None:  # noqa: N802
-            if self.path.rstrip("/") not in ("/healthz", ""):
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            live, detail = consumer.liveness()
-            body = detail.encode()
-            self.send_response(HTTPStatus.OK if live else HTTPStatus.SERVICE_UNAVAILABLE)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-            """Drop per-request logging so probes do not flood the log."""
-
-    server = ThreadingHTTPServer(("", port), LivenessHandler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server
 
 
 def main() -> None:

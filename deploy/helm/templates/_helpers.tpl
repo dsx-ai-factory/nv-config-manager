@@ -1285,15 +1285,14 @@ wheels must be present under /plugin-wheels.
 {{- end -}}
 
 {{/*
-Optional /healthz budget overrides for the render consumers. Null values keep
-the defaults built into the consumer. Anything else, zero included, is passed
-through so the consumer's startup validation can reject it.
+Liveness budget env for a consumer, from its liveness values. Only keys set to a
+non-null value are rendered, so the consumer's validated defaults apply otherwise.
+Zero is passed through for the consumer to reject rather than silently dropped.
 */}}
-{{- define "nv-config-manager.renderConsumerLivenessEnv" -}}
-{{- $liveness := .Values.renderService.consumers.liveness | default dict -}}
+{{- define "nv-config-manager.consumerLivenessEnv" -}}
+{{- $liveness := . | default dict -}}
 {{- $envNames := dict
   "timeoutSeconds" "CONSUMER_LIVENESS_TIMEOUT_SECONDS"
-  "disconnectedTimeoutSeconds" "CONSUMER_DISCONNECTED_TIMEOUT_SECONDS"
   "handlerMaxAgeSeconds" "CONSUMER_HANDLER_MAX_AGE_SECONDS" -}}
 {{- range $key, $envName := $envNames }}
 {{- if and (hasKey $liveness $key) (not (kindIs "invalid" (index $liveness $key))) }}
