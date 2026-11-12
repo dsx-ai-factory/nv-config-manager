@@ -270,12 +270,15 @@ class PullConsumer:
     def _record_round_trip(self) -> None:
         """Note a completed fetch, or a consumer info lookup made while a handler runs.
 
-        A round trip also proves the connection is back, so it clears a
-        disconnect whose reconnect callback never arrived. Otherwise the next
-        drop would inherit the old timestamp and fail the probe at once.
+        While the client is connected, a round trip also clears a disconnect
+        whose reconnect callback never arrived. Otherwise the next drop would
+        inherit the old timestamp and fail the probe at once. A fetch can still
+        end in FetchTimeoutError after the connection drops, so the clear has to
+        check the connection rather than trust the round trip alone.
         """
         self._last_round_trip = time.monotonic()
-        self._disconnected_since = None
+        if self.nats_conn is not None and self.nats_conn.is_connected:
+            self._disconnected_since = None
 
     def _mark_disconnected(self) -> None:
         """Note when the connection dropped, keeping the first drop across retries."""

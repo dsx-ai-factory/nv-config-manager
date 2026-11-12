@@ -319,6 +319,25 @@ def test_round_trip_clears_a_disconnect_without_reconnect_callback(
     assert live is True
 
 
+def test_round_trip_while_disconnected_keeps_the_disconnect(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A fetch that times out after the drop must not hide the drop from the probe."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_connected = False
+
+    consumer._mark_disconnected()
+    consumer._record_round_trip()
+    assert consumer._disconnected_since is not None
+
+    consumer._disconnected_since -= consumer.disconnected_timeout + 1
+    live, detail = consumer.liveness()
+    assert live is False
+    assert "NATS disconnected" in detail
+
+
 @pytest.mark.parametrize("timeout", ["0", "-5", "nan", "inf"])
 def test_unsafe_disconnected_timeout_is_rejected(
     custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, timeout: str
