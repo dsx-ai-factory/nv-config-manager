@@ -61,15 +61,16 @@ def _imports_outside_passthrough(body: list[ast.stmt]) -> Iterator[ast.Import | 
             yield from _imports_outside_passthrough(node.orelse)
             for handler in getattr(node, "handlers", ()):
                 yield from _imports_outside_passthrough(handler.body)
+            yield from _imports_outside_passthrough(getattr(node, "finalbody", []))
         elif isinstance(node, ast.With) and not _is_passthrough_block(node):
             yield from _imports_outside_passthrough(node.body)
 
 
-def _imported_root(node: ast.Import | ast.ImportFrom) -> str | None:
-    """Return the top-level package an import loads, or None for a relative import."""
+def _imported_roots(node: ast.Import | ast.ImportFrom) -> set[str | None]:
+    """Return the top-level packages an import loads, with None for a relative import."""
     if isinstance(node, ast.ImportFrom):
-        return None if node.level or node.module is None else node.module.split(".")[0]
-    return node.names[0].name.split(".")[0]
+        return {None if node.level or node.module is None else node.module.split(".")[0]}
+    return {alias.name.split(".")[0] for alias in node.names}
 
 
 def _workflow_module_paths() -> list[Path]:
@@ -102,7 +103,7 @@ def test_workflow_module_imports_are_passed_through(path: Path) -> None:
     violations = [
         f"{path.name}:{node.lineno}: {ast.unparse(node)}"
         for node in _imports_outside_passthrough(tree.body)
-        if _imported_root(node) not in _SANDBOXED_ROOTS
+        if not _imported_roots(node) <= _SANDBOXED_ROOTS
     ]
 
     assert violations == []
@@ -123,6 +124,12 @@ def test_workflow_module_imports_are_passed_through(path: Path) -> None:
             "try:\n    import orjson\nexcept ImportError:\n    import json\n",
             ["import orjson"],
         ),
+        (
+            "try:\n    import json\nfinally:\n    import pydantic\n",
+            ["import pydantic"],
+        ),
+        ("import json, pydantic\n", ["import json, pydantic"]),
+        ("import json, os.path\n", []),
     ],
 )
 def test_imports_outside_passthrough_flags_only_sandboxed_imports(
@@ -132,7 +139,7 @@ def test_imports_outside_passthrough_flags_only_sandboxed_imports(
     found = [
         ast.unparse(node)
         for node in _imports_outside_passthrough(ast.parse(source).body)
-        if _imported_root(node) not in _SANDBOXED_ROOTS
+        if not _imported_roots(node) <= _SANDBOXED_ROOTS
     ]
 
     assert found == violations
