@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import os
 import platform
@@ -31,6 +32,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from air_sdk import AirApi
 from air_sdk.endpoints.user_configs import UserConfig as UserConfigModel
@@ -43,7 +45,6 @@ from nv_config_manager_installer.air_sim.constants import (
     CONFIG_MANAGER_NAMESPACE,
     CONFIG_MANAGER_NAUTOBOT_DEPLOYMENT,
     CONFIG_MANAGER_RENDER_API_DEPLOYMENT,
-    CONFIG_MANAGER_TEMPORAL_FRONTEND_DEPLOYMENT,
     CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT,
     CONFIG_MANAGER_ZTP_DEPLOYMENT,
     DEFAULT_AIR_API_URL,
@@ -1523,6 +1524,9 @@ class AirSimulationManager:
         "Site": "Text",
         "ReadRoles": "KeywordList",
         "ExecuteRoles": "KeywordList",
+        "PendingApproval": "Bool",
+        "FailedStage": "Bool",
+        "IssueKey": "Keyword",
     }
 
     def ensure_temporal_search_attributes(
@@ -1533,56 +1537,127 @@ class AirSimulationManager:
         namespace: str = CONFIG_MANAGER_NAMESPACE,
         max_attempts: int = 3,
         wait_between: int = 30,
+        rollout_timeout: int = 300,
     ) -> bool:
-        """Verify Temporal search attributes exist; restart the worker if not.
+        """Verify attributes with the deployed bootstrap CLI image.
 
-        The ``temporal-setup`` init container on the worker pod registers
-        custom search attributes on first boot.  When the Temporal DB
-        isn't ready yet, the init container can silently fail, leaving the
-        worker running without attributes like ``ReadRoles`` — which then
-        causes RPCErrors at workflow time.
-
-        This method:
-        1. Lists search attributes on the Temporal frontend pod.
-        2. If any expected attribute is missing, restarts the worker
-           deployment (so the ``temporal-setup`` init container re-runs).
-        3. Re-checks after the rollout, up to *max_attempts* times.
-
-        Returns True if all attributes are present (or became present
-        after a restart), False otherwise.
+        The frontend is distroless and has no administrative CLI. Run the CLI
+        in a temporary pod using the temporal-setup init container's image,
+        endpoint, and namespace. Always clean up the pod, including on errors.
+        Retry failed queries without restarting the worker; restart only when
+        a successful query confirms missing attributes.
         """
+        if max_attempts < 1 or wait_between < 0 or rollout_timeout < 1:
+            raise ValueError(
+                "max_attempts and rollout_timeout must be positive and wait_between non-negative"
+            )
         ssh_base = self._ssh_cmd(host, port)
         kube = "KUBECONFIG=/home/nvcm/.kube/config"
+        target_namespace = shlex.quote(namespace)
+        worker = CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT
 
-        def _ssh(cmd: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                [*ssh_base, cmd],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+        def _ssh(cmd: str, timeout: int = 30) -> str:
+            try:
+                result = subprocess.run(
+                    [*ssh_base, cmd], capture_output=True, text=True, timeout=timeout
+                )
+            except subprocess.TimeoutExpired:
+                # TimeoutExpired includes argv, which contains the sshpass password.
+                raise RuntimeError(f"Remote command timed out after {timeout}s") from None
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "no diagnostic output").strip()
+                raise RuntimeError(f"Remote command failed (exit {result.returncode}): {detail}")
+            return result.stdout
 
         def _check_attributes() -> list[str]:
-            """Return list of missing attribute names."""
-            result = _ssh(
-                f"{kube} kubectl exec -n {namespace}"
-                f" deploy/{CONFIG_MANAGER_TEMPORAL_FRONTEND_DEPLOYMENT} --"
-                " temporal operator search-attribute list"
-                " --address localhost:7233 2>/dev/null"
+            deployment = json.loads(
+                _ssh(f"{kube} kubectl get deployment/{worker} -n {target_namespace} -o json")
             )
-            output = result.stdout or ""
-            missing = []
-            for attr_name in self._TEMPORAL_SEARCH_ATTRIBUTES:
-                if attr_name not in output:
-                    missing.append(attr_name)
-            return missing
+            spec = deployment["spec"]["template"]["spec"]
+            setup = next(
+                (
+                    container
+                    for container in spec["initContainers"]
+                    if container["name"] == "temporal-setup"
+                ),
+                None,
+            )
+            if setup is None:
+                raise ValueError("Worker deployment has no temporal-setup init container")
+            env = {entry["name"]: entry["value"] for entry in setup["env"] if "value" in entry}
+            pod_name = f"nvcm-temporal-attributes-{uuid4().hex[:8]}"
+            overrides: dict[str, Any] = {
+                "spec": {"automountServiceAccountToken": False, "activeDeadlineSeconds": 120}
+            }
+            for key in ("imagePullSecrets", "securityContext"):
+                if key in spec:
+                    overrides["spec"][key] = spec[key]
+            command = shlex.join(
+                [
+                    "kubectl",
+                    "run",
+                    pod_name,
+                    "-n",
+                    namespace,
+                    "--image",
+                    setup["image"],
+                    "--image-pull-policy",
+                    setup.get("imagePullPolicy", "IfNotPresent"),
+                    "--restart=Never",
+                    "--attach=true",
+                    "--rm",
+                    "--quiet",
+                    "--pod-running-timeout=60s",
+                    "--overrides",
+                    json.dumps(overrides),
+                    "--command",
+                    "--",
+                    "/usr/local/bin/temporal",
+                    "--address",
+                    env["TEMPORAL_ADDR"],
+                    "--namespace",
+                    env["TEMPORAL_NAMESPACE"],
+                    "--output",
+                    "json",
+                    "operator",
+                    "search-attribute",
+                    "list",
+                ]
+            )
+            try:
+                response = json.loads(_ssh(f"{kube} {command}", timeout=150))
+            finally:
+                # --rm handles normal exits; explicitly delete after SSH/attach failures too.
+                try:
+                    _ssh(
+                        f"{kube} kubectl delete pod {pod_name} -n {target_namespace}"
+                        " --ignore-not-found --wait=false"
+                    )
+                except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+                    LOG.warning("Could not clean up Temporal check pod %s: %s", pod_name, exc)
+            if not isinstance(response, dict) or not (
+                "customAttributes" in response or "systemAttributes" in response
+            ):
+                raise ValueError("Expected a JSON search-attribute list from the Temporal CLI")
+            attributes = response.get("customAttributes", {})
+            if not isinstance(attributes, dict):
+                raise ValueError("Expected a JSON object of Temporal custom search attributes")
+            return [name for name in self._TEMPORAL_SEARCH_ATTRIBUTES if name not in attributes]
 
-        LOG.info("Checking Temporal search attributes...")
-
+        LOG.info("Checking Temporal search attributes with the bootstrap CLI...")
+        missing: list[str] | None = None
         for attempt in range(1, max_attempts + 1):
             try:
                 missing = _check_attributes()
-            except (subprocess.TimeoutExpired, Exception) as exc:
+            except (
+                OSError,
+                subprocess.SubprocessError,
+                RuntimeError,
+                ValueError,
+                KeyError,
+                TypeError,
+            ) as exc:
+                missing = None
                 LOG.warning(
                     "Could not check Temporal search attributes (attempt %d/%d): %s",
                     attempt,
@@ -1603,34 +1678,35 @@ class AirSimulationManager:
                 max_attempts,
                 ", ".join(missing),
             )
-
             if attempt < max_attempts:
-                LOG.info(
-                    "Restarting %s so temporal-setup init container re-runs...",
-                    CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT,
-                )
-                _ssh(
-                    f"{kube} kubectl rollout restart"
-                    f" deployment/{CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT}"
-                    f" -n {namespace}"
-                )
-                LOG.info(
-                    "Waiting %ds for worker rollout to complete...",
-                    wait_between,
-                )
-                _ssh(
-                    f"{kube} kubectl rollout status"
-                    f" deployment/{CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT} -n {namespace}"
-                    f" --timeout={wait_between}s 2>/dev/null || true",
-                    timeout=wait_between + 15,
-                )
-                time.sleep(10)
+                LOG.info("Restarting %s so temporal-setup registers missing attributes...", worker)
+                try:
+                    _ssh(
+                        f"{kube} kubectl rollout restart deployment/{worker} -n {target_namespace}"
+                    )
+                    _ssh(
+                        f"{kube} kubectl rollout status deployment/{worker} -n {target_namespace}"
+                        f" --timeout={rollout_timeout}s",
+                        timeout=rollout_timeout + 15,
+                    )
+                except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+                    LOG.warning(
+                        "Could not restart Temporal worker or complete its rollout: %s", exc
+                    )
+                    return False
+                time.sleep(wait_between)
 
-        LOG.warning(
-            "Temporal search attributes still missing after %d attempts. "
-            "You may need to register them manually — see docs.",
-            max_attempts,
-        )
+        if missing is None:
+            LOG.warning(
+                "Unable to verify Temporal search attributes after %d attempts", max_attempts
+            )
+        else:
+            LOG.warning(
+                "Temporal search attributes still missing after %d attempts: %s. "
+                "You may need to register them manually — see docs.",
+                max_attempts,
+                ", ".join(missing),
+            )
         return False
 
     def print_socks_instructions(
