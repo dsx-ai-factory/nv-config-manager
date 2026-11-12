@@ -17,8 +17,6 @@
 import asyncio
 from configparser import ConfigParser
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
-from urllib.error import HTTPError
-from urllib.request import urlopen
 
 import pytest
 from nats.js.api import (
@@ -31,7 +29,6 @@ from nats.js.api import (
     StreamConfig,
 )
 from nats.js.errors import BadRequestError, NotFoundError
-from nv_config_manager_infrastructure.nats import start_liveness_server
 from nv_config_manager_infrastructure.nats.admin import (
     ARCHIVE_CONSUMER_MAX_ACK_PENDING,
     ARCHIVE_CONSUMER_MAX_DELIVER,
@@ -1044,26 +1041,3 @@ async def test_consumer_main_monitors_durable_when_liveness_is_enabled():
     monitor.assert_called_once_with(conn.jetstream.return_value)
     assert consumer._subscribed
     conn.close.assert_awaited_once()
-
-
-def test_liveness_server_reports_consumer_liveness():
-    """/healthz returns 200 while live, 503 once stalled, and 404 elsewhere."""
-    consumer = _liveness_consumer()
-    server = start_liveness_server(consumer, port=0)
-    url = f"http://127.0.0.1:{server.server_address[1]}"
-    try:
-        with urlopen(f"{url}/healthz", timeout=5) as response:
-            assert response.status == 200
-            assert b"last made progress" in response.read()
-
-        consumer._last_progress -= 601
-        with pytest.raises(HTTPError) as stalled:
-            urlopen(f"{url}/healthz", timeout=5)
-        assert stalled.value.code == 503
-
-        with pytest.raises(HTTPError) as missing:
-            urlopen(f"{url}/metrics", timeout=5)
-        assert missing.value.code == 404
-    finally:
-        server.shutdown()
-        server.server_close()

@@ -2069,6 +2069,10 @@ temporal:
     replicas: 1
     # Port for the archive consumer's /healthz liveness endpoint
     healthPort: 8001
+    # /healthz budget in seconds. Unset uses the consumer default: timeoutSeconds
+    # is the ack wait + 240 and must exceed the ack wait.
+    liveness:
+      timeoutSeconds: null
     resources:
       requests:
         cpu: 200m

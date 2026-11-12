@@ -138,7 +138,6 @@ def test_archive_main_serves_liveness_for_its_consumer(
     custom_ini(BASE_NATS_CONFIG)
     monkeypatch.setenv("CONSUMER_LIVENESS_PORT", "9001")
     monkeypatch.setenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", "900")
-
     with (
         patch("nv_config_manager.temporal.archive.main.NatsConsumer") as mock_consumer,
         patch("nv_config_manager.temporal.archive.main.start_liveness_server") as serve,

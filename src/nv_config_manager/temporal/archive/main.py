@@ -30,7 +30,7 @@ import boto3
 from elasticsearch import ApiError, BadRequestError, Elasticsearch
 from fastapi import HTTPException
 from nats.aio.msg import Msg
-from nv_config_manager_infrastructure.nats import start_liveness_server
+from nv_config_manager_infrastructure.liveness import start_liveness_server
 from nv_config_manager_infrastructure.nats.admin import (
     ARCHIVE_CONSUMER_MAX_ACK_PENDING,
     ARCHIVE_CONSUMER_MAX_DELIVER,

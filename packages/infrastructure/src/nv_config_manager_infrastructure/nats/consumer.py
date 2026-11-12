@@ -19,11 +19,8 @@ import logging
 import math
 import signal
 import ssl
-import threading
 import time
 from collections.abc import Awaitable, Callable
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, cast
 
 from nats.aio.client import Client
@@ -380,29 +377,3 @@ class NatsConsumer(NatsClient):
     def _clean_exit(self) -> None:
         """Ask the consumer loop to drain its handlers and close the connection."""
         self._stop.set()
-
-
-def start_liveness_server(consumer: NatsConsumer, port: int) -> ThreadingHTTPServer:
-    """Serve the consumer's liveness on /healthz from a daemon thread."""
-
-    class LivenessHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-
-        def do_GET(self) -> None:  # noqa: N802
-            if self.path.rstrip("/") not in ("/healthz", ""):
-                self.send_error(HTTPStatus.NOT_FOUND)
-                return
-            live, detail = consumer.liveness()
-            body = detail.encode()
-            self.send_response(HTTPStatus.OK if live else HTTPStatus.SERVICE_UNAVAILABLE)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
-            """Drop per-request logging so probes do not flood the log."""
-
-    server = ThreadingHTTPServer(("", port), LivenessHandler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server
