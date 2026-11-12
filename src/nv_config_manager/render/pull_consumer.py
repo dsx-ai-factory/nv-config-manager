@@ -208,6 +208,20 @@ class PullConsumer:
             )
         self._handler_started: float | None = None
 
+        # A client whose reconnect task dies is left neither closed nor
+        # connected, so the retry loop times out forever instead of exiting.
+        # Reconnects normally finish within seconds, so a connection that stays
+        # down past this budget fails the probe well before the round trip
+        # budget above runs out.
+        self.disconnected_timeout = float(os.getenv("CONSUMER_DISCONNECTED_TIMEOUT_SECONDS", "120"))
+        if not math.isfinite(self.disconnected_timeout) or self.disconnected_timeout <= 0:
+            raise ValueError(
+                f"CONSUMER_DISCONNECTED_TIMEOUT_SECONDS={self.disconnected_timeout:g} must be "
+                "a positive, finite number of seconds, or a consumer that never reconnects "
+                "would wait for the round trip budget"
+            )
+        self._disconnected_since: float | None = None
+
     def run(self) -> None:
         """Run the consumer."""
         try:
@@ -257,12 +271,32 @@ class PullConsumer:
         """Note a completed fetch, or a consumer info lookup made while a handler runs."""
         self._last_round_trip = time.monotonic()
 
+    def _mark_disconnected(self) -> None:
+        """Note when the connection dropped, keeping the first drop across retries."""
+        if self._disconnected_since is None:
+            self._disconnected_since = time.monotonic()
+
+    def _mark_reconnected(self) -> None:
+        """Clear the disconnect once the client is connected again."""
+        self._disconnected_since = None
+
     def liveness(self) -> tuple[bool, str]:
         """Report whether a server round trip has completed recently enough.
 
-        Also fails once the current handler has run longer than handler_max_age.
+        Also fails once the connection has been down longer than
+        disconnected_timeout, or the current handler has run longer than
+        handler_max_age.
         """
         now = time.monotonic()
+        disconnected_since = self._disconnected_since
+        connected = self.nats_conn is not None and self.nats_conn.is_connected
+        if disconnected_since is not None and not connected:
+            disconnected_for = now - disconnected_since
+            if disconnected_for > self.disconnected_timeout:
+                return False, (
+                    f"NATS disconnected for {disconnected_for:.0f}s "
+                    f"(limit {self.disconnected_timeout:.0f}s)"
+                )
         if self._handler_started is not None:
             handling_for = now - self._handler_started
             if handling_for > self.handler_max_age:
@@ -340,9 +374,11 @@ class PullConsumer:
             self.logger.error("Unhandled NATS error", exc_info=exc)
 
         async def disconnected_cb() -> None:
+            self._mark_disconnected()
             self.logger.warning("NATS connection disconnected.")
 
         async def reconnected_cb() -> None:
+            self._mark_reconnected()
             self.logger.warning("NATS connection reconnected.")
 
         self.nats_conn = await nats_connection(

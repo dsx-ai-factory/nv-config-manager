@@ -247,6 +247,70 @@ def test_liveness_timeout_above_ack_wait_is_accepted(
     assert consumer.liveness_timeout == CONSUMER_ACK_WAIT_SECONDS + 1
 
 
+def test_liveness_fails_once_disconnected_past_budget(custom_ini: Callable[[str], None]) -> None:
+    """A client that never reconnects fails before the round trip budget runs out."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_connected = False
+    assert consumer.disconnected_timeout < consumer.liveness_timeout
+
+    consumer._mark_disconnected()
+    live, _ = consumer.liveness()
+    assert live is True
+
+    # The round trip is recent, so only the disconnect can fail the probe.
+    consumer._record_round_trip()
+    assert consumer._disconnected_since is not None
+    consumer._disconnected_since -= consumer.disconnected_timeout + 1
+    live, detail = consumer.liveness()
+    assert live is False
+    assert "NATS disconnected" in detail
+
+    consumer._mark_reconnected()
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+def test_repeated_disconnects_keep_the_first_drop(custom_ini: Callable[[str], None]) -> None:
+    """Every failed reconnect attempt reports a disconnect; the budget counts from the first."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+    consumer._mark_disconnected()
+    first = consumer._disconnected_since
+    consumer._mark_disconnected()
+
+    assert consumer._disconnected_since == first
+
+
+def test_connected_client_ignores_a_stale_disconnect(custom_ini: Callable[[str], None]) -> None:
+    """A missed reconnect callback must not restart a consumer that is connected."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_connected = True
+
+    consumer._mark_disconnected()
+    assert consumer._disconnected_since is not None
+    consumer._disconnected_since -= consumer.disconnected_timeout + 1
+
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+@pytest.mark.parametrize("timeout", ["0", "-5", "nan", "inf"])
+def test_unsafe_disconnected_timeout_is_rejected(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, timeout: str
+) -> None:
+    """A budget that never expires would leave a disconnected consumer running."""
+    custom_ini(TEST_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_DISCONNECTED_TIMEOUT_SECONDS", timeout)
+
+    with pytest.raises(ValueError, match="CONSUMER_DISCONNECTED_TIMEOUT_SECONDS"):
+        PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+
 def _metrics_loop_consumer(mock_jetstream: MagicMock, *, handling: bool) -> PullConsumer:
     """Return a consumer past its liveness budget whose metrics loop runs one lookup."""
     consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
