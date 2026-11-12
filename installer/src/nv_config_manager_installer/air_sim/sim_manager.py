@@ -32,6 +32,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from air_sdk import AirApi
 from air_sdk.endpoints.user_configs import UserConfig as UserConfigModel
@@ -1537,16 +1538,13 @@ class AirSimulationManager:
         max_attempts: int = 3,
         wait_between: int = 30,
     ) -> bool:
-        """Verify attributes through the worker's SDK; restart only for confirmed gaps.
+        """Verify attributes with the deployed bootstrap CLI image.
 
-        The distroless frontend has no administrative CLI. The running worker
-        already has the Temporal SDK and its connection configuration, including
-        the Temporal namespace and TLS credentials. Query the operator API there
-        and parse structured output rather than guessing from CLI text.
-
-        Failed queries are retried without restarting the worker or claiming
-        attributes are missing. Confirmed missing attributes trigger a worker
-        restart so its temporal-setup init container can register them again.
+        The frontend is distroless and has no administrative CLI. Run the CLI
+        in a temporary pod using the temporal-setup init container's image,
+        endpoint, and namespace. Always clean up the pod, including on errors.
+        Retry failed queries without restarting the worker; restart only when
+        a successful query confirms missing attributes.
         """
         if max_attempts < 1 or wait_between < 0:
             raise ValueError("max_attempts must be positive and wait_between non-negative")
@@ -1554,27 +1552,6 @@ class AirSimulationManager:
         kube = "KUBECONFIG=/home/nvcm/.kube/config"
         target_namespace = shlex.quote(namespace)
         worker = CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT
-        python_code = (
-            "import asyncio\n"
-            "import json\n"
-            "from datetime import timedelta\n"
-            "from temporalio.client import Client\n"
-            "from temporalio.api.operatorservice.v1 import ListSearchAttributesRequest\n"
-            "from nv_config_manager.temporal.client.connection import "
-            "client_connect_options, temporal_address\n"
-            "async def main():\n"
-            "    client = await Client.connect(temporal_address(), **client_connect_options())\n"
-            "    response = await client.operator_service.list_search_attributes(\n"
-            "        ListSearchAttributesRequest(namespace=client.namespace),\n"
-            "        timeout=timedelta(seconds=20),\n"
-            "    )\n"
-            "    print(json.dumps(dict(response.custom_attributes)))\n"
-            "asyncio.run(main())\n"
-        )
-        pod_command = (
-            f"{kube} kubectl get pods -n {target_namespace}"
-            " -l app.kubernetes.io/component=nv-config-manager-worker -o json"
-        )
 
         def _ssh(cmd: str, timeout: int = 30) -> str:
             result = subprocess.run(
@@ -1585,34 +1562,86 @@ class AirSimulationManager:
                 raise RuntimeError(f"Remote command failed (exit {result.returncode}): {detail}")
             return result.stdout
 
-        LOG.info("Checking Temporal search attributes through the worker SDK...")
+        def _check_attributes() -> list[str]:
+            deployment = json.loads(
+                _ssh(f"{kube} kubectl get deployment/{worker} -n {target_namespace} -o json")
+            )
+            spec = deployment["spec"]["template"]["spec"]
+            setup = next(
+                (
+                    container
+                    for container in spec["initContainers"]
+                    if container["name"] == "temporal-setup"
+                ),
+                None,
+            )
+            if setup is None:
+                raise ValueError("Worker deployment has no temporal-setup init container")
+            env = {entry["name"]: entry["value"] for entry in setup["env"] if "value" in entry}
+            pod_name = f"nvcm-temporal-attributes-{uuid4().hex[:8]}"
+            overrides: dict[str, Any] = {
+                "spec": {"automountServiceAccountToken": False, "activeDeadlineSeconds": 120}
+            }
+            for key in ("imagePullSecrets", "securityContext"):
+                if key in spec:
+                    overrides["spec"][key] = spec[key]
+            command = shlex.join(
+                [
+                    "kubectl",
+                    "run",
+                    pod_name,
+                    "-n",
+                    namespace,
+                    "--image",
+                    setup["image"],
+                    "--image-pull-policy",
+                    setup.get("imagePullPolicy", "IfNotPresent"),
+                    "--restart=Never",
+                    "--attach=true",
+                    "--rm",
+                    "--quiet",
+                    "--pod-running-timeout=60s",
+                    "--overrides",
+                    json.dumps(overrides),
+                    "--command",
+                    "--",
+                    "/usr/local/bin/temporal",
+                    "--address",
+                    env["TEMPORAL_ADDR"],
+                    "--namespace",
+                    env["TEMPORAL_NAMESPACE"],
+                    "--output",
+                    "json",
+                    "operator",
+                    "search-attribute",
+                    "list",
+                ]
+            )
+            try:
+                response = json.loads(_ssh(f"{kube} {command}", timeout=150))
+            finally:
+                # --rm handles normal exits; explicitly delete after SSH/attach failures too.
+                try:
+                    _ssh(
+                        f"{kube} kubectl delete pod {pod_name} -n {target_namespace}"
+                        " --ignore-not-found --wait=false"
+                    )
+                except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
+                    LOG.warning("Could not clean up Temporal check pod %s: %s", pod_name, exc)
+            if not isinstance(response, dict) or not (
+                "customAttributes" in response or "systemAttributes" in response
+            ):
+                raise ValueError("Expected a JSON search-attribute list from the Temporal CLI")
+            attributes = response.get("customAttributes", {})
+            if not isinstance(attributes, dict):
+                raise ValueError("Expected a JSON object of Temporal custom search attributes")
+            return [name for name in self._TEMPORAL_SEARCH_ATTRIBUTES if name not in attributes]
+
+        LOG.info("Checking Temporal search attributes with the bootstrap CLI...")
         missing: list[str] | None = None
         for attempt in range(1, max_attempts + 1):
             try:
-                # The server worker and Config Manager worker share broad deployment
-                # selectors. Use the dedicated pod label and a ready worker container.
-                pods = json.loads(_ssh(pod_command))
-                ready_pods = [
-                    pod["metadata"]["name"]
-                    for pod in pods["items"]
-                    if not pod["metadata"].get("deletionTimestamp")
-                    and any(
-                        container["name"] == "worker" and container.get("ready")
-                        for container in pod.get("status", {}).get("containerStatuses", [])
-                    )
-                ]
-                if not ready_pods:
-                    raise RuntimeError("No ready Config Manager Temporal worker pod found")
-                check_command = (
-                    f"{kube} kubectl exec -n {target_namespace} {shlex.quote(ready_pods[0])}"
-                    f" -c worker -- python -c {shlex.quote(python_code)}"
-                )
-                attributes = json.loads(_ssh(check_command))
-                if not isinstance(attributes, dict):
-                    raise ValueError("Expected a JSON object of Temporal custom search attributes")
-                missing = [
-                    name for name in self._TEMPORAL_SEARCH_ATTRIBUTES if name not in attributes
-                ]
+                missing = _check_attributes()
             except (
                 OSError,
                 subprocess.SubprocessError,

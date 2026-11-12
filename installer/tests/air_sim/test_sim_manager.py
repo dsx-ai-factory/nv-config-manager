@@ -341,7 +341,38 @@ def test_cloud_init_polling_retries_timeouts_without_logging_credentials(
         assert "completed without the setup-complete marker" in caplog.text
 
 
-def _temporal_check_manager(monkeypatch, results, pod_response=None):
+def _bootstrap_deployment():
+    return subprocess.CompletedProcess(
+        [],
+        0,
+        stdout=json.dumps(
+            {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "imagePullSecrets": [{"name": "registry-credentials"}],
+                            "securityContext": {"runAsUser": 1000},
+                            "initContainers": [
+                                {
+                                    "name": "temporal-setup",
+                                    "image": "registry.example/bootstrap:test",
+                                    "imagePullPolicy": "Always",
+                                    "env": [
+                                        {"name": "TEMPORAL_ADDR", "value": "custom-frontend:7443"},
+                                        {"name": "TEMPORAL_NAMESPACE", "value": "custom-namespace"},
+                                    ],
+                                }
+                            ],
+                        }
+                    }
+                }
+            }
+        ),
+        stderr="",
+    )
+
+
+def _temporal_check_manager(monkeypatch, results, deployment_response=None, cleanup_response=None):
     manager = AirSimulationManager.__new__(AirSimulationManager)
     monkeypatch.setattr(manager, "_ssh_cmd", lambda _host, _port: ["ssh", "worker.example"])
     monkeypatch.setattr(sim_manager_module.time, "sleep", lambda _seconds: None)
@@ -350,44 +381,10 @@ def _temporal_check_manager(monkeypatch, results, pod_response=None):
 
     def run(cmd, **kwargs):
         commands.append(cmd[-1])
-        if "kubectl get pods" in cmd[-1]:
-            if pod_response is not None:
-                return pod_response
-            return subprocess.CompletedProcess(
-                [],
-                0,
-                stdout=json.dumps(
-                    {
-                        "items": [
-                            {
-                                "metadata": {"name": "temporal-server-worker"},
-                                "status": {
-                                    "containerStatuses": [
-                                        {"name": "temporal-worker", "ready": True}
-                                    ]
-                                },
-                            },
-                            {
-                                "metadata": {
-                                    "name": "terminating-worker",
-                                    "deletionTimestamp": "2026-11-12",
-                                },
-                                "status": {
-                                    "containerStatuses": [{"name": "worker", "ready": True}]
-                                },
-                            },
-                            {"metadata": {"name": "pending-worker"}},
-                            {
-                                "metadata": {"name": "config-manager-worker"},
-                                "status": {
-                                    "containerStatuses": [{"name": "worker", "ready": True}]
-                                },
-                            },
-                        ]
-                    }
-                ),
-                stderr="",
-            )
+        if "kubectl get deployment/" in cmd[-1]:
+            return deployment_response or _bootstrap_deployment()
+        if "kubectl delete pod" in cmd[-1]:
+            return cleanup_response or subprocess.CompletedProcess([], 0, stdout="", stderr="")
         response = next(responses)
         if isinstance(response, Exception):
             raise response
@@ -403,28 +400,37 @@ def _attribute_response(exclude=()):
         0,
         stdout=json.dumps(
             {
-                name: kind
-                for name, kind in AirSimulationManager._TEMPORAL_SEARCH_ATTRIBUTES.items()
-                if name not in exclude
+                "customAttributes": {
+                    name: kind
+                    for name, kind in AirSimulationManager._TEMPORAL_SEARCH_ATTRIBUTES.items()
+                    if name not in exclude
+                }
             }
         ),
         stderr="",
     )
 
 
-def test_temporal_search_attributes_use_worker_sdk(monkeypatch):
+def test_temporal_search_attributes_use_deployed_bootstrap_cli(monkeypatch):
     manager, commands = _temporal_check_manager(monkeypatch, [_attribute_response()])
-
     assert manager.ensure_temporal_search_attributes("worker.example", 17117)
-    assert len(commands) == 2
-    assert "app.kubernetes.io/component=nv-config-manager-worker" in commands[0]
-    assert "config-manager-worker -c worker -- python -c" in commands[1]
-    assert "temporal-frontend" not in commands[1]
-    script = shlex.split(commands[1])[-1]
-    compile(script, "temporal-check", "exec")
-    assert "client_connect_options()" in script
-    assert "namespace=client.namespace" in script
-    assert "response.custom_attributes" in script
+    assert len(commands) == 3
+    args = shlex.split(commands[1])
+    assert args[args.index("--image") + 1] == "registry.example/bootstrap:test"
+    assert args[args.index("--image-pull-policy") + 1] == "Always"
+    assert args[args.index("--address") + 1] == "custom-frontend:7443"
+    assert args[args.index("--namespace") + 1] == "custom-namespace"
+    assert args[args.index("--output") + 1] == "json"
+    assert "python" not in args
+    assert "--rm" in args
+    overrides = json.loads(args[args.index("--overrides") + 1])["spec"]
+    assert overrides["imagePullSecrets"] == [{"name": "registry-credentials"}]
+    assert overrides["securityContext"] == {"runAsUser": 1000}
+    assert overrides["automountServiceAccountToken"] is False
+    assert overrides["activeDeadlineSeconds"] == 120
+    pod = args[args.index("run") + 1]
+    assert pod in commands[2]
+    assert "--ignore-not-found --wait=false" in commands[2]
 
 
 @pytest.mark.parametrize(
@@ -434,14 +440,16 @@ def test_temporal_search_attributes_use_worker_sdk(monkeypatch):
         subprocess.CompletedProcess([], 0, stdout="not JSON", stderr=""),
         subprocess.CompletedProcess([], 0, stdout="[]", stderr=""),
         subprocess.CompletedProcess([], 0, stdout="", stderr=""),
-        subprocess.TimeoutExpired("ssh", 30),
+        subprocess.TimeoutExpired("ssh", 150),
     ],
 )
-def test_temporal_check_errors_never_restart_or_claim_missing(monkeypatch, caplog, response):
+def test_temporal_check_errors_cleanup_without_restart_or_missing_claim(
+    monkeypatch, caplog, response
+):
     manager, commands = _temporal_check_manager(monkeypatch, [response, response])
-
     assert not manager.ensure_temporal_search_attributes("worker.example", 17117, max_attempts=2)
-    assert len(commands) == 4
+    assert len(commands) == 6
+    assert sum("kubectl delete pod" in command for command in commands) == 2
     assert not any("rollout" in command for command in commands)
     assert "Could not check Temporal search attributes" in caplog.text
     assert "Unable to verify Temporal search attributes" in caplog.text
@@ -452,7 +460,6 @@ def test_temporal_check_errors_never_restart_or_claim_missing(monkeypatch, caplo
 def test_temporal_check_preserves_remote_error_diagnostics(monkeypatch, caplog):
     response = subprocess.CompletedProcess([], 1, stdout="", stderr="permission denied")
     manager, commands = _temporal_check_manager(monkeypatch, [response])
-
     assert not manager.ensure_temporal_search_attributes("worker.example", 17117, max_attempts=1)
     assert "permission denied" in caplog.text
     assert "exit 1" in caplog.text
@@ -462,13 +469,12 @@ def test_temporal_check_retries_a_failed_query_without_restarting(monkeypatch):
     manager, commands = _temporal_check_manager(
         monkeypatch,
         [
-            subprocess.TimeoutExpired("ssh", 30),
+            subprocess.TimeoutExpired("ssh", 150),
             _attribute_response(),
         ],
     )
-
     assert manager.ensure_temporal_search_attributes("worker.example", 17117, max_attempts=2)
-    assert len(commands) == 4
+    assert len(commands) == 6
     assert not any("rollout" in command for command in commands)
 
 
@@ -483,11 +489,10 @@ def test_temporal_check_restarts_only_for_confirmed_missing_attributes(monkeypat
             _attribute_response(),
         ],
     )
-
     assert manager.ensure_temporal_search_attributes("worker.example", 17117)
-    assert len(commands) == 6
-    assert "rollout restart" in commands[2]
-    assert "rollout status" in commands[3]
+    assert len(commands) == 8
+    assert "rollout restart" in commands[3]
+    assert "rollout status" in commands[4]
     assert "Missing Temporal search attributes (attempt 1/3): ReadRoles" in caplog.text
 
 
@@ -498,7 +503,6 @@ def test_temporal_check_reports_failed_recovery(monkeypatch, caplog, fail_rollou
         responses.append(subprocess.CompletedProcess([], 0, stdout="", stderr=""))
     responses.append(subprocess.CompletedProcess([], 1, stdout="", stderr="rollout failed"))
     manager, commands = _temporal_check_manager(monkeypatch, responses)
-
     assert not manager.ensure_temporal_search_attributes("worker.example", 17117)
     assert "Could not restart Temporal worker or complete its rollout" in caplog.text
     assert "rollout failed" in caplog.text
@@ -507,31 +511,53 @@ def test_temporal_check_reports_failed_recovery(monkeypatch, caplog, fail_rollou
 def test_temporal_check_matches_exact_attribute_names(monkeypatch, caplog):
     response = _attribute_response(exclude=["User"])
     attributes = json.loads(response.stdout)
-    attributes["UserSuffix"] = "Keyword"
+    attributes["customAttributes"]["UserSuffix"] = "Keyword"
     response.stdout = json.dumps(attributes)
     manager, commands = _temporal_check_manager(monkeypatch, [response])
-
     assert not manager.ensure_temporal_search_attributes("worker.example", 17117, max_attempts=1)
     assert "still missing after 1 attempts: User." in caplog.text
-    assert len(commands) == 2
+    assert len(commands) == 3
 
 
 @pytest.mark.parametrize(
-    "pod_response",
+    "deployment_response",
     [
         subprocess.CompletedProcess([], 1, stdout="", stderr="permission denied"),
-        subprocess.CompletedProcess([], 0, stdout='{"items": []}', stderr=""),
+        subprocess.CompletedProcess(
+            [], 0, stdout='{"spec": {"template": {"spec": {"initContainers": []}}}}', stderr=""
+        ),
         subprocess.CompletedProcess([], 0, stdout="not JSON", stderr=""),
         subprocess.CompletedProcess([], 0, stdout='{"unexpected": []}', stderr=""),
     ],
 )
-def test_temporal_worker_discovery_failures_do_not_exec_or_restart(
-    monkeypatch, caplog, pod_response
+def test_temporal_bootstrap_discovery_failures_do_not_create_pods_or_restart(
+    monkeypatch, caplog, deployment_response
 ):
-    manager, commands = _temporal_check_manager(monkeypatch, [], pod_response=pod_response)
-
+    manager, commands = _temporal_check_manager(
+        monkeypatch, [], deployment_response=deployment_response
+    )
     assert not manager.ensure_temporal_search_attributes("worker.example", 17117, max_attempts=1)
     assert len(commands) == 1
-    assert "kubectl get pods" in commands[0]
+    assert "kubectl get deployment/" in commands[0]
     assert "Could not check Temporal search attributes" in caplog.text
     assert "still missing" not in caplog.text
+
+
+def test_temporal_check_reports_cleanup_failure_without_losing_query_result(monkeypatch, caplog):
+    cleanup = subprocess.CompletedProcess([], 1, stdout="", stderr="delete denied")
+    manager, commands = _temporal_check_manager(
+        monkeypatch, [_attribute_response()], cleanup_response=cleanup
+    )
+    assert manager.ensure_temporal_search_attributes("worker.example", 17117)
+    assert "Could not clean up Temporal check pod" in caplog.text
+    assert "delete denied" in caplog.text
+
+
+def test_temporal_check_handles_an_empty_custom_attribute_map(monkeypatch, caplog):
+    response = subprocess.CompletedProcess(
+        [], 0, stdout='{"systemAttributes": {"WorkflowId": "Keyword"}}', stderr=""
+    )
+    manager, commands = _temporal_check_manager(monkeypatch, [response])
+    assert not manager.ensure_temporal_search_attributes("worker.example", 17117, max_attempts=1)
+    assert "Missing Temporal search attributes" in caplog.text
+    assert "Unable to verify" not in caplog.text
