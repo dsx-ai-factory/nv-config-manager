@@ -222,6 +222,8 @@ spec:
           value: "W585uq6K"
         - name: NATS_CONSUMER
           value: "dcim"
+        - name: CONSUMER_LIVENESS_PORT
+          value: {{ .Values.renderService.consumers.healthPort | quote }}
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
@@ -230,6 +232,15 @@ spec:
         ports:
         - name: metrics
           containerPort: 8000
+        - name: health
+          containerPort: {{ .Values.renderService.consumers.healthPort }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 4
         resources:
           {{- toYaml .Values.renderService.consumers.nautobot.resources | nindent 10 }}
         volumeMounts:
@@ -337,6 +348,8 @@ spec:
           value: "W585uq6K"
         - name: NATS_CONSUMER
           value: "device"
+        - name: CONSUMER_LIVENESS_PORT
+          value: {{ .Values.renderService.consumers.healthPort | quote }}
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         - name: NV_CONFIG_MANAGER_CONFIG_SECRET_PATH
           value: {{ include "nv-config-manager.vaultAgent.configSecretsFilePath" (dict "root" . "path" .Values.renderService.configSecrets.path) | quote }}
@@ -345,6 +358,15 @@ spec:
         ports:
         - name: metrics
           containerPort: 8000
+        - name: health
+          containerPort: {{ .Values.renderService.consumers.healthPort }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          failureThreshold: 4
         resources:
           {{- toYaml .Values.renderService.consumers.device.resources | nindent 10 }}
         volumeMounts:

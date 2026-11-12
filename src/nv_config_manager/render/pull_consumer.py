@@ -18,11 +18,17 @@ import asyncio
 import asyncio.log
 import json
 import logging
+import math
 import os
 import signal
 import ssl
+import threading
+import time
 from asyncio import AbstractEventLoop
 from datetime import datetime
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
 import nats
 import nats.errors
@@ -154,6 +160,54 @@ class PullConsumer:
         # Must be < FetchMaxWait/2 (default FetchMaxWait=5s, so heartbeat must be < 2.5s)
         self.heartbeat_interval = 1.0
 
+        # Liveness. A broken connection can leave this loop retrying forever
+        # without the process ever exiting, so the only trustworthy evidence
+        # that the consumer still works is a round trip to the server. While
+        # idle that is a fetch that completes; an idle queue is healthy. While a
+        # handler runs the loop does not fetch, so the consumer info lookup the
+        # metrics loop makes every metrics_refresh_interval stands in for it,
+        # and a long config context batch does not restart the pod.
+        #
+        # Synchronous work in a handler blocks the event loop, and with it both
+        # kinds of evidence, so the budget has to exceed the longest such
+        # stretch. A message blocked for its whole ack wait is already
+        # redelivered elsewhere, so that is the point where a stalled loop stops
+        # being merely slow.
+        self.liveness_timeout = float(
+            os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
+        )
+        if not math.isfinite(self.liveness_timeout):
+            raise ValueError(
+                f"CONSUMER_LIVENESS_TIMEOUT_SECONDS={self.liveness_timeout:g} must be a finite "
+                "number of seconds, or a stalled consumer would never be restarted"
+            )
+        if self.liveness_timeout <= CONSUMER_ACK_WAIT_SECONDS:
+            raise ValueError(
+                f"CONSUMER_LIVENESS_TIMEOUT_SECONDS={self.liveness_timeout:g} must exceed the "
+                f"consumer ack wait of {CONSUMER_ACK_WAIT_SECONDS}s, or a slow render would "
+                "restart the pod before it finishes"
+            )
+        self._last_round_trip = time.monotonic()
+
+        # Consumer info only proves the connection, so a handler hung on DCIM or
+        # Redis while NATS answers would otherwise stay live forever. Past this
+        # age the probe fails and the restart kills the handler, render thread
+        # included; nothing is cancelled in process, and the unacked message is
+        # redelivered after the ack wait.
+        self.handler_max_age = float(os.getenv("CONSUMER_HANDLER_MAX_AGE_SECONDS", "7200"))
+        if not math.isfinite(self.handler_max_age):
+            raise ValueError(
+                f"CONSUMER_HANDLER_MAX_AGE_SECONDS={self.handler_max_age:g} must be a finite "
+                "number of seconds, or a hung handler would never be restarted"
+            )
+        if self.handler_max_age <= self.liveness_timeout:
+            raise ValueError(
+                f"CONSUMER_HANDLER_MAX_AGE_SECONDS={self.handler_max_age:g} must exceed the "
+                f"liveness timeout of {self.liveness_timeout:g}s, or a long config context "
+                "batch would restart the pod"
+            )
+        self._handler_started: float | None = None
+
     def run(self) -> None:
         """Run the consumer."""
         try:
@@ -198,6 +252,30 @@ class PullConsumer:
         Override this in subclasses to implement custom flow control logic.
         """
         return True
+
+    def _record_round_trip(self) -> None:
+        """Note a completed fetch, or a consumer info lookup made while a handler runs."""
+        self._last_round_trip = time.monotonic()
+
+    def liveness(self) -> tuple[bool, str]:
+        """Report whether a server round trip has completed recently enough.
+
+        Also fails once the current handler has run longer than handler_max_age.
+        """
+        now = time.monotonic()
+        if self._handler_started is not None:
+            handling_for = now - self._handler_started
+            if handling_for > self.handler_max_age:
+                return False, (
+                    f"handler running for {handling_for:.0f}s (limit {self.handler_max_age:.0f}s)"
+                )
+        stalled_for = now - self._last_round_trip
+        if stalled_for > self.liveness_timeout:
+            return False, (
+                f"no successful fetch or consumer info for {stalled_for:.0f}s "
+                f"(limit {self.liveness_timeout:.0f}s)"
+            )
+        return True, f"last successful fetch or consumer info {stalled_for:.0f}s ago"
 
     async def ack(self, msg: Msg) -> None:
         """Acknowledge a message with resilient error handling."""
@@ -370,6 +448,8 @@ class PullConsumer:
         while self.running and self.nats_conn and not self.nats_conn.is_closed:
             try:
                 consumer_info = await self.jetstream.consumer_info(self.stream, self.queue)
+                if self._handler_started is not None:
+                    self._record_round_trip()
                 self._record_consumer_metrics(consumer_info)
                 # Administrators can edit the limit without restarting the consumer.
                 self._cache_max_deliver(consumer_info)
@@ -420,12 +500,14 @@ class PullConsumer:
                     # raise an exception after missing heartbeats. Any exception
                     # during fetch indicates we should recreate the consumer.
                     msgs = await pull_subscription.fetch(batch=1, heartbeat=self.heartbeat_interval)
+                    self._record_round_trip()
                     if msgs:
                         await self._resilient_message_handler(msgs[0])
                     else:
                         await asyncio.sleep(self.idle_wait)
                 except FetchTimeoutError:
                     # Heartbeats were fine, but no messages were received
+                    self._record_round_trip()
                     await asyncio.sleep(self.idle_wait)
                 except Exception as e:
                     # Any exception during fetch (timeouts, heartbeat failures,
@@ -553,6 +635,7 @@ class PullConsumer:
 
     async def _resilient_message_handler(self, msg: Msg) -> None:
         """Wrapper around message_handler with additional error handling."""
+        self._handler_started = time.monotonic()
         try:
             await self.message_handler(msg)
         except Exception as e:
@@ -564,6 +647,8 @@ class PullConsumer:
                 )
             except Exception as nak_error:
                 self.logger.error("Failed to nak message after handler error: %s", str(nak_error))
+        finally:
+            self._handler_started = None
 
     async def _retry_or_give_up(self, msg: Msg, subject: str, reason: str) -> None:
         """Redeliver a failed message with backoff, or drop it on its last delivery."""
@@ -772,6 +857,37 @@ def _lock_retry_delay(msg: Msg) -> int:
     return min(LOCK_RETRY_INITIAL_SECONDS << min(attempt - 1, 3), LOCK_RETRY_MAX_SECONDS)
 
 
+def start_liveness_server(consumer: PullConsumer, port: int = 8001) -> ThreadingHTTPServer:
+    """Serve consumer liveness on /healthz.
+
+    Without this the pod stays Running and Ready while the consumer makes no
+    progress, because the retry loop swallows every error and the process never
+    exits. Nothing outside the process can then restart it.
+    """
+
+    class LivenessHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path.rstrip("/") not in ("/healthz", ""):
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            live, detail = consumer.liveness()
+            body = detail.encode()
+            self.send_response(HTTPStatus.OK if live else HTTPStatus.SERVICE_UNAVAILABLE)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            """Drop per-request logging so probes do not flood the log."""
+
+    server = ThreadingHTTPServer(("", port), LivenessHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
 def main() -> None:
     """Entry point for the pull consumer."""
     # Start Prometheus Server
@@ -788,6 +904,7 @@ def main() -> None:
     else:
         raise NotImplementedError(f"No consumer implemented for {consumer_name}.")
 
+    start_liveness_server(consumer, port=int(os.getenv("CONSUMER_LIVENESS_PORT", "8001")))
     consumer.run()
     get_logger(__name__, category=LogCategory.RENDER_EVENT).info("Exiting...")
 
