@@ -1537,6 +1537,7 @@ class AirSimulationManager:
         namespace: str = CONFIG_MANAGER_NAMESPACE,
         max_attempts: int = 3,
         wait_between: int = 30,
+        rollout_timeout: int = 300,
     ) -> bool:
         """Verify attributes with the deployed bootstrap CLI image.
 
@@ -1546,17 +1547,23 @@ class AirSimulationManager:
         Retry failed queries without restarting the worker; restart only when
         a successful query confirms missing attributes.
         """
-        if max_attempts < 1 or wait_between < 0:
-            raise ValueError("max_attempts must be positive and wait_between non-negative")
+        if max_attempts < 1 or wait_between < 0 or rollout_timeout < 1:
+            raise ValueError(
+                "max_attempts and rollout_timeout must be positive and wait_between non-negative"
+            )
         ssh_base = self._ssh_cmd(host, port)
         kube = "KUBECONFIG=/home/nvcm/.kube/config"
         target_namespace = shlex.quote(namespace)
         worker = CONFIG_MANAGER_TEMPORAL_WORKER_DEPLOYMENT
 
         def _ssh(cmd: str, timeout: int = 30) -> str:
-            result = subprocess.run(
-                [*ssh_base, cmd], capture_output=True, text=True, timeout=timeout
-            )
+            try:
+                result = subprocess.run(
+                    [*ssh_base, cmd], capture_output=True, text=True, timeout=timeout
+                )
+            except subprocess.TimeoutExpired:
+                # TimeoutExpired includes argv, which contains the sshpass password.
+                raise RuntimeError(f"Remote command timed out after {timeout}s") from None
             if result.returncode != 0:
                 detail = (result.stderr or result.stdout or "no diagnostic output").strip()
                 raise RuntimeError(f"Remote command failed (exit {result.returncode}): {detail}")
@@ -1679,8 +1686,8 @@ class AirSimulationManager:
                     )
                     _ssh(
                         f"{kube} kubectl rollout status deployment/{worker} -n {target_namespace}"
-                        f" --timeout={max(1, wait_between)}s",
-                        timeout=max(1, wait_between) + 15,
+                        f" --timeout={rollout_timeout}s",
+                        timeout=rollout_timeout + 15,
                     )
                 except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
                     LOG.warning(

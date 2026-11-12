@@ -561,3 +561,74 @@ def test_temporal_check_handles_an_empty_custom_attribute_map(monkeypatch, caplo
     assert not manager.ensure_temporal_search_attributes("worker.example", 17117, max_attempts=1)
     assert "Missing Temporal search attributes" in caplog.text
     assert "Unable to verify" not in caplog.text
+
+
+@pytest.mark.parametrize("phase", ["discovery", "query", "cleanup", "restart", "rollout"])
+def test_temporal_check_timeouts_do_not_log_ssh_credentials(monkeypatch, caplog, phase):
+    success = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    responses = [_attribute_response(exclude=["ReadRoles"]), success]
+    if phase in {"query", "cleanup"}:
+        responses = [_attribute_response()]
+    manager, commands = _temporal_check_manager(monkeypatch, responses)
+    password = "dummy-ssh-password-for-temporal-check"
+    ssh_base = ["sshpass", "-p", password, "ssh", "worker.example"]
+    monkeypatch.setattr(manager, "_ssh_cmd", lambda _host, _port: ssh_base)
+    original_run = sim_manager_module.subprocess.run
+    matches = {
+        "discovery": "kubectl get deployment/",
+        "query": "kubectl run",
+        "cleanup": "kubectl delete pod",
+        "restart": "kubectl rollout restart",
+        "rollout": "kubectl rollout status",
+    }
+
+    def run(command, **kwargs):
+        if matches[phase] in command[-1]:
+            raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(sim_manager_module.subprocess, "run", run)
+    assert manager.ensure_temporal_search_attributes(
+        "worker.example",
+        17117,
+        max_attempts=2 if phase in {"restart", "rollout"} else 1,
+    ) is (phase == "cleanup")
+    assert "Remote command timed out after" in caplog.text
+    assert password not in caplog.text
+    assert "sshpass" not in caplog.text
+
+
+@pytest.mark.parametrize("rollout_timeout", [300, 90])
+def test_temporal_rollout_deadline_is_independent_of_retry_delay(monkeypatch, rollout_timeout):
+    success = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+    manager, commands = _temporal_check_manager(
+        monkeypatch,
+        [
+            _attribute_response(exclude=["ReadRoles"]),
+            success,
+            success,
+            _attribute_response(),
+        ],
+    )
+    original_run = sim_manager_module.subprocess.run
+    rollout_calls = []
+    sleeps = []
+
+    def run(command, **kwargs):
+        if "kubectl rollout status" in command[-1]:
+            rollout_calls.append((command[-1], kwargs["timeout"]))
+        return original_run(command, **kwargs)
+
+    monkeypatch.setattr(sim_manager_module.subprocess, "run", run)
+    monkeypatch.setattr(sim_manager_module.time, "sleep", sleeps.append)
+    assert manager.ensure_temporal_search_attributes(
+        "worker.example",
+        17117,
+        wait_between=2,
+        rollout_timeout=rollout_timeout,
+    )
+    assert len(rollout_calls) == 1
+    command, timeout = rollout_calls[0]
+    assert f"--timeout={rollout_timeout}s" in command
+    assert timeout == rollout_timeout + 15
+    assert sleeps == [2]
