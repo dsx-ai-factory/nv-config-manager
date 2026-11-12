@@ -359,7 +359,11 @@ def _nautobot_auth_headers(settings: MCPSettings) -> dict[str, str]:
     if not config_auth_required():
         if settings.nautobot_read_only_token:
             return {"Authorization": f"Token {settings.nautobot_read_only_token}"}
-        return {}
+        raise MCPAuthError(
+            "Nautobot inventory tools require [mcp] nautobot_read_only_token when sign-in "
+            "is disabled. Configure secrets.k8s.nautobot.values.readOnlyToken (or the "
+            "Vault readOnlyToken) and register it in Nautobot with view-only permissions."
+        )
 
     if settings.nautobot_token_fallback_enabled and settings.nautobot_read_only_token:
         return {"Authorization": f"Token {settings.nautobot_read_only_token}"}
