@@ -426,6 +426,18 @@ def dhcp_api_port_forward(
 
 
 @pytest.fixture(scope="session")
+def mcp_port_forward(
+    use_port_forward: bool,
+    config_manager_namespace: str,
+) -> Generator[str]:
+    """Port-forward MCP when testing without gateway DNS."""
+    if not use_port_forward:
+        yield ""
+        return
+    yield from _service_port_forward(config_manager_namespace, "nv-config-manager-mcp", 18006, 9000)
+
+
+@pytest.fixture(scope="session")
 def dcim_port_forward(
     use_port_forward: bool,
     config_manager_namespace: str,
@@ -681,6 +693,13 @@ def nautobot_url(
     if dcim_provider_name != "nautobot-2x":
         pytest.skip("Nautobot URL requested for a different DCIM provider")
     return dcim_url
+
+
+@pytest.fixture(scope="session")
+def mcp_url(base_hostname: str, mcp_port_forward: str) -> str:
+    """Return the MCP Streamable HTTP endpoint."""
+    base_url = mcp_port_forward or os.environ.get("MCP_URL") or f"https://mcp.{base_hostname}"
+    return f"{base_url.rstrip('/')}/mcp"
 
 
 @pytest.fixture(scope="session")

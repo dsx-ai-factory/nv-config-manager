@@ -603,6 +603,12 @@ spec:
                 secretKeyRef:
                   name: nautobot-admin
                   key: api_token
+            - name: NAUTOBOT_READ_ONLY_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.dcim.tokenSecret.name | default "nautobot-token" }}
+                  key: read-only-token
+                  optional: true
             {{- range .Values.secrets.vault.paths.gitTokens }}
             - name: GIT_TOKEN_{{ .name | upper }}
               valueFrom:
