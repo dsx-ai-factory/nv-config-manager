@@ -130,7 +130,7 @@ jobs:
       - name: Configure hostnames
         timeout-minutes: 2
         run: |
-          HOSTS="config-manager.local nautobot.config-manager.local render.config-manager.local ztp.config-manager.local dhcp.config-manager.local workflow.config-manager.local temporal.config-manager.local config-store.config-manager.local svc-workflow.config-manager.local svc-render.config-manager.local svc-ztp.config-manager.local svc-dhcp.config-manager.local svc-nautobot.config-manager.local svc-config-store.config-manager.local"
+          HOSTS="config-manager.local nautobot.config-manager.local render.config-manager.local ztp.config-manager.local dhcp.config-manager.local workflow.config-manager.local temporal.config-manager.local config-store.config-manager.local mcp.config-manager.local svc-workflow.config-manager.local svc-render.config-manager.local svc-ztp.config-manager.local svc-dhcp.config-manager.local svc-nautobot.config-manager.local svc-config-store.config-manager.local svc-mcp.config-manager.local"
           echo "127.0.0.1 ${HOSTS}" | sudo tee -a /etc/hosts
       - name: Deploy to Kind
         timeout-minutes: 65
