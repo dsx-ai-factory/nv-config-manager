@@ -229,6 +229,30 @@ def test_default_user_domain_is_written_to_unified_ini(secret_method: str, templ
     assert "user_domain = ci.example.com" in rendered
 
 
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+def test_worker_limits_are_written_to_unified_ini(secret_method: str, template: str) -> None:
+    default = _render(f"secrets.method={secret_method}", templates=(template,))
+    overridden = _render(
+        f"secrets.method={secret_method}",
+        "temporal.configManagerWorker.maxCachedWorkflows=400",
+        "temporal.configManagerWorker.maxConcurrentWorkflowTasks=20",
+        templates=(template,),
+    )
+
+    assert "[temporal.worker]" in default
+    assert "max_cached_workflows = 200" in default
+    assert "max_concurrent_workflow_tasks = 10" in default
+    assert "max_cached_workflows = 400" in overridden
+    assert "max_concurrent_workflow_tasks = 20" in overridden
+
+
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:
     # Changing a live Deployment from the server-defaulted strategy to Recreate is
     # rejected under server-side apply, so the scheduler must follow the chart-wide
