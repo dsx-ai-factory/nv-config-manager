@@ -20,44 +20,19 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, Any, ClassVar
 
-from nv_config_manager_dcim import (
-    DCIMLocationIdentifier,
-    DCIMLocationType,
-    dcim_location_id,
-    dcim_location_reference,
-)
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.search_attributes import (
-    EXECUTE_ROLES_SEARCH_ATTRIBUTE,
-    READ_ROLES_SEARCH_ATTRIBUTE,
-    SITE_SEARCH_ATTRIBUTE,
-    USER_SEARCH_ATTRIBUTE,
-    upsert_missing_search_attributes,
-)
-from nv_config_manager_workflows.secret_redaction import redact_device_secrets
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import FormSchema, api_options, location_field
-from nv_config_manager_workflows.workflow_references import OptionalLocationReference
-from nv_config_manager_workflows.workflows._form_sources import (
-    MANAGED_ROLE_SOURCE,
-    SITE_FILTER_SOURCE,
-    STATUS_FILTER_SOURCE,
-    TENANT_FILTER_SOURCE,
-)
-
 with workflow.unsafe.imports_passed_through():
+    from nv_config_manager_dcim import (
+        DCIMLocationIdentifier,
+        DCIMLocationType,
+        dcim_location_id,
+        dcim_location_reference,
+    )
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.config import get_ui_base_url
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDevicesInput,
@@ -73,15 +48,39 @@ with workflow.unsafe.imports_passed_through():
         perform_candidate_diff,
     )
     from nv_config_manager_workflows.activities.device import NetworkDeviceData
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins.archive import ArchiveMixin
     from nv_config_manager_workflows.mixins.device import DeviceMixin
+    from nv_config_manager_workflows.search_attributes import (
+        EXECUTE_ROLES_SEARCH_ATTRIBUTE,
+        READ_ROLES_SEARCH_ATTRIBUTE,
+        SITE_SEARCH_ATTRIBUTE,
+        USER_SEARCH_ATTRIBUTE,
+        upsert_missing_search_attributes,
+    )
+    from nv_config_manager_workflows.secret_redaction import redact_device_secrets
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import FormSchema, api_options, location_field
+    from nv_config_manager_workflows.workflow_references import OptionalLocationReference
     from nv_config_manager_workflows.workflow_urls import build_workflow_url
+    from nv_config_manager_workflows.workflows._form_sources import (
+        MANAGED_ROLE_SOURCE,
+        SITE_FILTER_SOURCE,
+        STATUS_FILTER_SOURCE,
+        TENANT_FILTER_SOURCE,
+    )
     from nv_config_manager_workflows.workflows.backup import (
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
     )
-
 
 CLONE_SEARCH_ATTRS = [
     USER_SEARCH_ATTRIBUTE,

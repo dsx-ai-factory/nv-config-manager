@@ -24,26 +24,12 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, ClassVar
 
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import FormSchema, OptionSource, device_field
-from nv_config_manager_workflows.workflow_references import (
-    DeviceReference,
-    DeviceReferences,
-)
-from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
@@ -57,6 +43,20 @@ with workflow.unsafe.imports_passed_through():
         discover_ib_port_guids,
         sync_ib_guid_on_interface,
     )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import FormSchema, OptionSource, device_field
+    from nv_config_manager_workflows.workflow_references import (
+        DeviceReference,
+        DeviceReferences,
+    )
+    from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 __all__ = [
     "IBPortGuidDiscoveryInput",
