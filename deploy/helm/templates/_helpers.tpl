@@ -1284,6 +1284,26 @@ wheels must be present under /plugin-wheels.
 {{- end }}
 {{- end -}}
 
+{{/*
+Optional /healthz budget overrides for the render consumers. Unset values keep
+the defaults built into the consumer.
+*/}}
+{{- define "nv-config-manager.renderConsumerLivenessEnv" -}}
+{{- $liveness := .Values.renderService.consumers.liveness | default dict -}}
+{{- with $liveness.timeoutSeconds }}
+- name: CONSUMER_LIVENESS_TIMEOUT_SECONDS
+  value: {{ . | quote }}
+{{- end }}
+{{- with $liveness.disconnectedTimeoutSeconds }}
+- name: CONSUMER_DISCONNECTED_TIMEOUT_SECONDS
+  value: {{ . | quote }}
+{{- end }}
+{{- with $liveness.handlerMaxAgeSeconds }}
+- name: CONSUMER_HANDLER_MAX_AGE_SECONDS
+  value: {{ . | quote }}
+{{- end }}
+{{- end -}}
+
 {{- define "nv-config-manager.pythonPluginPath" -}}
 {{- $paths := list -}}
 {{- if .Values.dcim.providerPackages.enabled -}}
