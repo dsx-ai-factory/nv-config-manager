@@ -250,9 +250,17 @@ migration init container before using inventory tools without sign-in.
 
 With ESO or Vault Agent operator secrets, the local Nautobot read-only token
 uses a separate ExternalSecret and target Secret. A missing read-only Vault
-property does not block synchronization of the regular DCIM token. Populate
-the read-only property and rerun Nautobot migrations before enabling anonymous
-inventory access. Kubernetes-only installs retain the `read-only-token` key in
+property does not block synchronization of the regular DCIM token. The reader
+Secret always contains `read-only-token` (empty when the Vault property is omitted),
+and migrations wait for ESO to create it before starting. This prevents an init
+container from permanently missing a token that ESO publishes a moment later.
+
+For upgrades or rotation, populate the read-only Vault property, wait for the
+read-only ExternalSecret to report `Ready`, and verify privately that its target
+Secret contains the updated token. The refresh interval is 300 seconds; do not
+restart migrations while the target is absent or still contains the old value.
+Then rerun Nautobot migrations before enabling anonymous inventory access.
+Kubernetes-only installs retain the `read-only-token` key in
 the existing DCIM token Secret. If Vault Agent's `esoForOperators` is disabled,
 provide `read-only-token` in the dedicated Secret (by default,
 `nautobot-token-read-only`) alongside the other manually managed operator secrets.

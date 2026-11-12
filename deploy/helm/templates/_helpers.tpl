@@ -1063,7 +1063,12 @@ Kubernetes-only installs retain the installer's existing combined secret.
 {{- if eq .Values.secrets.method "kubernetes" -}}
 {{- $tokenSecretName -}}
 {{- else -}}
-{{- printf "%s-read-only" ($tokenSecretName | trunc 53 | trimSuffix "-") -}}
+{{- $readerName := printf "%s-read-only" ($tokenSecretName | trunc 53 | trimSuffix "-") -}}
+{{- if eq $readerName $tokenSecretName -}}
+{{- printf "%s-ro-%s" ($tokenSecretName | trunc 51 | trimSuffix "-") ($tokenSecretName | sha256sum | trunc 8) -}}
+{{- else -}}
+{{- $readerName -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

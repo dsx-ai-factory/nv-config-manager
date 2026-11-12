@@ -14,6 +14,7 @@
 # limitations under the License.
 """Keep an optional Vault inventory token independent from the regular DCIM token."""
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -72,14 +73,23 @@ def test_optional_vault_lookup_is_isolated_from_regular_dcim_token(
     reader = secrets["custom-dcim-token-read-only"]
     assert reader["spec"]["data"] == [
         {
-            "secretKey": "read-only-token",
-            "remoteRef": {"key": "nv-config-manager/ci/nautobot", "property": "token_ro"},
+            "secretKey": "nautobot_data",
+            "remoteRef": {"key": "nv-config-manager/ci/nautobot"},
         }
     ]
+    assert reader["spec"]["target"]["template"] == {
+        "engineVersion": "v2",
+        "mergePolicy": "Replace",
+        "data": {
+            "read-only-token": '{{ index (fromJson .nautobot_data) "token_ro" | default "" }}'
+        },
+    }
+    # The managed Secret always contains this key, empty when the Vault field is
+    # omitted. A required reference waits for ESO rather than dropping the init env.
     assert _migration_read_only_ref(documents) == {
         "name": "custom-dcim-token-read-only",
         "key": "read-only-token",
-        "optional": True,
+        "optional": False,
     }
     if method == "eso":
         regular = secrets["custom-dcim-token"]
@@ -125,12 +135,11 @@ def test_external_nautobot_does_not_gain_a_local_reader_secret() -> None:
     assert not any(doc["spec"]["target"]["name"] == "nautobot-token-read-only" for doc in secrets)
 
 
-def test_long_custom_secret_name_keeps_the_reader_target_distinct() -> None:
-    regular_name = "n" * 63
+@pytest.mark.parametrize("regular_name", ["n" * 63, "n" * 53 + "-read-only"])
+def test_long_custom_secret_name_keeps_the_reader_target_distinct(regular_name: str) -> None:
     documents = _render(f"dcim.tokenSecret.name={regular_name}")
     ref = _migration_read_only_ref(documents)
     assert len(ref["name"]) <= 63
-    assert ref["name"].endswith("-read-only")
     assert ref["name"] != regular_name
     assert any(
         doc["kind"] == "ExternalSecret" and doc["spec"]["target"]["name"] == ref["name"]
@@ -149,3 +158,47 @@ def test_vault_agent_without_operator_eso_accepts_a_manually_supplied_reader_sec
         "optional": True,
     }
     assert not any(doc["kind"] == "ExternalSecret" for doc in documents)
+
+
+@pytest.mark.parametrize(
+    "vault_record,expected",
+    [
+        ({"token": "writer-placeholder", "token_ro": "reader-placeholder"}, "reader-placeholder"),
+        ({"token": "writer-placeholder"}, ""),
+    ],
+)
+def test_reader_go_template_handles_present_or_omitted_vault_property(
+    tmp_path: Path,
+    vault_record: dict[str, str],
+    expected: str,
+) -> None:
+    documents = _render("secrets.vault.paths.nautobot.keys.readOnlyToken=token_ro")
+    reader = next(
+        doc
+        for doc in documents
+        if doc["kind"] == "ExternalSecret"
+        and doc["spec"]["target"]["name"] == "nautobot-token-read-only"
+    )
+    expression = reader["spec"]["target"]["template"]["data"]["read-only-token"]
+    # Helm and ESO v2 both use Go templates with the index/fromJson/default
+    # functions. Evaluate the rendered expression, not a Python reimplementation.
+    (tmp_path / "Chart.yaml").write_text(
+        "apiVersion: v2\nname: reader-template-test\nversion: 0.1.0\n"
+    )
+    (tmp_path / "templates").mkdir()
+    (tmp_path / "templates/reader.yaml").write_text(
+        "result: {{ tpl .Values.expression .Values.input | quote }}\n"
+    )
+    values = tmp_path / "input.yaml"
+    values.write_text(
+        yaml.safe_dump(
+            {"expression": expression, "input": {"nautobot_data": json.dumps(vault_record)}}
+        )
+    )
+    result = subprocess.run(
+        ["helm", "template", "reader-test", str(tmp_path), "--values", str(values)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert yaml.safe_load(result.stdout)["result"] == expected
