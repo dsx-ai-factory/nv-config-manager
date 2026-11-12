@@ -253,6 +253,28 @@ def test_worker_limits_are_written_to_unified_ini(secret_method: str, template: 
     assert "max_concurrent_workflow_tasks = 20" in overridden
 
 
+@pytest.mark.parametrize("secret_method", ["eso", "kubernetes", "vault-agent"])
+@pytest.mark.parametrize(
+    "override",
+    [
+        "temporal.configManagerWorker.maxCachedWorkflows=400",
+        "temporal.configManagerWorker.maxConcurrentWorkflowTasks=20",
+    ],
+)
+def test_worker_limit_change_rolls_the_worker_pods(secret_method: str, override: str) -> None:
+    def checksum(*set_args: str) -> str:
+        rendered = _render(f"secrets.method={secret_method}", *set_args)
+        (worker,) = [
+            document
+            for document in _documents(rendered)
+            if document.get("kind") == "Deployment"
+            and document["metadata"]["name"].endswith("-nv-config-manager-worker")
+        ]
+        return worker["spec"]["template"]["metadata"]["annotations"]["checksum/worker-limits"]
+
+    assert checksum() != checksum(override)
+
+
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:
     # Changing a live Deployment from the server-defaulted strategy to Recreate is
     # rejected under server-side apply, so the scheduler must follow the chart-wide
