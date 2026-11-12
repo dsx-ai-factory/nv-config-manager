@@ -606,7 +606,7 @@ spec:
             - name: NAUTOBOT_READ_ONLY_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.dcim.tokenSecret.name | default "nautobot-token" }}
+                  name: {{ include "nv-config-manager.nautobotReadOnlyTokenSecretName" . }}
                   key: read-only-token
                   optional: true
             {{- range .Values.secrets.vault.paths.gitTokens }}

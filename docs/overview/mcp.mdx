@@ -248,6 +248,15 @@ token in the built-in Nautobot; rotating it removes the dedicated account's old
 tokens. Existing deployments must populate this secret and rerun the Nautobot
 migration init container before using inventory tools without sign-in.
 
+With ESO or Vault Agent operator secrets, the local Nautobot read-only token
+uses a separate ExternalSecret and target Secret. A missing read-only Vault
+property does not block synchronization of the regular DCIM token. Populate
+the read-only property and rerun Nautobot migrations before enabling anonymous
+inventory access. Kubernetes-only installs retain the `read-only-token` key in
+the existing DCIM token Secret. If Vault Agent's `esoForOperators` is disabled,
+provide `read-only-token` in the dedicated Secret (by default,
+`nautobot-token-read-only`) alongside the other manually managed operator secrets.
+
 For an external Nautobot, create a dedicated active user with view-only object
 permissions for the required inventory, create an API token with writes disabled,
 and supply that token through the same setting. Config Manager does not create
