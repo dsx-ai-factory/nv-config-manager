@@ -195,6 +195,7 @@ def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
     _clear_auth_config_cache()
 
     read_func = configparser.ConfigParser.read
+    read_string_func = configparser.ConfigParser.read_string
 
     def mock_func(
         self: configparser.ConfigParser,
@@ -202,10 +203,22 @@ def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
         *args: Any,
         **kwargs: Any,
     ) -> list[str]:
-        self.read_string(_current_ini["content"])
+        read_string_func(self, _current_ini["content"])
         return read_func(self, filenames, *args, **kwargs)
 
+    # load_config parses file contents it has already read, so a string with a
+    # file source gets the same test defaults underneath as a read() would.
+    def mock_read_string(
+        self: configparser.ConfigParser,
+        string: str,
+        source: str = "<string>",
+    ) -> None:
+        if source != "<string>":
+            read_string_func(self, _current_ini["content"])
+        read_string_func(self, string, source)
+
     mocker.patch("configparser.ConfigParser.read", new=mock_func)
+    mocker.patch("configparser.ConfigParser.read_string", new=mock_read_string)
     mocker.patch.object(workflow_runtime, "_nats_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_slack_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_ui_base_url_provider", workflow_runtime._UNSET)

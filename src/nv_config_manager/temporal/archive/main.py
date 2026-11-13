@@ -31,6 +31,7 @@ from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
 from nv_config_manager.common.client.nvdataflow import NVDataflowClient
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.config.nats import nats_archive_config
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.api.workflow_v1 import WorkflowDetailResponse, get_client
 from nv_config_manager.temporal.client.nats import NatsConsumer
@@ -205,6 +206,7 @@ def main() -> None:
     )
     configure_logging(service="temporal-archive")
     setup_telemetry("nv-config-manager-temporal-archive")
+    restart_on_config_change()
 
     stream, subject = nats_archive_config()
     consumer = NatsConsumer(

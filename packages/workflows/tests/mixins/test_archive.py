@@ -19,6 +19,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from temporalio import workflow
@@ -83,7 +84,7 @@ async def test_archive_schedules_the_existing_activity_contract(
     assert activity_input["subject"] is None
     assert json.loads(activity_input["message"])["workflow_id"] == "workflow-17"
     assert options["schedule_to_close_timeout"] == timedelta(minutes=1)
-    assert options["retry_policy"].maximum_attempts == 1
+    assert options["retry_policy"].maximum_attempts == 3
 
 
 def test_the_publisher_is_declared_as_a_required_activity() -> None:
@@ -96,3 +97,27 @@ def test_the_publisher_is_declared_as_a_required_activity() -> None:
         PUBLISH_NATS_ACTIVITY_NAME,
         "collect_facts",
     )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_publish_does_not_fail_the_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The run has already finished, so a broker outage must not fail it."""
+
+    async def execute_activity(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("nats unreachable")
+
+    warning = MagicMock()
+    monkeypatch.setattr(workflow, "info", workflow_info)
+    monkeypatch.setattr(
+        workflow,
+        "now",
+        lambda: datetime(2026, 8, 31, 12, 45, tzinfo=UTC),
+    )
+    monkeypatch.setattr(workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(workflow, "logger", SimpleNamespace(warning=warning))
+
+    await ArchiveMixin().archive_results()
+
+    warning.assert_called_once()
