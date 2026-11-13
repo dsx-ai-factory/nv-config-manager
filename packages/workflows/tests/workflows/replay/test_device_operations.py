@@ -49,6 +49,8 @@ _HISTORY_FILENAMES = (
     "device_cable_validation.json",
     "site_cable_validation.json",
     "hardware_validation.json",
+    "hardware_validation_arista_eos.json",
+    "hardware_validation_arista_eos_pre_change.json",
     "device_password_rotation.json",
     "site_password_rotation.json",
     "redfish_provisioning.json",

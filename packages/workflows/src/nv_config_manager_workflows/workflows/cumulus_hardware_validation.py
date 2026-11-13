@@ -59,6 +59,7 @@ with workflow.unsafe.imports_passed_through():
         GetNetworkDevicesInput,
         get_network_devices,
     )
+    from nv_config_manager_workflows.activities.dcim.models import Platform
     from nv_config_manager_workflows.activities.hardware_validation import (
         CreateConsolidatedExcelInput,
         HardwareValidationInput,
@@ -90,6 +91,14 @@ __all__ = [
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=5)
 DEVICE_QUERY_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
 DEFAULT_HARDWARE_VALIDATION_STATUS = ["Active", "Provisioned"]
+# Platforms whose device client reports platform, environment and inventory data.
+SUPPORTED_PLATFORMS = [Platform.CUMULUS_LINUX, Platform.ARISTA_EOS]
+SUPPORTED_PLATFORM_NAMES = "Cumulus Linux and Arista EOS"
+# Histories recorded before this patch validated Cumulus Linux devices only.
+ARISTA_EOS_PATCH_ID = "hardware-validation-arista-eos-v1"
+# Histories recorded before this patch failed the PSU and inventory stages on the
+# first device whose activity failed.
+PER_DEVICE_FAILURES_PATCH_ID = "hardware-validation-per-device-failures-v1"
 
 
 def format_filter_summary(
@@ -487,6 +496,10 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
             stage_input.tenant,
             stage_input.device_type_ids,
         )
+        if workflow.patched(ARISTA_EOS_PATCH_ID):
+            platforms, platform_names = SUPPORTED_PLATFORMS, SUPPORTED_PLATFORM_NAMES
+        else:
+            platforms, platform_names = [Platform.CUMULUS_LINUX], "Cumulus Linux"
         try:
             result = await workflow.execute_activity(
                 get_network_devices,
@@ -497,6 +510,7 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
                     tenant=stage_input.tenant,
                     device_type_ids=stage_input.device_type_ids,
                     managed_only=True,
+                    platforms=platforms,
                 ),
                 start_to_close_timeout=DEVICE_QUERY_START_TO_CLOSE_TIMEOUT,
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
@@ -515,25 +529,22 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
                 display=display,
             )
 
-        # Filter devices to only include Cumulus Linux devices
-        cumulus_devices = [
-            device
-            for device in result.devices
-            if device.platform and "cumulus" in device.platform.lower()
-        ]
+        # The DCIM query already filters by platform; keep devices on a supported one
+        # in case a provider ignores the filter.
+        supported_devices = [device for device in result.devices if device.platform in platforms]
         if not result.devices:
             display = f"No devices matched the specified filters ({filter_summary})."
-        elif not cumulus_devices:
+        elif not supported_devices:
             display = (
-                "No Cumulus Linux devices matched the specified filters "
+                f"No {platform_names} devices matched the specified filters "
                 f"({filter_summary}). The DCIM returned {len(result.devices)} "
-                "device(s), but hardware validation only runs against Cumulus Linux devices."
+                f"device(s), but hardware validation only runs against {platform_names} devices."
             )
         else:
-            display = f"Found {len(cumulus_devices)} Cumulus Linux devices."
+            display = f"Found {len(supported_devices)} {platform_names} devices."
 
         return self.GetDevicesToValidateStageOutput(
-            devices=cumulus_devices,
+            devices=supported_devices,
             display=display,
         )
 
@@ -681,6 +692,14 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
     ) -> GetPlatformInfoStageOutput:
         """Get LED information from devices."""
 
+        # EOS reports no LED state over eAPI, so its devices are listed as unsupported
+        # instead of counting as validated. EOS devices only get here under
+        # ARISTA_EOS_PATCH_ID, so histories recorded before it are unaffected.
+        led_devices = {
+            device_id: device_data
+            for device_id, device_data in stage_input.devices_data.items()
+            if device_data.platform != Platform.ARISTA_EOS
+        }
         device_tasks = [
             workflow.execute_activity(
                 get_platform_environment_led,
@@ -688,16 +707,23 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
                 start_to_close_timeout=DEVICE_QUERY_START_TO_CLOSE_TIMEOUT,
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
             )
-            for device_id, device_data in stage_input.devices_data.items()
+            for device_id, device_data in led_devices.items()
         ]
 
         results = await asyncio.gather(*device_tasks, return_exceptions=True)
 
         devices_info = {}
-        devices_data_and_results = {}
-        for (device_id, device_data), result in zip(
-            stage_input.devices_data.items(), results, strict=False
-        ):
+        devices_data_and_results: dict[str, dict[str, Any]] = {
+            device_id: {
+                "device_data": device_data,
+                "command_result": {},
+                "error": "Arista EOS reports no LED state",
+                "error_type": "not_found",
+            }
+            for device_id, device_data in stage_input.devices_data.items()
+            if device_id not in led_devices
+        }
+        for (device_id, device_data), result in zip(led_devices.items(), results, strict=False):
             if isinstance(result, Exception):
                 # Activity failed after retries
                 devices_data_and_results[device_id] = {
@@ -760,7 +786,9 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
             for device_id, device_data in stage_input.devices_data.items()
         ]
 
-        results = await asyncio.gather(*device_tasks)
+        results = await asyncio.gather(
+            *device_tasks, return_exceptions=workflow.patched(PER_DEVICE_FAILURES_PATCH_ID)
+        )
 
         devices_info = {}
         devices_data_and_results = {}
@@ -898,7 +926,9 @@ class ValidateHardwareWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, A
             for device_id, device_data in stage_input.devices_data.items()
         ]
 
-        results = await asyncio.gather(*device_tasks)
+        results = await asyncio.gather(
+            *device_tasks, return_exceptions=workflow.patched(PER_DEVICE_FAILURES_PATCH_ID)
+        )
 
         devices_info = {}
         devices_data_and_results = {}

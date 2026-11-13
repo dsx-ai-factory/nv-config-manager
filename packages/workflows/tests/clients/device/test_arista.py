@@ -917,3 +917,302 @@ def test_get_ztp_status_is_success_once_zerotouch_is_disabled() -> None:
 
     conn._node = _eapi_node({"mode": "enabled", "scriptTimeout": 900})
     assert conn.get_ztp_status() == "enabled"
+
+
+# ``show system environment ...`` and ``show inventory`` as a CCS-720XP-48ZC2 on EOS 4.34
+# reports them, reduced to one entry per kind.
+_COOLING = {
+    "systemStatus": "coolingOk",
+    "fansStatus": "fanAlarmOk",
+    "ambientTemperature": 26.125,
+    "airflowDirection": "frontToBackAirflow",
+    "fanTraySlots": [
+        {
+            "label": "1",
+            "status": "ok",
+            "speed": 30,
+            "fans": [
+                {
+                    "label": "1/1",
+                    "maxSpeed": 17500,
+                    "configuredSpeed": 30,
+                    "actualSpeed": 30,
+                    "status": "ok",
+                    "speedStable": True,
+                }
+            ],
+        }
+    ],
+    "powerSupplySlots": [
+        {
+            "label": "PowerSupply1",
+            "status": "ok",
+            "speed": 30,
+            "fans": [
+                {
+                    "label": "PowerSupply1/1",
+                    "maxSpeed": 23000,
+                    "configuredSpeed": 30,
+                    "actualSpeed": 29,
+                    "status": "failed",
+                }
+            ],
+        }
+    ],
+}
+_POWER = {
+    "powerSupplies": {
+        "1": {
+            "modelName": "PWR-1021-AC-RED",
+            "capacity": 1050.0,
+            "dominant": False,
+            "inputCurrent": 0.46484375,
+            "outputCurrent": 1.5234375,
+            "inputVoltage": 207.25,
+            "outputVoltage": 55.55859375,
+            "outputPower": 84.625,
+            "state": "ok",
+            "fans": {"FanP1/1": {"status": "ok", "speed": 29}},
+            "tempSensors": {"TempSensorP1/2": {"status": "ok", "temperature": 26.03125}},
+            "managed": True,
+        }
+    }
+}
+_INVENTORY = {
+    "systemInformation": {
+        "name": "CCS-720XP-48ZC2",
+        "description": "48 MGig Base-T with 2x100G",
+        "hardwareRev": "11.23",
+        "serialNum": "HBG00000000",
+        "mfgDate": "2024-09-10",
+    },
+    "powerSupplySlots": {
+        "1": {"name": "PWR-1021-AC-RED", "serialNum": "GGJT00000000"},
+        "2": {"name": "Not Inserted", "serialNum": ""},
+    },
+    "fanTraySlots": {
+        "1": {"numFans": 1, "name": "FAN-7000-F", "serialNum": "N/A"},
+        # An empty slot has no serial number.
+        "2": {"numFans": 1, "name": "Not Inserted"},
+    },
+    "xcvrSlots": {
+        "1": {
+            "mfgName": "Arista Networks",
+            "modelName": "CCS-720XP-48ZC2",
+            "serialNum": "",
+            "hardwareRev": "",
+        },
+        "49": {
+            "mfgName": "Arista Networks",
+            "modelName": "QSFP-100G-SR4",
+            "serialNum": "XMD00000000",
+            "hardwareRev": "20",
+        },
+    },
+    "storageDevices": {},
+}
+
+
+def test_get_platform_describes_the_chassis() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(
+        {
+            "mfgName": "Arista",
+            "modelName": "CCS-720XP-48ZC2",
+            "hardwareRevision": "11.23",
+            "serialNumber": "HBG00000000",
+            "systemMacAddress": "68:bf:6c:00:00:01",
+            "version": "4.34.3M-44102239.4343M (engineering build)",
+            "architecture": "x86_64",
+            "memTotal": 3970240,
+        }
+    )
+
+    assert conn.get_platform() == {
+        "manufacturer": "Arista",
+        "product-name": "CCS-720XP-48ZC2",
+        "serial-number": "HBG00000000",
+        "system-mac": "68:bf:6c:00:00:01",
+        "hardware-version": "11.23",
+        "architecture": "x86_64",
+        "os-version": "4.34.3M",
+        "memory": "3877 MiB",
+    }
+
+
+def test_fan_report_covers_tray_and_power_supply_fans() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(_COOLING)
+
+    fans = conn.get_platform_environment_fan()
+
+    assert fans == {
+        "Fan1/1": {
+            "state": "ok",
+            "current-speed": 30,
+            "configured-speed": 30,
+            "max-speed": 17500,
+            "direction": "frontToBackAirflow",
+        },
+        "PowerSupply1/1": {
+            "state": "failed",
+            "current-speed": 29,
+            "configured-speed": 30,
+            "max-speed": 23000,
+            "direction": "frontToBackAirflow",
+        },
+    }
+    conn._node.enable.assert_called_once_with("show system environment cooling", encoding="json")
+
+
+def test_psu_and_voltage_reports_share_the_power_data() -> None:
+    conn = _arista_connection()
+    conn._node = MagicMock()
+    conn._node.enable.return_value = [{"result": _POWER}]
+
+    assert conn.get_platform_environment_psu() == {
+        "PSU1": {
+            "state": "ok",
+            "model": "PWR-1021-AC-RED",
+            "capacity": 1050.0,
+            "current": 0.46484375,
+            "voltage": 207.25,
+            "power": 84.625,
+        }
+    }
+    assert conn.get_platform_environment_voltage() == {
+        "PSU1/input": {"state": "ok", "actual": 207.25},
+        "PSU1/output": {"state": "ok", "actual": 55.55859375},
+    }
+
+
+@pytest.mark.parametrize("status", [None, ""], ids=["missing", "empty"])
+def test_missing_status_is_reported_as_unknown_so_it_gets_flagged(status: str | None) -> None:
+    """The validation skips an empty state, so a status EOS leaves out must not come back empty."""
+    fan: dict[str, object] = {"label": "1/1", "actualSpeed": 30}
+    supply: dict[str, object] = {"modelName": "PWR-1021-AC-RED", "inputVoltage": 207.25}
+    if status is not None:
+        fan["status"] = status
+        supply["state"] = status
+    cooling = {
+        "airflowDirection": "frontToBackAirflow",
+        "fanTraySlots": [{"fans": [fan]}],
+        "powerSupplySlots": [],
+    }
+    power = {"powerSupplies": {"1": supply}}
+    conn = _arista_connection()
+    conn._node = _eapi_node(cooling, power, power)
+
+    assert conn.get_platform_environment_fan()["Fan1/1"]["state"] == "unknown"
+    assert conn.get_platform_environment_psu()["PSU1"]["state"] == "unknown"
+    voltage = conn.get_platform_environment_voltage()
+    assert {rail["state"] for rail in voltage.values()} == {"unknown"}
+
+
+def _no_power_supplies() -> pyeapi.eapilib.CommandError:
+    """What vEOS 4.34.7M answers to ``show system environment power``."""
+    return pyeapi.eapilib.CommandError(
+        1000,
+        "CLI command 1 of 1 'show system environment power' failed: could not run command",
+        command_error="There seem to be no power supplies connected.",
+    )
+
+
+def test_environment_without_power_supplies_is_empty_not_an_error() -> None:
+    """A switch without power supplies, such as vEOS, fails ``show system environment power``."""
+    conn = _arista_connection()
+    conn._node = _eapi_node(_no_power_supplies(), _no_power_supplies())
+
+    assert conn.get_platform_environment_psu() == {}
+    assert conn.get_platform_environment_voltage() == {}
+
+
+def test_eos_has_no_led_collector() -> None:
+    """EOS reports no LED state, so asking for it fails instead of passing with no rows."""
+    conn = _arista_connection()
+    conn._node = MagicMock()
+
+    with pytest.raises(NotImplementedError):
+        conn.get_platform_environment_led()
+    conn._node.enable.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pyeapi.eapilib.CommandError(
+            1005, "Command unauthorized: user has insufficient permissions to run the command"
+        ),
+        pyeapi.eapilib.CommandError(
+            1002, "CLI command 1 of 1 failed: invalid command", command_error="Invalid input"
+        ),
+    ],
+    ids=["unauthorized", "invalid"],
+)
+def test_other_environment_errors_fail_the_collector(error: pyeapi.eapilib.CommandError) -> None:
+    """Only the no-power-supplies answer means no readings; a refused command is a failure."""
+    conn = _arista_connection()
+    conn._node = _eapi_node(error, error, error)
+
+    with pytest.raises(pyeapi.eapilib.CommandError):
+        conn.get_platform_environment_fan()
+    with pytest.raises(pyeapi.eapilib.CommandError):
+        conn.get_platform_environment_psu()
+    with pytest.raises(pyeapi.eapilib.CommandError):
+        conn.get_platform_environment_voltage()
+
+
+def test_inventory_lists_chassis_supplies_trays_and_pluggables() -> None:
+    conn = _arista_connection()
+    conn._node = _eapi_node(_INVENTORY)
+
+    inventory = conn.get_platform_inventory()
+
+    assert inventory == {
+        "Chassis": {
+            "type": "switch",
+            "model": "CCS-720XP-48ZC2",
+            "serial": "HBG00000000",
+            "hardware-version": "11.23",
+            "state": "ok",
+        },
+        "PSU1": {
+            "type": "psu",
+            "model": "PWR-1021-AC-RED",
+            "serial": "GGJT00000000",
+            "hardware-version": "",
+            "state": "ok",
+        },
+        "PSU2": {
+            "type": "psu",
+            "model": "Not Inserted",
+            "serial": "",
+            "hardware-version": "",
+            "state": "not-inserted",
+        },
+        "FanTray1": {
+            "type": "fan",
+            "model": "FAN-7000-F",
+            "serial": "N/A",
+            "hardware-version": "",
+            "state": "ok",
+        },
+        "FanTray2": {
+            "type": "fan",
+            "model": "Not Inserted",
+            "serial": "",
+            "hardware-version": "",
+            "state": "not-inserted",
+        },
+        # Fixed copper ports report the chassis in xcvrSlots without a serial and are skipped.
+        "Ethernet49": {
+            "type": "transceiver",
+            "model": "QSFP-100G-SR4",
+            "manufacturer": "Arista Networks",
+            "serial": "XMD00000000",
+            "hardware-version": "20",
+            "state": "ok",
+        },
+    }
+    # Every state the validation flags on is a string, as the workflow requires.
+    assert all(isinstance(item["state"], str) for item in inventory.values())
