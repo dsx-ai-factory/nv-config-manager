@@ -1985,6 +1985,11 @@ temporal:
     nameSuffix: nv-config-manager-worker
     nameOverride: ""
     replicas: 3
+    # Written to the [temporal.worker] INI section. Each cached workflow keeps
+    # its sandbox in memory, so size the cache to the memory limit below. While
+    # the cache is enabled, the task slot count must be at least 2.
+    maxCachedWorkflows: 200
+    maxConcurrentWorkflowTasks: 10
     resources:
       requests:
         cpu: 1

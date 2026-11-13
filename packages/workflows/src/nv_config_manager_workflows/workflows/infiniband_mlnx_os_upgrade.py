@@ -18,23 +18,12 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import ClassVar
 
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import OptionSource, device_field
-from nv_config_manager_workflows.workflow_references import DeviceReference
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
@@ -54,6 +43,17 @@ with workflow.unsafe.imports_passed_through():
         install_mlnx_os,
         reload_mlnx_os,
     )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import OptionSource, device_field
+    from nv_config_manager_workflows.workflow_references import DeviceReference
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,

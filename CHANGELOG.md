@@ -21,6 +21,15 @@ version before the selected release candidate is promoted.
  managed Temporal server and bootstrap tools from 1.30.8 to 1.31.4.
   The frontend init container upgrades PostgreSQL core/visibility schemas to
   1.19/1.14; see the [upgrade and rollback notes](docs/temporal/temporal-deployment.mdx#upgrading-from-temporal-1308-to-1314).
+- The Config Manager Temporal worker's sticky workflow cache now defaults to 200
+  entries (the Temporal SDK default is 1,000) and the worker runs at most 10
+  workflow tasks at once (the SDK default is 100), so bursts of new workflows
+  queue instead of all exceeding the workflow task timeout, and the memory held
+  by cached runs is bounded. Both limits are set in the new
+  `[temporal.worker]` INI section (`max_cached_workflows`,
+  `max_concurrent_workflow_tasks`), which the Helm chart renders from
+  `temporal.configManagerWorker.maxCachedWorkflows` and
+  `maxConcurrentWorkflowTasks`. Invalid values fail worker startup.
 
 ### Fixed
 
@@ -37,6 +46,16 @@ version before the selected release candidate is promoted.
   was previously ignored, so every authenticated user could open Temporal Web
   and act on any workflow. Deployments that set it will start returning 403 to
   users outside the listed groups.
+- The Temporal worker no longer re-imports pydantic and the shared workflow
+  libraries in the sandbox for every workflow run. This cuts the per-run startup
+  CPU and per-run memory that contributed to workflow task timeouts, deadlock
+  errors, and OOMKills during large fan-outs such as site cable validation.
+  Every built-in workflow module now imports everything except the standard
+  library and `temporalio` inside its
+  `workflow.unsafe.imports_passed_through()` block, a test enforces this, and
+  the workflows package README documents the pattern for plugin workflows. The
+  worker also passes through `annotated_types`, which Pydantic imports lazily
+  after those blocks have closed.
 
 ## 1.4.0
 
