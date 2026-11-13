@@ -8,6 +8,35 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+### Changed
+
+- The Config Manager Temporal worker now serves its Temporal SDK metrics on a
+  Prometheus endpoint, scraped by a new PodMonitor, whenever
+  `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
+  Kubernetes `namespace` label, so workflow results can be separated per
+  deployment. These metrics are no longer pushed over OTLP, and their `job`
+  label changes from `nv-config-manager-temporal-worker` to the PodMonitor's
+  `<namespace>/<worker deployment name>`; update dashboards and alerts that
+  match the old `job`. The scraped endpoint adds no unit suffix, so deployments
+  whose OTLP collector does (such as the bundled Alloy, which stores
+  `temporal_request_latency_milliseconds_*`) also see the `_milliseconds` part
+  of those metric names disappear. See
+  [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
+- CNPG clusters now accept `cnpg.<cluster>.affinity.podAntiAffinityType`
+  (`preferred` or `required`). The chart defaults now set
+  `enablePodAntiAffinity: true` and `podAntiAffinityType: preferred`, which
+  match the scheduling CloudNativePG already applied when they were unset.
+
+### Fixed
+
+- `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
+  anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
+  and CloudNativePG then enabled preferred anti-affinity by default.
+  Deployments that set `false`, including the `values-local-small.yaml` and
+  `values-local-medium.yaml` profiles, will see their database pods' scheduling
+  rules change on upgrade
+  ([#406](https://github.com/dsx-ai-factory/nv-config-manager/issues/406)).
+
 ## 1.4.2
 
 Changes since 1.4.1, prepared against `1.4.2-rc.2`. Release promotion is pending.
