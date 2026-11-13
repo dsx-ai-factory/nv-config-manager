@@ -42,7 +42,7 @@ dependencies = [
     "pillow>=12.3.0",
     # Security: Fix DoS via unbounded recursion (GHSA-jr27-m4p2-rc6r, GHSA-63vm-454h-vhhq)
     "pyasn1>=0.6.5",
-    "soupsieve>=2.8.4",
+    "soupsieve>=4.0",
     "sqlparse>=0.6.0",
     # Multi-provider JWT validation (external IdPs, Azure AD, SPIFFE JWT-SVIDs)
     # cryptography is already a transitive dep of nautobot but pin for JWKS key support
