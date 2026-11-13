@@ -990,7 +990,11 @@ _INVENTORY = {
         "1": {"name": "PWR-1021-AC-RED", "serialNum": "GGJT00000000"},
         "2": {"name": "Not Inserted", "serialNum": ""},
     },
-    "fanTraySlots": {"1": {"numFans": 1, "name": "FAN-7000-F", "serialNum": "N/A"}},
+    "fanTraySlots": {
+        "1": {"numFans": 1, "name": "FAN-7000-F", "serialNum": "N/A"},
+        # An empty slot has no serial number.
+        "2": {"numFans": 1, "name": "Not Inserted"},
+    },
     "xcvrSlots": {
         "1": {
             "mfgName": "Arista Networks",
@@ -1192,6 +1196,13 @@ def test_inventory_lists_chassis_supplies_trays_and_pluggables() -> None:
             "serial": "N/A",
             "hardware-version": "",
             "state": "ok",
+        },
+        "FanTray2": {
+            "type": "fan",
+            "model": "Not Inserted",
+            "serial": "",
+            "hardware-version": "",
+            "state": "not-inserted",
         },
         # Fixed copper ports report the chassis in xcvrSlots without a serial and are skipped.
         "Ethernet49": {

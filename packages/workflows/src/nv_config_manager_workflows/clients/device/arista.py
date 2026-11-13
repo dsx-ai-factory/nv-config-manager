@@ -96,6 +96,11 @@ def _component_state(value: object) -> str:
     return str(value) if value else "unknown"
 
 
+def _slot_state(name: str) -> str:
+    """Return the state of a ``show inventory`` slot; EOS names an empty one "Not Inserted"."""
+    return "not-inserted" if name == "Not Inserted" else "ok"
+
+
 class _PasswordFallbackNode(Node):
     """A pyeapi node that retries a rejected request with the other known passwords.
 
@@ -915,15 +920,16 @@ class AristaConnection(NetworkConnection):
                 "model": name,
                 "serial": str(supply.get("serialNum", "")),
                 "hardware-version": "",
-                "state": "not-inserted" if name == "Not Inserted" else "ok",
+                "state": _slot_state(name),
             }
         for slot, tray in (inventory.get("fanTraySlots") or {}).items():
+            name = str(tray.get("name", ""))
             items[f"FanTray{slot}"] = {
                 "type": "fan",
-                "model": str(tray.get("name", "")),
+                "model": name,
                 "serial": str(tray.get("serialNum", "")),
                 "hardware-version": "",
-                "state": "ok",
+                "state": _slot_state(name),
             }
         for slot, transceiver in (inventory.get("xcvrSlots") or {}).items():
             if not transceiver.get("serialNum"):

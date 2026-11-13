@@ -49,7 +49,7 @@ On Arista EOS the collectors use `show version` (platform), `show system environ
 - **Voltage:** EOS exposes no rail voltages over eAPI, so the Voltage stage reports the input and output voltage of each power supply, read with the same `show system environment power` command as the PSU stage. These rows have no min/max thresholds and take the state of their power supply. A voltage row is flagged only when its supply's state is not `ok`; the workflow records the reading but does not check its range.
 - **LED:** EOS reports no LED state over eAPI. The LED stage does not query EOS devices and lists them under unsupported endpoints, so they do not count as validated and the LED sheet has no rows for them.
 - **Missing status:** a fan, PSU or voltage row that EOS reports without a status gets state `unknown` and is flagged.
-- **Empty power-supply slot:** a slot reported as `Not Inserted` appears in Inventory with state `not-inserted`.
+- **Empty slot:** a power-supply or fan-tray slot reported as `Not Inserted` appears in Inventory with state `not-inserted` and is flagged.
 
 ## Execution stages
 
