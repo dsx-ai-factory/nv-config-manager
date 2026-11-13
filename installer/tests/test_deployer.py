@@ -2086,7 +2086,10 @@ class TestK8sClientIntegration:
             for call in mock_k8s.apply_secret.call_args_list
             if call.args[0] == "nautobot-token"
         )
-        assert "read-only-token" not in nautobot_token_call.args[2]
+        assert len(nautobot_token_call.args[2]["read-only-token"]) == 40
+        assert (
+            nautobot_token_call.args[2]["read-only-token"] != nautobot_token_call.args[2]["token"]
+        )
 
     @patch("nv_config_manager_installer.deployer._run_logged")
     @patch("nv_config_manager_installer.deployer._run")

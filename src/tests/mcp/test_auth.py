@@ -97,13 +97,12 @@ def test_nautobot_jwt_mode_uses_configured_token_when_auth_is_disabled(
     assert headers == {"Authorization": "Token ro-token"}
 
 
-def test_nautobot_jwt_mode_omits_auth_when_auth_is_disabled_without_token(
+def test_nautobot_jwt_mode_requires_read_only_token_when_auth_is_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("nv_config_manager.mcp.clients.config_auth_required", lambda: False)
-    headers = _nautobot_auth_headers(_settings(nautobot_auth_mode="jwt"))
-
-    assert headers == {}
+    with pytest.raises(MCPAuthError, match="readOnlyToken"):
+        _nautobot_auth_headers(_settings(nautobot_auth_mode="jwt"))
 
 
 def _settings(

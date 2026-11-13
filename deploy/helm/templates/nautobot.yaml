@@ -5,6 +5,7 @@
 {{- $natsUser := include "nv-config-manager.natsUser" . }}
 {{- $natsSecretName := include "nv-config-manager.natsSecretName" . }}
 {{- $redisName := include "nv-config-manager.componentName" (dict "root" . "component" "redis") }}
+{{- $readOnlyTokenManaged := or (eq .Values.secrets.method "eso") (and (eq .Values.secrets.method "vault-agent") .Values.secrets.vaultAgent.esoForOperators) }}
 # =============================================================================
 # Bundled NATS and Nautobot Deployments
 # =============================================================================
@@ -603,6 +604,14 @@ spec:
                 secretKeyRef:
                   name: nautobot-admin
                   key: api_token
+            - name: NAUTOBOT_READ_ONLY_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nv-config-manager.nautobotReadOnlyTokenSecretName" . }}
+                  key: read-only-token
+                  # Managed ESO always publishes this key, empty if no token is configured.
+                  # Wait for its initial sync; otherwise the init env could miss the token.
+                  optional: {{ not $readOnlyTokenManaged }}
             {{- range .Values.secrets.vault.paths.gitTokens }}
             - name: GIT_TOKEN_{{ .name | upper }}
               valueFrom:

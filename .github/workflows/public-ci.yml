@@ -15,6 +15,7 @@ env:
   PYTHON_VERSION: "3.13"
   NAUTOBOT_PYTHON_VERSION: "3.11"
   HELM_VERSION: "v3.15.3"
+  GO_VERSION: "1.26.11"
 
 jobs:
   python-lint:
@@ -38,7 +39,7 @@ jobs:
       - name: Setup Go
         uses: &actions_setup_go actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26.10"
+          go-version: ${{ env.GO_VERSION }}
           cache: false
       - name: Sorted list check (keep-sorted)
         run: make sort-check
@@ -304,13 +305,13 @@ jobs:
         uses: *setup_proxy_cache
       - uses: *actions_setup_go
         with:
-          go-version: "1.26.10"
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: components/nats-ready/go.sum
       - name: Verify go.mod is tidy
         working-directory: components/nats-ready
         run: |
           go_version="$(go env GOVERSION)"
-          test "${go_version}" = "go1.26.10"
+          test "${go_version}" = "go${GO_VERSION}"
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
