@@ -24,6 +24,7 @@ import pytest
 from pydantic import BaseModel
 from pytest_mock import MockerFixture
 from temporalio import workflow
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner
 
 from nv_config_manager.temporal.worker import main as worker_main
 from nv_config_manager_workflows.activities.builtin import BUILTIN_ACTIVITIES
@@ -320,3 +321,23 @@ async def test_one_task_slot_with_sticky_cache_fails_before_worker_construction(
         await worker_main.main()
 
     worker_constructor.assert_not_called()
+
+
+async def test_worker_uses_sandbox_runner_with_passthrough_modules(mocker: MockerFixture) -> None:
+    """The worker runs workflows in a sandbox that passes the worker-level modules through."""
+    worker_constructor = _mock_worker_startup(mocker)
+    mocker.patch.object(worker_main, "log_workflow_registry")
+
+    await worker_main.main()
+
+    runner = worker_constructor.call_args.kwargs["workflow_runner"]
+    assert isinstance(runner, SandboxedWorkflowRunner)
+    assert set(worker_main.SANDBOX_PASSTHROUGH_MODULES) <= runner.restrictions.passthrough_modules
+
+
+@pytest.mark.parametrize("workflow_class", BUILTIN_WORKFLOWS, ids=workflow_type_name)
+async def test_builtin_workflows_load_in_worker_sandbox(workflow_class: type[Any]) -> None:
+    """Every built-in workflow passes validation in the worker's sandbox."""
+    worker_main.workflow_runner().prepare_workflow(
+        workflow._Definition.must_from_class(workflow_class)
+    )

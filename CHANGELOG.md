@@ -46,6 +46,16 @@ version before the selected release candidate is promoted.
   was previously ignored, so every authenticated user could open Temporal Web
   and act on any workflow. Deployments that set it will start returning 403 to
   users outside the listed groups.
+- The Temporal worker no longer re-imports pydantic and the shared workflow
+  libraries in the sandbox for every workflow run. This cuts the per-run startup
+  CPU and per-run memory that contributed to workflow task timeouts, deadlock
+  errors, and OOMKills during large fan-outs such as site cable validation.
+  Every built-in workflow module now imports everything except the standard
+  library and `temporalio` inside its
+  `workflow.unsafe.imports_passed_through()` block, a test enforces this, and
+  the workflows package README documents the pattern for plugin workflows. The
+  worker also passes through `annotated_types`, which Pydantic imports lazily
+  after those blocks have closed.
 
 ## 1.4.0
 

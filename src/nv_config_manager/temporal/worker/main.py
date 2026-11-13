@@ -22,6 +22,7 @@ from typing import Any
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import configure_logging
@@ -44,6 +45,12 @@ DEFAULT_MAX_CACHED_WORKFLOWS = 200
 # every one past the 10s workflow task timeout and into retries.
 DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS = 10
 WORKER_CONFIG_SECTION = "temporal.worker"
+
+# Pydantic imports annotated_types lazily while it builds a model class, after the
+# workflow module's imports_passed_through() block has closed. Passing it through
+# here covers every workflow module, including plugins, without each one adding an
+# otherwise unused import to its block.
+SANDBOX_PASSTHROUGH_MODULES = ("annotated_types",)
 
 
 def _enabled_env_flag(name: str) -> bool:
@@ -89,6 +96,15 @@ def _workflow_cache_and_task_limits() -> tuple[int, int]:
     return max_cached_workflows, max_concurrent_workflow_tasks
 
 
+def workflow_runner() -> SandboxedWorkflowRunner:
+    """Return the worker's sandboxed workflow runner."""
+    return SandboxedWorkflowRunner(
+        restrictions=SandboxRestrictions.default.with_passthrough_modules(
+            *SANDBOX_PASSTHROUGH_MODULES
+        )
+    )
+
+
 async def main() -> None:
     """Run the temporal worker."""
     max_cached_workflows, max_concurrent_workflow_tasks = _workflow_cache_and_task_limits()
@@ -116,6 +132,7 @@ async def main() -> None:
         workflows=workflows,
         activities=registry.all_activities,  # type: ignore[arg-type]
         activity_executor=ThreadPoolExecutor(100),
+        workflow_runner=workflow_runner(),
         max_cached_workflows=max_cached_workflows,
         max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
     )
