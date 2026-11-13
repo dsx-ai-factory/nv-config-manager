@@ -254,3 +254,23 @@ def custom_ini() -> Callable[[str], None]:
         clear_config_cache()
 
     return _set_ini
+
+
+def _with_kea_options(**options: str) -> str:
+    """Return the default test INI with extra [dhcp.kea] options."""
+    block = "[dhcp.kea]\nserver = localhost\nport = 8000\n"
+    extra = "".join(f"{key} = {value}\n" for key, value in options.items())
+    updated = DEFAULT_INI.replace(block, block + extra, 1)
+    if options and updated == DEFAULT_INI:
+        raise AssertionError("[dhcp.kea] block not found in DEFAULT_INI")
+    return updated
+
+
+@pytest.fixture()
+def kea_ini(custom_ini: Callable[[str], None]) -> Callable[..., None]:
+    """Install the default test INI plus the given [dhcp.kea] options."""
+
+    def _apply(**options: str) -> None:
+        custom_ini(_with_kea_options(**options))
+
+    return _apply
