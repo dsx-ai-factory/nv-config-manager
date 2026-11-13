@@ -1302,6 +1302,24 @@ wheels must be present under /plugin-wheels.
 {{- end }}
 {{- end -}}
 
+{{/*
+Liveness budget env for a consumer, from its liveness values. Only keys set to a
+non-null value are rendered, so the consumer's validated defaults apply otherwise.
+Zero is passed through for the consumer to reject rather than silently dropped.
+*/}}
+{{- define "nv-config-manager.consumerLivenessEnv" -}}
+{{- $liveness := . | default dict -}}
+{{- $envNames := dict
+  "timeoutSeconds" "CONSUMER_LIVENESS_TIMEOUT_SECONDS"
+  "handlerMaxAgeSeconds" "CONSUMER_HANDLER_MAX_AGE_SECONDS" -}}
+{{- range $key, $envName := $envNames }}
+{{- if and (hasKey $liveness $key) (not (kindIs "invalid" (index $liveness $key))) }}
+- name: {{ $envName }}
+  value: {{ index $liveness $key | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "nv-config-manager.pythonPluginPath" -}}
 {{- $paths := list -}}
 {{- if .Values.dcim.providerPackages.enabled -}}

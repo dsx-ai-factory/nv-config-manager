@@ -94,6 +94,7 @@ def test_archive_main_does_not_override_the_stream_prefix(
 
     with (
         patch("nv_config_manager.temporal.archive.main.NatsConsumer") as mock_consumer,
+        patch("nv_config_manager.temporal.archive.main.start_liveness_server"),
         patch("nv_config_manager.temporal.archive.main.configure_logging"),
         patch("nv_config_manager.temporal.archive.main.setup_telemetry"),
         patch("sys.argv", ["archive"]),
@@ -128,3 +129,24 @@ async def test_workflow_result_publish_subject_is_unchanged(
         '{"workflow_id":"workflow-1"}',
         stream="nv-config-manager",
     )
+
+
+def test_archive_main_serves_liveness_for_its_consumer(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entrypoint enables durable liveness and serves it on the configured port."""
+    custom_ini(BASE_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_LIVENESS_PORT", "9001")
+    monkeypatch.setenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", "900")
+    with (
+        patch("nv_config_manager.temporal.archive.main.NatsConsumer") as mock_consumer,
+        patch("nv_config_manager.temporal.archive.main.start_liveness_server") as serve,
+        patch("nv_config_manager.temporal.archive.main.configure_logging"),
+        patch("nv_config_manager.temporal.archive.main.setup_telemetry"),
+        patch("sys.argv", ["archive"]),
+    ):
+        main()
+
+    assert mock_consumer.call_args.kwargs["liveness_timeout"] == 900
+    serve.assert_called_once_with(mock_consumer.return_value, port=9001)
+    mock_consumer.return_value.run.assert_called_once_with()

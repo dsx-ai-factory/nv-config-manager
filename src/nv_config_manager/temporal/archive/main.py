@@ -30,6 +30,7 @@ import boto3
 from elasticsearch import ApiError, BadRequestError, Elasticsearch
 from fastapi import HTTPException
 from nats.aio.msg import Msg
+from nv_config_manager_infrastructure.liveness import start_liveness_server
 from nv_config_manager_infrastructure.nats.admin import (
     ARCHIVE_CONSUMER_MAX_ACK_PENDING,
     ARCHIVE_CONSUMER_MAX_DELIVER,
@@ -398,7 +399,11 @@ def main() -> None:
         handler=handler,
         manual_ack=True,
         max_concurrent_handlers=ARCHIVE_CONSUMER_MAX_ACK_PENDING,
+        liveness_timeout=float(
+            os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
+        ),
     )
+    start_liveness_server(consumer, port=int(os.getenv("CONSUMER_LIVENESS_PORT", "8001")))
     consumer.run()
 
 
