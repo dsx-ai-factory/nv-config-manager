@@ -1281,6 +1281,73 @@ async def _run_one_failed_cycle(consumer: PullConsumer, error: Exception) -> Non
 
 
 @pytest.mark.asyncio
+async def test_failed_cycle_past_liveness_budget_exits_the_consumer(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A loop that only fails raises out, so the process exits instead of retrying forever."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = MagicMock()
+    consumer._last_round_trip -= consumer.liveness_timeout + 1
+
+    with pytest.raises(RuntimeError, match="no successful fetch or consumer info") as excinfo:
+        await _run_one_failed_cycle(consumer, nats.errors.TimeoutError())
+
+    assert isinstance(excinfo.value.__cause__, nats.errors.TimeoutError)
+    assert consumer.running is False
+
+
+@pytest.mark.asyncio
+async def test_failed_cycle_within_liveness_budget_keeps_retrying(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A transient failure is retried; only a stall past the budget exits."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = MagicMock()
+    cycle = AsyncMock(side_effect=nats.errors.TimeoutError())
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_closed = False
+    consumer.error_backoff = 0
+
+    async def stop_after_backoff(_delay: float) -> None:
+        consumer.running = False
+
+    with (
+        patch.object(consumer, "_run_consumer_cycle", cycle),
+        patch.object(consumer, "_record_consumer_metrics_loop", new=AsyncMock()),
+        patch("nv_config_manager.render.pull_consumer.asyncio.sleep", new=stop_after_backoff),
+    ):
+        await consumer._run_pull_consumer()
+
+    cycle.assert_awaited_once()
+
+
+def test_liveness_logs_the_reason_once_when_it_starts_failing(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """The pod's own log says why it is about to be restarted, without repeating per probe."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+    with patch.object(PullConsumer, "logger") as logger:
+        consumer.liveness()
+        logger.error.assert_not_called()
+
+        consumer._last_round_trip -= consumer.liveness_timeout + 1
+        consumer.liveness()
+        consumer.liveness()
+        assert logger.error.call_count == 1
+        assert "no successful fetch or consumer info" in logger.error.call_args.args[-1]
+
+        consumer._record_round_trip()
+        consumer.liveness()
+        consumer._last_round_trip -= consumer.liveness_timeout + 1
+        consumer.liveness()
+        assert logger.error.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_missing_stream_is_recreated_before_retry(custom_ini, mock_jetstream):
     """Bundled NATS that lost its JetStream state gets this consumer's stream back."""
     custom_ini(TEST_NATS_CONFIG)

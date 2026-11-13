@@ -204,6 +204,7 @@ class PullConsumer:
                 "batch would restart the pod"
             )
         self._handler_started: float | None = None
+        self._liveness_failure_logged = False
 
     def run(self) -> None:
         """Run the consumer."""
@@ -258,7 +259,18 @@ class PullConsumer:
         """Report whether a server round trip has completed recently enough.
 
         Also fails once the current handler has run longer than handler_max_age.
+        The reason is logged once each time the consumer starts failing, since
+        a probe failure records only the status code.
         """
+        live, detail = self._check_liveness()
+        if not live and not self._liveness_failure_logged:
+            self.logger.error(
+                "Consumer %s is not live and will be restarted: %s", self.queue, detail
+            )
+        self._liveness_failure_logged = not live
+        return live, detail
+
+    def _check_liveness(self) -> tuple[bool, str]:
         now = time.monotonic()
         if self._handler_started is not None:
             handling_for = now - self._handler_started
@@ -367,7 +379,13 @@ class PullConsumer:
         self.logger.error(message, *args)
 
     async def _run_pull_consumer(self) -> None:
-        """Run the pull consumer with automatic recreation if needed."""
+        """Run the pull consumer with automatic recreation if needed.
+
+        Raises once cycles keep failing past the liveness budget, so the process
+        exits and is restarted instead of retrying on a connection that is not
+        coming back. The /healthz probe remains the backstop for a loop that is
+        blocked and cannot reach this check.
+        """
         if self.nats_conn is None or self.jetstream is None:
             self.logger.error("NATS connection or JetStream is None, cannot run consumer")
             return
@@ -386,6 +404,11 @@ class PullConsumer:
                     self.logger.warning(
                         "Consumer %s cycle failed, recreating: %s", self.queue, str(e)
                     )
+                    live, detail = self.liveness()
+                    if not live:
+                        raise RuntimeError(
+                            f"Consumer {self.queue} is exiting to be restarted: {detail}"
+                        ) from e
                     if isinstance(e, NotFoundError) and e.err_code == STREAM_NOT_FOUND_ERR_CODE:
                         await self._recreate_missing_stream()
                     await asyncio.sleep(self.error_backoff)
