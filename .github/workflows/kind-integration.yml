@@ -199,6 +199,8 @@ jobs:
           # quay.io / docker.io — those uncached pulls are what blow the deploy
           # timeout. Keep the tags in sync with the prometheus (Chart.yaml) and
           # alloy subchart versions; derive current refs with:
+          # This diagnostic intentionally uses the observability defaults and
+          # has no custom endpoint override.
           #   helm template t deploy/helm -f deploy/helm/values-ci.yaml \
           #     -f deploy/helm/values-observability.yaml | grep -E 'image:'
           if [ "${OBSERVABILITY}" = "true" ]; then

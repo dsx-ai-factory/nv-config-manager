@@ -95,10 +95,22 @@ helm template test . --values values-ci.yaml
 
 Do NOT use `values.yaml` alone — it requires secrets/vault paths that aren't populated outside of a real deployment.
 
-To test with the observability stack enabled, layer `values-observability.yaml` on top:
+To test with the observability stack enabled, apply the CI baseline first and
+the observability overlay second:
 
 ```bash
 helm template test . --values values-ci.yaml --values values-observability.yaml
+```
+
+If the render needs custom Grafana or Blackbox endpoints, add a dedicated
+endpoint override as the final values file. Helm gives the rightmost file
+precedence:
+
+```bash
+helm template test . \
+  --values values-ci.yaml \
+  --values values-observability.yaml \
+  --values values-monitoring-endpoints.yaml
 ```
 
 ## Generated API Artifacts
