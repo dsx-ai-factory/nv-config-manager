@@ -462,6 +462,9 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           [device]
           username = {{ include "nv-config-manager.vaultAgent.ctKv2Key" (dict "var" "network" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "network" "key" "user"))) }}
           password = {{ include "nv-config-manager.vaultAgent.ctKv2Key" (dict "var" "network" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "network" "key" "password"))) }}
+          {{- if $root.Values.localDev.mockDevices }}
+          mock = true
+          {{- end }}
 
           {{- if $root.Values.temporal.redfish.enabled }}
           # -----------------------------------------------------------------

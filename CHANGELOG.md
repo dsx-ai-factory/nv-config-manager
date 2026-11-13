@@ -8,6 +8,13 @@ version before the selected release candidate is promoted.
 
 ## Unreleased
 
+### Fixed
+
+- `localDev.mockDevices` now takes effect with `secrets.method: eso` and
+  `secrets.method: vault-agent`. Before, only `secrets.method: kubernetes`
+  rendered `mock = true` in the `[device]` section, so the other methods
+  silently kept real device connections.
+
 ## 1.4.2
 
 Changes since 1.4.1, prepared against `1.4.2-rc.2`. Release promotion is pending.

@@ -248,7 +248,8 @@ localDev:
     # Mock preferred username (X-Auth-Request-Preferred-Username)
     preferredUsername: "dev"
   # Enable mock network device connections (returns stub data, no real SSH/API calls)
-  # Set to true in local Kind environments where worker pods can't reach real devices
+  # Set to true where worker pods can't reach real devices, such as local Kind
+  # environments. Honored by every secrets.method (eso, vault-agent, kubernetes).
   mockDevices: false
   # Register long-running test workflows used by local workflow-list latency seeding.
   enableLocalTestWorkflows: false
