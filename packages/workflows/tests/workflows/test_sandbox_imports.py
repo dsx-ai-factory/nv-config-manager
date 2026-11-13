@@ -25,6 +25,7 @@ _TESTS_ROOT = Path(__file__).parents[1]
 _WORKFLOWS_ROOT = _TESTS_ROOT.parent / "src" / "nv_config_manager_workflows" / "workflows"
 _FIXTURE_PLUGIN_ROOT = _TESTS_ROOT / "fixtures" / "plugin" / "src" / "nvcm_fixture_plugin"
 _SANDBOXED_ROOTS = frozenset({"__future__", "temporalio", *sys.stdlib_module_names})
+_TYPE_CHECKING_TESTS = frozenset({"TYPE_CHECKING", "typing.TYPE_CHECKING"})
 
 
 def _defines_workflow(tree: ast.Module) -> bool:
@@ -54,8 +55,8 @@ def _imports_outside_passthrough(body: list[ast.stmt]) -> Iterator[ast.Import | 
     for node in body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             yield node
-        elif isinstance(node, ast.If) and ast.unparse(node.test).endswith("TYPE_CHECKING"):
-            continue
+        elif isinstance(node, ast.If) and ast.unparse(node.test) in _TYPE_CHECKING_TESTS:
+            yield from _imports_outside_passthrough(node.orelse)
         elif isinstance(node, (ast.If, ast.Try)):
             yield from _imports_outside_passthrough(node.body)
             yield from _imports_outside_passthrough(node.orelse)
@@ -120,6 +121,15 @@ def test_workflow_module_imports_are_passed_through(path: Path) -> None:
             [],
         ),
         ("if TYPE_CHECKING:\n    from pydantic import BaseModel\n", []),
+        ("if typing.TYPE_CHECKING:\n    from pydantic import BaseModel\n", []),
+        (
+            "if not TYPE_CHECKING:\n    from pydantic import BaseModel\n",
+            ["from pydantic import BaseModel"],
+        ),
+        (
+            "if TYPE_CHECKING:\n    from pydantic import BaseModel\nelse:\n    import pydantic\n",
+            ["import pydantic"],
+        ),
         (
             "try:\n    import orjson\nexcept ImportError:\n    import json\n",
             ["import orjson"],
