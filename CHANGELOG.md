@@ -22,6 +22,20 @@ version before the selected release candidate is promoted.
   `temporal_request_latency_milliseconds_*`) also see the `_milliseconds` part
   of those metric names disappear. See
   [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
+- CNPG clusters now accept `cnpg.<cluster>.affinity.podAntiAffinityType`
+  (`preferred` or `required`). The chart defaults now set
+  `enablePodAntiAffinity: true` and `podAntiAffinityType: preferred`, which
+  match the scheduling CloudNativePG already applied when they were unset.
+
+### Fixed
+
+- `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
+  anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
+  and CloudNativePG then enabled preferred anti-affinity by default.
+  Deployments that set `false`, including the `values-local-small.yaml` and
+  `values-local-medium.yaml` profiles, will see their database pods' scheduling
+  rules change on upgrade
+  ([#406](https://github.com/dsx-ai-factory/nv-config-manager/issues/406)).
 
 ## 1.4.2
 
