@@ -192,6 +192,8 @@ class NatsConsumer(NatsClient):
         self._handler_tasks.discard(task)
         if self._handler_slots is not None:
             self._handler_slots.release()
+        if not task.cancelled():
+            self._last_progress = time.monotonic()
 
     async def _handle(self, msg: Msg) -> None:
         """Run the handler, acking afterwards unless it settles messages itself."""
@@ -235,11 +237,15 @@ class NatsConsumer(NatsClient):
             asyncio_logger.setLevel(old_loglevel)
 
     def liveness(self) -> tuple[bool, str]:
-        """Report whether the durable has made progress recently enough.
+        """Report whether the durable or this pod has made progress recently enough.
 
         A push consumer whose deliveries stop raises nothing, so the process would
         otherwise stay Running while archiving nothing. Startup reports live until
         the subscription is bound, since a startup failure already exits main().
+
+        A delivery this pod finished handling counts as progress even when the
+        handler failed, because a restart cannot fix a failing backend and would
+        otherwise repeat for as long as the durable is stalled behind it.
         """
         if not self._subscribed:
             return True, f"durable {self.full_queue_name} is not subscribed yet"

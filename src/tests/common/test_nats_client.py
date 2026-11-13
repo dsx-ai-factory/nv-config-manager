@@ -984,6 +984,47 @@ def test_consumer_liveness_ignores_redeliveries():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "handler",
+    [AsyncMock(), AsyncMock(side_effect=RuntimeError("backend is down"))],
+    ids=["settled", "raised"],
+)
+async def test_consumer_liveness_counts_a_delivery_this_pod_finished(handler):
+    """A pod still handling redeliveries is alive, even while a failing backend stalls the durable."""
+    consumer = _liveness_consumer()
+    consumer.handler = handler
+    stalled = _durable_info(delivered=10, acked=9, num_ack_pending=1)
+    consumer._record_consumer_info(stalled)
+    consumer._last_progress -= 601
+
+    await consumer._dispatch(_delivery())
+    await asyncio.gather(*consumer._handler_tasks)
+    consumer._record_consumer_info(stalled)
+
+    assert consumer.liveness()[0]
+
+
+@pytest.mark.asyncio
+async def test_consumer_liveness_ignores_a_delivery_whose_handler_never_finishes():
+    """Receiving a message is not progress; a hung or cancelled handler still runs out the budget."""
+
+    async def hang(_msg):
+        await asyncio.sleep(10)
+
+    consumer = _liveness_consumer()
+    consumer.handler = hang
+    consumer._last_progress -= 601
+
+    await consumer._dispatch(_delivery())
+    await asyncio.sleep(0)
+    assert not consumer.liveness()[0]
+
+    with patch("nv_config_manager_infrastructure.nats.consumer.HANDLER_DRAIN_SECONDS", 0.01):
+        await consumer._drain_handlers(MagicMock(is_closed=True))
+    assert not consumer.liveness()[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("consumer_info", "connected", "refreshed"),
     [
         (AsyncMock(return_value=_durable_info(delivered=1, acked=1)), True, True),
