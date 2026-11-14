@@ -16,8 +16,6 @@
 
 import json
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -27,7 +25,6 @@ import pytest
 from nats.aio.msg import Msg
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import FetchTimeoutError, NotFoundError
-from nv_config_manager_infrastructure.liveness import start_liveness_server
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.common.lock import LOCK_TIMEOUT_SECONDS
@@ -188,29 +185,6 @@ def test_liveness_budget_outlasts_one_slow_message(custom_ini: Callable[[str], N
     assert consumer.liveness_timeout > CONSUMER_ACK_WAIT_SECONDS
 
 
-def test_liveness_endpoint_returns_503_when_wedged(custom_ini: Callable[[str], None]) -> None:
-    """The probe endpoint has to fail closed so Kubernetes restarts the pod."""
-    custom_ini(TEST_NATS_CONFIG)
-    consumer = PullConsumer(
-        stream="test_stream",
-        subject="test_subject",
-        queue_suffix="test_queue",
-    )
-    server = start_liveness_server(consumer, port=0)
-    try:
-        url = f"http://127.0.0.1:{server.server_address[1]}/healthz"
-        with urllib.request.urlopen(url, timeout=5) as response:
-            assert response.status == 200
-
-        consumer._last_round_trip -= consumer.liveness_timeout + 1
-        with pytest.raises(urllib.error.HTTPError) as excinfo:
-            urllib.request.urlopen(url, timeout=5)
-        assert excinfo.value.code == 503
-    finally:
-        server.shutdown()
-        server.server_close()
-
-
 @pytest.mark.parametrize("timeout", ["0", "-5", str(CONSUMER_ACK_WAIT_SECONDS)])
 def test_liveness_timeout_at_or_below_ack_wait_is_rejected(
     custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, timeout: str
@@ -339,39 +313,6 @@ async def test_handling_is_set_only_while_the_handler_runs(
 
     assert seen == [True]
     assert consumer._handler_started is None
-
-
-def test_handler_past_max_age_fails_liveness(custom_ini: Callable[[str], None]) -> None:
-    """A handler hung on a healthy connection is restarted even though consumer info succeeds."""
-    custom_ini(TEST_NATS_CONFIG)
-    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
-
-    consumer._handler_started = time.monotonic() - consumer.liveness_timeout - 1
-    consumer._record_round_trip()
-    live, _ = consumer.liveness()
-    assert live is True
-
-    consumer._handler_started = time.monotonic() - consumer.handler_max_age - 1
-    consumer._record_round_trip()
-    live, detail = consumer.liveness()
-    assert live is False
-    assert "handler running for" in detail
-
-    consumer._handler_started = None
-    live, _ = consumer.liveness()
-    assert live is True
-
-
-@pytest.mark.parametrize("max_age", ["nan", "inf", "0", str(CONSUMER_ACK_WAIT_SECONDS + 240)])
-def test_unsafe_handler_max_age_is_rejected(
-    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, max_age: str
-) -> None:
-    """A cap that never expires, or one inside the liveness budget, fails at startup."""
-    custom_ini(TEST_NATS_CONFIG)
-    monkeypatch.setenv("CONSUMER_HANDLER_MAX_AGE_SECONDS", max_age)
-
-    with pytest.raises(ValueError, match="CONSUMER_HANDLER_MAX_AGE_SECONDS"):
-        PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
 
 
 def _stalled_cycle_consumer(
@@ -1321,30 +1262,6 @@ async def test_failed_cycle_within_liveness_budget_keeps_retrying(
         await consumer._run_pull_consumer()
 
     cycle.assert_awaited_once()
-
-
-def test_liveness_logs_the_reason_once_when_it_starts_failing(
-    custom_ini: Callable[[str], None],
-) -> None:
-    """The pod's own log says why it is about to be restarted, without repeating per probe."""
-    custom_ini(TEST_NATS_CONFIG)
-    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
-
-    with patch.object(PullConsumer, "logger") as logger:
-        consumer.liveness()
-        logger.error.assert_not_called()
-
-        consumer._last_round_trip -= consumer.liveness_timeout + 1
-        consumer.liveness()
-        consumer.liveness()
-        assert logger.error.call_count == 1
-        assert "no successful fetch or consumer info" in logger.error.call_args.args[-1]
-
-        consumer._record_round_trip()
-        consumer.liveness()
-        consumer._last_round_trip -= consumer.liveness_timeout + 1
-        consumer.liveness()
-        assert logger.error.call_count == 2
 
 
 @pytest.mark.asyncio

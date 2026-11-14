@@ -33,7 +33,6 @@ from nats.aio.msg import Msg
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy
 from nats.js.errors import FetchTimeoutError, NotFoundError
-from nv_config_manager_infrastructure.liveness import start_liveness_server
 from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
 from prometheus_client import Counter, Gauge, start_http_server
 
@@ -185,26 +184,7 @@ class PullConsumer:
                 "restart the pod before it finishes"
             )
         self._last_round_trip = time.monotonic()
-
-        # Consumer info only proves the connection, so a handler hung on DCIM or
-        # Redis while NATS answers would otherwise stay live forever. Past this
-        # age the probe fails and the restart kills the handler, render thread
-        # included; nothing is cancelled in process, and the unacked message is
-        # redelivered after the ack wait.
-        self.handler_max_age = float(os.getenv("CONSUMER_HANDLER_MAX_AGE_SECONDS", "7200"))
-        if not math.isfinite(self.handler_max_age):
-            raise ValueError(
-                f"CONSUMER_HANDLER_MAX_AGE_SECONDS={self.handler_max_age:g} must be a finite "
-                "number of seconds, or a hung handler would never be restarted"
-            )
-        if self.handler_max_age <= self.liveness_timeout:
-            raise ValueError(
-                f"CONSUMER_HANDLER_MAX_AGE_SECONDS={self.handler_max_age:g} must exceed the "
-                f"liveness timeout of {self.liveness_timeout:g}s, or a long config context "
-                "batch would restart the pod"
-            )
         self._handler_started: float | None = None
-        self._liveness_failure_logged = False
 
     def run(self) -> None:
         """Run the consumer."""
@@ -256,29 +236,8 @@ class PullConsumer:
         self._last_round_trip = time.monotonic()
 
     def liveness(self) -> tuple[bool, str]:
-        """Report whether a server round trip has completed recently enough.
-
-        Also fails once the current handler has run longer than handler_max_age.
-        The reason is logged once each time the consumer starts failing, since
-        a probe failure records only the status code.
-        """
-        live, detail = self._check_liveness()
-        if not live and not self._liveness_failure_logged:
-            self.logger.error(
-                "Consumer %s is not live and will be restarted: %s", self.queue, detail
-            )
-        self._liveness_failure_logged = not live
-        return live, detail
-
-    def _check_liveness(self) -> tuple[bool, str]:
-        now = time.monotonic()
-        if self._handler_started is not None:
-            handling_for = now - self._handler_started
-            if handling_for > self.handler_max_age:
-                return False, (
-                    f"handler running for {handling_for:.0f}s (limit {self.handler_max_age:.0f}s)"
-                )
-        stalled_for = now - self._last_round_trip
+        """Report whether a server round trip has completed recently enough."""
+        stalled_for = time.monotonic() - self._last_round_trip
         if stalled_for > self.liveness_timeout:
             return False, (
                 f"no successful fetch or consumer info for {stalled_for:.0f}s "
@@ -383,8 +342,8 @@ class PullConsumer:
 
         Raises once cycles keep failing past the liveness budget, so the process
         exits and is restarted instead of retrying on a connection that is not
-        coming back. The /healthz probe remains the backstop for a loop that is
-        blocked and cannot reach this check.
+        coming back. A loop that is blocked, or a handler that never returns,
+        does not reach this check.
         """
         if self.nats_conn is None or self.jetstream is None:
             self.logger.error("NATS connection or JetStream is None, cannot run consumer")
@@ -893,7 +852,6 @@ def main() -> None:
     else:
         raise NotImplementedError(f"No consumer implemented for {consumer_name}.")
 
-    start_liveness_server(consumer, port=int(os.getenv("CONSUMER_LIVENESS_PORT", "8001")))
     consumer.run()
     get_logger(__name__, category=LogCategory.RENDER_EVENT).info("Exiting...")
 

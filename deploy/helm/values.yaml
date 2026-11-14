@@ -1213,15 +1213,6 @@ renderService:
               topologyKey: kubernetes.io/hostname
   # Consumers
   consumers:
-    # Port for the /healthz liveness endpoint on every render consumer
-    healthPort: 8001
-    # /healthz budgets in seconds. Unset values use the consumer defaults:
-    # timeoutSeconds is the ack wait + 240 and must exceed the ack wait, and
-    # handlerMaxAgeSeconds is 7200 and must exceed timeoutSeconds. Raise
-    # handlerMaxAgeSeconds for config context batches that legitimately run longer.
-    liveness:
-      timeoutSeconds: null
-      handlerMaxAgeSeconds: null
     nautobot:
       replicas: 3
       resources:
