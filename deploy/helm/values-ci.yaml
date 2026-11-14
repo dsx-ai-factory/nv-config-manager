@@ -68,6 +68,7 @@ gateway:
   certificates:
     enabled: true
     selfSigned: true
+    localCA: true
 
 monitoring:
   enabled: true
