@@ -567,6 +567,10 @@ spec:
           env:
             - name: NAUTOBOT_RUN_BOOTSTRAP
               value: "{{ .Values.nautobot.bootstrap.enabled | default true }}"
+            # Changes to these inputs make the next lock holder rerun migrate,
+            # post_upgrade and bootstrap; otherwise later pods skip them.
+            - name: NAUTOBOT_INIT_FINGERPRINT
+              value: {{ list (include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nautobot)) (include "nv-config-manager.configmap.nautobot-env" . | sha256sum) (include "nv-config-manager.configmap.nautobot-config" . | sha256sum) (.Values.nautobot.bootstrap.enabled | default true) | toJson | sha256sum | quote }}
             - name: NAUTOBOT_DB_HOST
               value: "{{ tpl .Values.nautobot.server.db.host . }}"
             - name: NAUTOBOT_DB_PORT
