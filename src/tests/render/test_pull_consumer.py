@@ -34,7 +34,13 @@ from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
     CONSUMER_ACK_WAIT_SECONDS,
     CONSUMER_GIVEN_UP,
+    CONSUMER_LAST_NATS_SUCCESS,
+    CONSUMER_LAST_PROGRESS,
+    CONSUMER_NATS_FAILURES,
+    CONSUMER_NATS_RECONNECTS,
     CONSUMER_PENDING,
+    CONSUMER_PROCESSING_DURATION,
+    CONSUMER_PROCESSING_STARTED,
     CONSUMER_REDELIVERED,
     CONSUMER_WAITING,
     PullConsumer,
@@ -376,6 +382,109 @@ async def test_fetch_timeout_without_response_does_not_refresh_liveness(
     live, _ = consumer.liveness()
     assert live is False
     mock_pull_subscription.unsubscribe.assert_awaited_once()
+
+
+def _stall_metrics_consumer(monkeypatch: pytest.MonkeyPatch, namespace: str) -> PullConsumer:
+    """Return a consumer whose stall metrics have their own label set."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", namespace)
+    return PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+
+@pytest.mark.asyncio
+async def test_stuck_handler_is_visible_in_metrics_until_it_returns(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A handler that never returns keeps its start time exported and progress stale."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stall-handler")
+    labels = consumer._metric_labels
+    started = CONSUMER_PROCESSING_STARTED.labels(*labels)
+    progress = CONSUMER_LAST_PROGRESS.labels(*labels)
+    duration = CONSUMER_PROCESSING_DURATION.labels(*labels)
+    assert started._value.get() == 0
+    progress.set(1)
+    seen: list[tuple[float, float]] = []
+
+    async def handler(_msg: Msg) -> None:
+        seen.append((started._value.get(), progress._value.get()))
+
+    consumer.message_handler = handler  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(AsyncMock(spec=Msg))
+
+    assert seen[0][0] == pytest.approx(time.time(), abs=5)
+    assert seen[0][1] == 1
+    assert started._value.get() == 0
+    assert progress._value.get() == pytest.approx(time.time(), abs=5)
+    assert duration._sum.get() >= 0
+    assert sum(bucket.get() for bucket in duration._buckets) == 1
+
+
+@pytest.mark.asyncio
+async def test_idle_fetch_counts_as_progress_but_consumer_info_does_not(
+    custom_ini: Callable[[str], None],
+    monkeypatch: pytest.MonkeyPatch,
+    mock_jetstream: MagicMock,
+) -> None:
+    """Progress comes from the consumer loop itself, not from the background metrics task."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stall-progress")
+    labels = consumer._metric_labels
+    progress = CONSUMER_LAST_PROGRESS.labels(*labels)
+    nats_success = CONSUMER_LAST_NATS_SUCCESS.labels(*labels)
+    consumer.jetstream = mock_jetstream
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_closed = False
+    consumer.running = True
+    consumer.metrics_refresh_interval = 0
+    consumer._handler_started = time.monotonic()
+    mock_jetstream.consumer_info = _info_once(consumer)
+    progress.set(1)
+    nats_success.set(1)
+
+    await consumer._record_consumer_metrics_loop()
+
+    assert progress._value.get() == 1
+    assert nats_success._value.get() == pytest.approx(time.time(), abs=5)
+
+    nats_success.set(1)
+    consumer._record_fetch()
+
+    assert progress._value.get() == pytest.approx(time.time(), abs=5)
+    assert nats_success._value.get() == pytest.approx(time.time(), abs=5)
+
+
+@pytest.mark.asyncio
+async def test_nats_failures_and_reconnects_are_counted(
+    custom_ini: Callable[[str], None],
+    monkeypatch: pytest.MonkeyPatch,
+    mock_jetstream: MagicMock,
+) -> None:
+    """Failed cycles, failed consumer info lookups and reconnects each have a counter."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stall-failures")
+    labels = consumer._metric_labels
+    consumer.jetstream = mock_jetstream
+
+    await _run_one_failed_cycle(consumer, nats.errors.TimeoutError())
+    assert CONSUMER_NATS_FAILURES.labels(*labels, "cycle")._value.get() == 1
+
+    consumer.running = True
+    consumer.metrics_refresh_interval = 0
+    mock_jetstream.consumer_info = _info_once(consumer, nats.errors.TimeoutError())
+    await consumer._record_consumer_metrics_loop()
+    assert CONSUMER_NATS_FAILURES.labels(*labels, "consumer_info")._value.get() == 1
+
+    with (
+        patch(
+            "nv_config_manager.render.pull_consumer.nats_connection", new_callable=AsyncMock
+        ) as connect,
+        patch.object(consumer, "_run_pull_consumer", new_callable=AsyncMock),
+    ):
+        connect.return_value = MagicMock()
+        await consumer.main()
+        await connect.call_args.kwargs["reconnected_cb"]()
+    assert CONSUMER_NATS_RECONNECTS.labels(*labels)._value.get() == 1
 
 
 def test_render_consumer_metrics_are_labeled_by_fixed_consumer(custom_ini, monkeypatch):

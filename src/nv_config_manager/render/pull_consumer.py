@@ -34,7 +34,7 @@ from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy
 from nats.js.errors import FetchTimeoutError, NotFoundError
 from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
-from prometheus_client import Counter, Gauge, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.config.nats import (
@@ -106,6 +106,45 @@ CONSUMER_GIVEN_UP = Counter(
     [*CONSUMER_METRIC_LABELS, "reason"],
 )
 
+# Stall detection. The retry loop exits on its own once fetches keep failing,
+# but a handler that never returns or a blocked event loop never reaches that
+# check. These are served from the metrics thread, so their age keeps growing
+# while the loop is stuck. Alert on time() minus the gauge.
+CONSUMER_LAST_PROGRESS = Gauge(
+    "nv_config_manager_nats_consumer_last_progress_timestamp_seconds",
+    "Unix time the render consumer last completed a fetch, idle fetches included, "
+    "or finished handling a message",
+    CONSUMER_METRIC_LABELS,
+)
+CONSUMER_PROCESSING_STARTED = Gauge(
+    "nv_config_manager_nats_consumer_processing_start_timestamp_seconds",
+    "Unix time the render consumer started handling its current message, or 0 when idle",
+    CONSUMER_METRIC_LABELS,
+)
+CONSUMER_PROCESSING_DURATION = Histogram(
+    "nv_config_manager_nats_consumer_processing_duration_seconds",
+    "Time the render consumer spent handling a message, whether it succeeded or failed",
+    CONSUMER_METRIC_LABELS,
+    buckets=(1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, 7200),
+)
+CONSUMER_LAST_NATS_SUCCESS = Gauge(
+    "nv_config_manager_nats_consumer_last_nats_success_timestamp_seconds",
+    "Unix time the render consumer last completed a fetch or consumer info lookup",
+    CONSUMER_METRIC_LABELS,
+)
+NATS_FAILURE_CYCLE = "cycle"
+NATS_FAILURE_CONSUMER_INFO = "consumer_info"
+CONSUMER_NATS_FAILURES = Counter(
+    "nv_config_manager_nats_consumer_nats_failures",
+    "Failed render consumer cycles and consumer info lookups",
+    [*CONSUMER_METRIC_LABELS, "operation"],
+)
+CONSUMER_NATS_RECONNECTS = Counter(
+    "nv_config_manager_nats_consumer_nats_reconnects",
+    "Times the render consumer's NATS connection was re-established",
+    CONSUMER_METRIC_LABELS,
+)
+
 
 class PullConsumer:
     """Pull-based Nautobot NATS Event Consumer."""
@@ -145,6 +184,15 @@ class PullConsumer:
         self.max_deliver = CONSUMER_MAX_DELIVER
         for reason in (GIVE_UP_FAILED, GIVE_UP_LOCK):
             CONSUMER_GIVEN_UP.labels(self.queue, self.stream, self.namespace, reason)
+        self._metric_labels = (self.queue, self.stream, self.namespace)
+        # Export every series from startup so an alert never reads a missing one.
+        CONSUMER_LAST_PROGRESS.labels(*self._metric_labels).set_to_current_time()
+        CONSUMER_PROCESSING_STARTED.labels(*self._metric_labels).set(0)
+        CONSUMER_PROCESSING_DURATION.labels(*self._metric_labels)
+        CONSUMER_LAST_NATS_SUCCESS.labels(*self._metric_labels).set_to_current_time()
+        for operation in (NATS_FAILURE_CYCLE, NATS_FAILURE_CONSUMER_INFO):
+            CONSUMER_NATS_FAILURES.labels(*self._metric_labels, operation)
+        CONSUMER_NATS_RECONNECTS.labels(*self._metric_labels)
         self._metrics_permission_warning_logged = False
         self._last_permission_error: Exception | None = None
         self._permission_guidance_logged: set[str] = set()
@@ -235,6 +283,12 @@ class PullConsumer:
         """Note a completed fetch, or a consumer info lookup made while a handler runs."""
         self._last_round_trip = time.monotonic()
 
+    def _record_fetch(self) -> None:
+        """Note a completed fetch, which is both a round trip and consumer progress."""
+        self._record_round_trip()
+        CONSUMER_LAST_PROGRESS.labels(*self._metric_labels).set_to_current_time()
+        CONSUMER_LAST_NATS_SUCCESS.labels(*self._metric_labels).set_to_current_time()
+
     def liveness(self) -> tuple[bool, str]:
         """Report whether a server round trip has completed recently enough."""
         stalled_for = time.monotonic() - self._last_round_trip
@@ -311,6 +365,7 @@ class PullConsumer:
             self.logger.warning("NATS connection disconnected.")
 
         async def reconnected_cb() -> None:
+            CONSUMER_NATS_RECONNECTS.labels(*self._metric_labels).inc()
             self.logger.warning("NATS connection reconnected.")
 
         self.nats_conn = await nats_connection(
@@ -363,6 +418,7 @@ class PullConsumer:
                     self.logger.warning(
                         "Consumer %s cycle failed, recreating: %s", self.queue, str(e)
                     )
+                    CONSUMER_NATS_FAILURES.labels(*self._metric_labels, NATS_FAILURE_CYCLE).inc()
                     live, detail = self.liveness()
                     if not live:
                         raise RuntimeError(
@@ -427,6 +483,7 @@ class PullConsumer:
         while self.running and self.nats_conn and not self.nats_conn.is_closed:
             try:
                 consumer_info = await self.jetstream.consumer_info(self.stream, self.queue)
+                CONSUMER_LAST_NATS_SUCCESS.labels(*self._metric_labels).set_to_current_time()
                 if self._handler_started is not None:
                     self._record_round_trip()
                 self._record_consumer_metrics(consumer_info)
@@ -437,6 +494,9 @@ class PullConsumer:
             except Exception as e:
                 # Metrics collection must never interrupt message processing.
                 self._remove_consumer_metrics()
+                CONSUMER_NATS_FAILURES.labels(
+                    *self._metric_labels, NATS_FAILURE_CONSUMER_INFO
+                ).inc()
                 if is_nats_permissions_error(e):
                     if not self._metrics_permission_warning_logged:
                         self.logger.error(
@@ -479,14 +539,14 @@ class PullConsumer:
                     # raise an exception after missing heartbeats. Any exception
                     # during fetch indicates we should recreate the consumer.
                     msgs = await pull_subscription.fetch(batch=1, heartbeat=self.heartbeat_interval)
-                    self._record_round_trip()
+                    self._record_fetch()
                     if msgs:
                         await self._resilient_message_handler(msgs[0])
                     else:
                         await asyncio.sleep(self.idle_wait)
                 except FetchTimeoutError:
                     # Heartbeats were fine, but no messages were received
-                    self._record_round_trip()
+                    self._record_fetch()
                     await asyncio.sleep(self.idle_wait)
                 except Exception as e:
                     # Any exception during fetch (timeouts, heartbeat failures,
@@ -615,6 +675,7 @@ class PullConsumer:
     async def _resilient_message_handler(self, msg: Msg) -> None:
         """Wrapper around message_handler with additional error handling."""
         self._handler_started = time.monotonic()
+        CONSUMER_PROCESSING_STARTED.labels(*self._metric_labels).set_to_current_time()
         try:
             await self.message_handler(msg)
         except Exception as e:
@@ -627,6 +688,11 @@ class PullConsumer:
             except Exception as nak_error:
                 self.logger.error("Failed to nak message after handler error: %s", str(nak_error))
         finally:
+            CONSUMER_PROCESSING_DURATION.labels(*self._metric_labels).observe(
+                time.monotonic() - self._handler_started
+            )
+            CONSUMER_PROCESSING_STARTED.labels(*self._metric_labels).set(0)
+            CONSUMER_LAST_PROGRESS.labels(*self._metric_labels).set_to_current_time()
             self._handler_started = None
 
     async def _retry_or_give_up(self, msg: Msg, subject: str, reason: str) -> None:
