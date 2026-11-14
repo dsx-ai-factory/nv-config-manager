@@ -95,6 +95,8 @@ An administrator-provisioned consumer should use the configured stream and filte
 
 The render consumers follow the `max_deliver` of the durable they find and recheck it about every 15 seconds, so an edited limit takes effect without a restart. On the final delivery that durable allows, a consumer logs that it is giving up and terminates the message. A lower limit shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A limit below 9 cannot outlast another render's 180-second device lock, so it can discard a render that was only waiting for that lock; keep the default unless you have a reason to lower it. A message whose handler raises, for example because Redis or NATS is unavailable, is redelivered after a delay that doubles from 1 second up to 60 seconds, so the default limit rides out about 14 minutes of such failures. DCIM and Config Store errors are not retried: the dispatcher logs and counts them, and the message is acknowledged. A render that waits on another render's device lock is retried after a delay that doubles from 5 seconds up to 30 seconds. Those retries count toward the same limit, and the default limit waits about 8 minutes, longer than a device lock can be held. A render that gives up because its data is bad is not lost for good: correcting the data triggers a new render.
 
+A render consumer whose fetch loop keeps failing exits, and Kubernetes restarts the pod. The consumer exits when a fetch cycle fails and no round trip to NATS has completed for `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600, which must exceed the 360-second ack wait); the error it exits with states how long it was stalled. A round trip is a completed fetch while the consumer is idle, including one that finds no messages, or a consumer info lookup while a handler runs, so a long config context batch does not count as a stall. A consumer whose event loop is blocked, or whose handler never returns, does not reach this check and is not restarted; alert on the progress and processing-start metrics below to find it.
+
 If create permission is omitted and the durable is absent, the consumer logs the exact provisioning request. If delete permission is omitted, the reset API returns instructions to delete and recreate the exact durable at the stream head. Configuration mismatches likewise produce an administrator-ready update request in the consumer log.
 
 ### Event Dispatcher
@@ -162,6 +164,12 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 **Consumer delivery**:
 
 - `nv_config_manager_nats_consumer_messages_given_up` - Messages terminated on the final delivery the durable allows (by consumer, stream, namespace, and `reason`: `failed` when every delivery failed, `lock` when the render never acquired the device lock)
+- `nv_config_manager_nats_consumer_last_progress_timestamp_seconds` - Unix time the consumer last completed a fetch, idle fetches included, or finished handling a message. Alert when `time()` minus this value keeps growing while `processing_start_timestamp_seconds` is 0
+- `nv_config_manager_nats_consumer_processing_start_timestamp_seconds` - Unix time the consumer started handling its current message, or 0 when idle. A nonzero value that stays unchanged for longer than your longest render is a handler that is not returning
+- `nv_config_manager_nats_consumer_processing_duration_seconds` - Histogram of time spent handling a message, recorded when the handler returns or raises
+- `nv_config_manager_nats_consumer_last_nats_success_timestamp_seconds` - Unix time of the last completed fetch or consumer info lookup
+- `nv_config_manager_nats_consumer_nats_failures` - Failed consumer cycles and consumer info lookups (by `operation`: `cycle` or `consumer_info`)
+- `nv_config_manager_nats_consumer_nats_reconnects` - Times the NATS connection was re-established
 
 ## Error handling
 
