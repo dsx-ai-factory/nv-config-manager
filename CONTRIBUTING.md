@@ -85,35 +85,6 @@ git rebase --signoff HEAD~<number_of_commits>
 
 **Note:** Your sign-off must use your real name (no pseudonyms or anonymous contributions) and must match the author information in your Git configuration.
 
-### Remediating Shared Commits
-
-For commits that are already shared, use a signed remediation commit to add a
-DCO attestation without changing the original commit messages or SHAs.
-`.github/dco.yml` enables both individual and third-party remediation in the
-[DCO App](https://github.com/dcoapp/app#individual-remediation-commit-support).
-The app reads this configuration from the default branch, so configuration
-changes must land there before remediation commits are recognized.
-
-Create a cryptographically signed, signed-off empty commit with
-`git commit --allow-empty -S -s`. For your own commit, include this exact form
-in the message, using the full original commit SHA:
-
-```text
-I, YOUR NAME <YOUR EMAIL>, hereby add my Signed-off-by to this commit: FULL_SHA
-```
-
-When you can certify another author's contribution under the DCO, use:
-
-```text
-On behalf of AUTHOR NAME <AUTHOR EMAIL>, I, YOUR NAME <YOUR EMAIL>, hereby add my Signed-off-by to this commit: FULL_SHA
-```
-
-Copy the original author's name and email exactly from the commit metadata.
-Use one attestation line per commit and include the remediation commit in the
-same pull request as the original commits. The remediation commit's own
-`Signed-off-by` trailer must match its author; do not fabricate a trailer from
-the original author.
-
 ## Cryptographically Signing Commits
 
 Trustees who want copy-pr-bot to automatically sync their ready pull requests
