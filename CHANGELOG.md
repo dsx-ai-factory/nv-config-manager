@@ -45,6 +45,10 @@ version before the selected release candidate is promoted.
   `values-local-medium.yaml` profiles, will see their database pods' scheduling
   rules change on upgrade
   ([#406](https://github.com/dsx-ai-factory/nv-config-manager/issues/406)).
+- `localDev.mockDevices` now takes effect with `secrets.method: eso` and
+  `secrets.method: vault-agent`. Before, only `secrets.method: kubernetes`
+  rendered `mock = true` in the `[device]` section, so the other methods
+  silently kept real device connections.
 - The Temporal worker no longer re-imports pydantic and the shared workflow
   libraries in the sandbox for every workflow run. This cuts the per-run startup
   CPU and per-run memory that contributed to workflow task timeouts, deadlock
