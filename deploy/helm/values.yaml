@@ -2638,7 +2638,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2669,7 +2673,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2700,7 +2708,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2731,7 +2743,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2763,7 +2779,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
