@@ -1,4 +1,0 @@
-# Allow follow-up DCO attestations without rewriting shared history.
-allowRemediationCommits:
-  individual: true
-  thirdParty: true
