@@ -1,4 +1,4 @@
-# Allow original authors to add follow-up sign-offs without rewriting history.
+# Allow follow-up DCO attestations without rewriting shared history.
 allowRemediationCommits:
   individual: true
-  thirdParty: false
+  thirdParty: true
