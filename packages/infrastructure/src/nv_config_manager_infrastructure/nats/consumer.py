@@ -16,8 +16,10 @@
 
 import asyncio
 import logging
+import math
 import signal
 import ssl
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -42,6 +44,8 @@ logger = get_logger(__name__, category=LogCategory.NATS)
 # cleanly; any handler still running is redelivered after its ack wait.
 HANDLER_DRAIN_SECONDS = 20
 
+LIVENESS_CHECK_INTERVAL_SECONDS = 15.0
+
 
 class NatsConsumer(NatsClient):
     """NATS JetStream consumer for subscribing to messages."""
@@ -56,6 +60,7 @@ class NatsConsumer(NatsClient):
         deliver_subject: str | None = None,
         manual_ack: bool = False,
         max_concurrent_handlers: int | None = None,
+        liveness_timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the stream, subject, durable, and message handler.
@@ -66,6 +71,10 @@ class NatsConsumer(NatsClient):
         locally for a durable provisioned with a higher limit. With
         ``manual_ack`` the handler must ack, nak, or term every message itself;
         otherwise each message is acked once the handler returns.
+
+        When liveness_timeout is set, main() polls the durable and raises once
+        neither the durable nor this process has made progress for that long, so
+        the process exits and is restarted.
         """
         super().__init__(**kwargs)
         self.stream = stream
@@ -78,6 +87,24 @@ class NatsConsumer(NatsClient):
         # The bound durable's limit, which is what JetStream enforces.
         self.max_deliver = ARCHIVE_CONSUMER_MAX_DELIVER
         self._loop: asyncio.AbstractEventLoop | None = None
+        if liveness_timeout is not None:
+            if not math.isfinite(liveness_timeout):
+                raise ValueError(
+                    f"Consumer liveness timeout {liveness_timeout:g} must be a finite number "
+                    "of seconds, or a stalled consumer would never be restarted"
+                )
+            if liveness_timeout <= CONSUMER_ACK_WAIT_SECONDS:
+                raise ValueError(
+                    f"Consumer liveness timeout {liveness_timeout:g} must exceed the consumer "
+                    f"ack wait of {CONSUMER_ACK_WAIT_SECONDS}s, or a slow handler would "
+                    "restart the pod before its message is redelivered"
+                )
+        self.liveness_timeout = liveness_timeout
+        self._last_progress = time.monotonic()
+        # Wall-clock copies for metrics, which report Unix time.
+        self.last_progress_time = time.time()
+        self._handler_starts: dict[asyncio.Task[None], float] = {}
+        self._last_sequences: tuple[int, int] | None = None
         self._stop = asyncio.Event()
         self._subscription: Any = None
         self._handler_tasks: set[asyncio.Task[None]] = set()
@@ -140,8 +167,20 @@ class NatsConsumer(NatsClient):
                 self.full_queue_name,
             )
 
-            while not self.conn.is_closed and not self._stop.is_set():
-                await asyncio.sleep(1)
+            monitor = None
+            if self.liveness_timeout is not None:
+                self._record_progress()
+                monitor = asyncio.create_task(self._monitor_liveness(jetstream))
+            try:
+                while not self.conn.is_closed and not self._stop.is_set():
+                    if monitor is not None and monitor.done():
+                        # Re-raise a stall so the process exits and is restarted.
+                        monitor.result()
+                    await asyncio.sleep(1)
+            finally:
+                if monitor is not None:
+                    monitor.cancel()
+                    await asyncio.gather(monitor, return_exceptions=True)
         finally:
             await self._drain_handlers(self.conn)
             await self._close_connection(self.conn)
@@ -152,12 +191,16 @@ class NatsConsumer(NatsClient):
             await self._handler_slots.acquire()
         task = asyncio.create_task(self._handle(msg))
         self._handler_tasks.add(task)
+        self._handler_starts[task] = time.time()
         task.add_done_callback(self._handler_finished)
 
     def _handler_finished(self, task: asyncio.Task[None]) -> None:
         self._handler_tasks.discard(task)
         if self._handler_slots is not None:
             self._handler_slots.release()
+        self._handler_starts.pop(task, None)
+        if not task.cancelled():
+            self._record_progress()
 
     async def _handle(self, msg: Msg) -> None:
         """Run the handler, acking afterwards unless it settles messages itself."""
@@ -199,6 +242,76 @@ class NatsConsumer(NatsClient):
             pass
         finally:
             asyncio_logger.setLevel(old_loglevel)
+
+    @property
+    def oldest_handler_start(self) -> float:
+        """Unix time the longest-running in-flight handler started, or 0 when idle."""
+        return min(list(self._handler_starts.values()), default=0.0)
+
+    def _record_progress(self) -> None:
+        self._last_progress = time.monotonic()
+        self.last_progress_time = time.time()
+
+    def liveness(self) -> tuple[bool, str]:
+        """Report whether the durable or this process has made progress recently enough.
+
+        A push consumer whose deliveries stop raises nothing, so the process would
+        otherwise stay Running while archiving nothing.
+
+        A delivery this process finished handling counts as progress even when the
+        handler failed, because a restart cannot fix a failing backend and would
+        otherwise repeat for as long as the durable is stalled behind it.
+        """
+        stalled_for = time.monotonic() - self._last_progress
+        if self.liveness_timeout is not None and stalled_for > self.liveness_timeout:
+            return False, (
+                f"durable {self.full_queue_name} made no progress for {stalled_for:.0f}s "
+                f"(limit {self.liveness_timeout:.0f}s)"
+            )
+        return True, f"durable {self.full_queue_name} last made progress {stalled_for:.0f}s ago"
+
+    def _record_consumer_info(self, consumer_info: ConsumerInfo) -> None:
+        """Count the durable as progressing when it is caught up or its sequences advance.
+
+        Replicas share the durable, so this reads its cluster-wide sequences rather
+        than counting this pod's messages, which would fail an idle replica while
+        the others do the work. Redeliveries do not advance the stream sequences,
+        and one of an older message can move the delivered sequence backward, so
+        only a sequence above the highest seen counts.
+        """
+        delivered = consumer_info.delivered.stream_seq if consumer_info.delivered else 0
+        acked = consumer_info.ack_floor.stream_seq if consumer_info.ack_floor else 0
+        outstanding = (consumer_info.num_pending or 0) + (consumer_info.num_ack_pending or 0)
+        seen_delivered, seen_acked = self._last_sequences or (-1, -1)
+        advanced = delivered > seen_delivered or acked > seen_acked
+        self._last_sequences = (max(delivered, seen_delivered), max(acked, seen_acked))
+        if outstanding == 0 or advanced:
+            self._record_progress()
+
+    async def _monitor_liveness(self, jetstream: JetStreamContext) -> None:
+        """Poll the durable, and raise once it and this process have stopped progressing.
+
+        A blocked event loop cannot run this check; the progress metrics cover that.
+        """
+        while self.conn is not None and not self.conn.is_closed:
+            try:
+                consumer_info = await jetstream.consumer_info(self.stream, self.full_queue_name)
+            except Exception as e:
+                logger.warning(
+                    "Consumer info for %s on stream %s failed: %s",
+                    self.full_queue_name,
+                    self.stream,
+                    e,
+                )
+            else:
+                if self.conn.is_connected:
+                    self._record_consumer_info(consumer_info)
+            live, detail = self.liveness()
+            if not live:
+                raise RuntimeError(
+                    f"Consumer {self.full_queue_name} is exiting to be restarted: {detail}"
+                )
+            await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SECONDS)
 
     def _expected_consumer_config(self) -> ConsumerConfig:
         """Build the exact push-consumer configuration owned by this runtime."""

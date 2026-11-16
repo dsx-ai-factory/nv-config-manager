@@ -15,6 +15,7 @@
 """Tests for JetStream API prefix handling in the base NATS clients."""
 
 import asyncio
+import time
 from configparser import ConfigParser
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -24,6 +25,7 @@ from nats.js.api import (
     DeliverPolicy,
     DiscardPolicy,
     RetentionPolicy,
+    SequenceInfo,
     StorageType,
     StreamConfig,
 )
@@ -879,3 +881,240 @@ async def test_consumer_run_rejects_running_event_loop():
 
     main.assert_not_called()
     assert consumer._loop is None
+
+
+def _liveness_consumer(liveness_timeout: float = 600) -> NatsConsumer:
+    consumer = NatsConsumer(
+        stream="nv-config-manager",
+        subject="nv-config-manager.workflow.result",
+        queue_suffix="archive",
+        handler=AsyncMock(),
+        server=TEST_SERVER,
+        deliver_subject="nv-config-manager.archive.delivery",
+        liveness_timeout=liveness_timeout,
+    )
+    consumer.conn = MagicMock(is_closed=False, is_connected=True)
+    return consumer
+
+
+_real_sleep = asyncio.sleep
+
+
+async def _yield_once(_delay: float) -> None:
+    await _real_sleep(0)
+
+
+def _durable_info(
+    delivered: int, acked: int, num_pending: int = 0, num_ack_pending: int = 0
+) -> MagicMock:
+    return MagicMock(
+        delivered=SequenceInfo(consumer_seq=delivered, stream_seq=delivered),
+        ack_floor=SequenceInfo(consumer_seq=acked, stream_seq=acked),
+        num_pending=num_pending,
+        num_ack_pending=num_ack_pending,
+    )
+
+
+@pytest.mark.parametrize("liveness_timeout", [float("nan"), float("inf"), 360, 120])
+def test_consumer_rejects_liveness_timeout_that_cannot_restart_safely(liveness_timeout):
+    """The budget must be finite and outlast the ack wait of one slow message."""
+    with pytest.raises(ValueError, match="liveness timeout"):
+        _liveness_consumer(liveness_timeout)
+
+
+def test_consumer_liveness_fails_after_durable_stops_progressing():
+    """Outstanding messages with unchanged sequences stall liveness."""
+    consumer = _liveness_consumer()
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=8, num_pending=5))
+    consumer._last_progress -= 601
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=8, num_pending=5))
+
+    live, detail = consumer.liveness()
+
+    assert not live
+    assert "made no progress for" in detail
+
+
+@pytest.mark.parametrize(
+    "info",
+    [
+        _durable_info(delivered=11, acked=8, num_pending=4),
+        _durable_info(delivered=10, acked=9, num_pending=5),
+        _durable_info(delivered=10, acked=10),
+    ],
+    ids=["delivered-advanced", "ack-floor-advanced", "caught-up"],
+)
+def test_consumer_liveness_refreshes_when_durable_progresses_or_is_idle(info):
+    """Advancing sequences or an empty backlog keep the consumer live."""
+    consumer = _liveness_consumer()
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=8, num_pending=5))
+    consumer._last_progress -= 601
+
+    consumer._record_consumer_info(info)
+
+    assert consumer.liveness()[0]
+
+
+def test_consumer_liveness_ignores_redeliveries():
+    """A redelivered message advances only the consumer sequence, which is not progress."""
+    consumer = _liveness_consumer()
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=9, num_ack_pending=1))
+    consumer._last_progress -= 601
+    redelivered = _durable_info(delivered=10, acked=9, num_ack_pending=1)
+    redelivered.delivered = SequenceInfo(consumer_seq=12, stream_seq=10)
+
+    consumer._record_consumer_info(redelivered)
+
+    assert not consumer.liveness()[0]
+
+
+def test_consumer_liveness_ignores_a_delivered_sequence_that_moves_backward():
+    """Redelivering an older message lowers the delivered sequence, which is not progress."""
+    consumer = _liveness_consumer()
+    consumer._record_consumer_info(_durable_info(delivered=12, acked=9, num_ack_pending=3))
+    consumer._last_progress -= 601
+
+    consumer._record_consumer_info(_durable_info(delivered=10, acked=9, num_ack_pending=3))
+    consumer._record_consumer_info(_durable_info(delivered=12, acked=9, num_ack_pending=3))
+
+    assert not consumer.liveness()[0]
+
+
+def test_consumer_accepts_manual_ack_positionally():
+    """The liveness budget follows the existing parameters, so positional callers keep working."""
+    consumer = NatsConsumer(
+        "nv-config-manager",
+        "nv-config-manager.workflow.result",
+        "archive",
+        AsyncMock(),
+        None,
+        "nv-config-manager.archive.delivery",
+        True,
+        server=TEST_SERVER,
+    )
+
+    assert consumer.manual_ack is True
+    assert consumer.liveness_timeout is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler",
+    [AsyncMock(), AsyncMock(side_effect=RuntimeError("backend is down"))],
+    ids=["settled", "raised"],
+)
+async def test_consumer_liveness_counts_a_delivery_this_pod_finished(handler):
+    """A pod still handling redeliveries is alive, even while a failing backend stalls the durable."""
+    consumer = _liveness_consumer()
+    consumer.handler = handler
+    stalled = _durable_info(delivered=10, acked=9, num_ack_pending=1)
+    consumer._record_consumer_info(stalled)
+    consumer._last_progress -= 601
+
+    await consumer._dispatch(_delivery())
+    await asyncio.gather(*consumer._handler_tasks)
+    consumer._record_consumer_info(stalled)
+
+    assert consumer.liveness()[0]
+
+
+@pytest.mark.asyncio
+async def test_consumer_liveness_ignores_a_delivery_whose_handler_never_finishes():
+    """Receiving a message is not progress; a hung or cancelled handler still runs out the budget."""
+
+    async def hang(_msg):
+        await asyncio.sleep(10)
+
+    consumer = _liveness_consumer()
+    consumer.handler = hang
+    consumer._last_progress -= 601
+
+    await consumer._dispatch(_delivery())
+    await asyncio.sleep(0)
+    assert not consumer.liveness()[0]
+
+    with patch("nv_config_manager_infrastructure.nats.consumer.HANDLER_DRAIN_SECONDS", 0.01):
+        await consumer._drain_handlers(MagicMock(is_closed=True))
+    assert not consumer.liveness()[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("consumer_info", "connected", "refreshed"),
+    [
+        (AsyncMock(return_value=_durable_info(delivered=1, acked=1)), True, True),
+        (AsyncMock(side_effect=TimeoutError("consumer info timed out")), True, False),
+        (AsyncMock(return_value=_durable_info(delivered=1, acked=1)), False, False),
+    ],
+    ids=["info-succeeds", "info-fails", "reconnecting"],
+)
+async def test_consumer_monitor_exits_unless_connected_consumer_info_shows_progress(
+    consumer_info, connected, refreshed
+):
+    """Past the budget, only a poll that shows progress keeps the consumer running."""
+    consumer = _liveness_consumer()
+    consumer._last_progress -= 601
+    type(consumer.conn).is_closed = PropertyMock(side_effect=[False, True])
+    consumer.conn.is_connected = connected
+    jetstream = MagicMock(consumer_info=consumer_info)
+
+    with patch(
+        "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", new_callable=AsyncMock
+    ) as sleep:
+        if refreshed:
+            await consumer._monitor_liveness(jetstream)
+            sleep.assert_awaited_once_with(15.0)
+        else:
+            with pytest.raises(RuntimeError, match="is exiting to be restarted: .*no progress"):
+                await consumer._monitor_liveness(jetstream)
+
+    consumer_info.assert_awaited_once_with("nv-config-manager", "nv-config-manager-archive")
+
+
+@pytest.mark.asyncio
+async def test_consumer_main_exits_when_the_durable_stalls():
+    """A stall raises out of main(), after handlers drain and the connection closes."""
+    consumer = _liveness_consumer()
+    conn = MagicMock(is_connected=True, is_closed=False)
+    conn.close = AsyncMock()
+    conn.jetstream.return_value.consumer_info = AsyncMock(
+        return_value=MagicMock(config=consumer._expected_consumer_config())
+    )
+    conn.jetstream.return_value.subscribe_bind = AsyncMock()
+
+    async def stalled(_jetstream):
+        raise RuntimeError("Consumer nv-config-manager-archive is exiting to be restarted")
+
+    with (
+        patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
+        patch.object(consumer, "_monitor_liveness", stalled),
+        patch("nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", _yield_once),
+        pytest.raises(RuntimeError, match="is exiting to be restarted"),
+    ):
+        await consumer.main()
+
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_consumer_reports_progress_and_in_flight_handlers_for_metrics():
+    """The oldest in-flight delivery and the last progress are readable as Unix time."""
+    release = asyncio.Event()
+
+    async def handler(_msg):
+        await release.wait()
+
+    consumer = _liveness_consumer()
+    consumer.handler = handler
+    consumer.last_progress_time = 1.0
+    assert consumer.oldest_handler_start == 0
+
+    await consumer._dispatch(_delivery())
+    await asyncio.sleep(0)
+    assert consumer.oldest_handler_start == pytest.approx(time.time(), abs=5)
+    assert consumer.last_progress_time == 1.0
+
+    release.set()
+    await asyncio.gather(*consumer._handler_tasks)
+    assert consumer.oldest_handler_start == 0
+    assert consumer.last_progress_time == pytest.approx(time.time(), abs=5)

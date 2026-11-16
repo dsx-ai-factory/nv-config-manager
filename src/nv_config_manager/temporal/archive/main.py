@@ -35,6 +35,7 @@ from nv_config_manager_infrastructure.nats.admin import (
     ARCHIVE_CONSUMER_MAX_DELIVER,
     CONSUMER_ACK_WAIT_SECONDS,
 )
+from prometheus_client import Gauge, start_http_server
 from requests_aws4auth import AWS4Auth  # type: ignore[import-untyped]
 from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
 from temporalio.client import Client
@@ -77,6 +78,21 @@ ARCHIVE_RETRY_DELAY_SECONDS = 300
 ARCHIVE_TIMEOUT_SECONDS = CONSUMER_ACK_WAIT_SECONDS - 60
 NVDATAFLOW_SUCCESS_STATUSES = frozenset({201, 202})
 NVDATAFLOW_REJECTED_STATUSES = frozenset({400, 413})
+
+
+ARCHIVE_METRICS_PORT = 8000
+ARCHIVE_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
+ARCHIVE_LAST_PROGRESS = Gauge(
+    "nv_config_manager_archive_consumer_last_progress_timestamp_seconds",
+    "Unix time the archive durable last advanced or was caught up, or this pod last "
+    "finished handling a delivery",
+    ARCHIVE_METRIC_LABELS,
+)
+ARCHIVE_PROCESSING_STARTED = Gauge(
+    "nv_config_manager_archive_consumer_processing_start_timestamp_seconds",
+    "Unix time the archive consumer's longest-running in-flight delivery started, or 0 when idle",
+    ARCHIVE_METRIC_LABELS,
+)
 
 
 class ArchiveRejectedError(Exception):
@@ -357,6 +373,21 @@ def _archive_elasticsearch(workflow_details: Any) -> None:
     logging.info("Results written to elasticsearch. Archive handler complete")
 
 
+def _export_consumer_metrics(consumer: NatsConsumer, stream: str) -> None:
+    """Report the consumer's progress, read at scrape time from the metrics thread.
+
+    The consumer exits on its own once its durable stalls, but a blocked event
+    loop cannot run that check. These keep aging while it is stuck.
+    """
+    labels = (
+        consumer.full_queue_name,
+        stream,
+        os.getenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "unknown"),
+    )
+    ARCHIVE_LAST_PROGRESS.labels(*labels).set_function(lambda: consumer.last_progress_time)
+    ARCHIVE_PROCESSING_STARTED.labels(*labels).set_function(lambda: consumer.oldest_handler_start)
+
+
 def main() -> None:
     """Run the temporal archive."""
     parser = argparse.ArgumentParser()
@@ -398,7 +429,12 @@ def main() -> None:
         handler=handler,
         manual_ack=True,
         max_concurrent_handlers=ARCHIVE_CONSUMER_MAX_ACK_PENDING,
+        liveness_timeout=float(
+            os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
+        ),
     )
+    _export_consumer_metrics(consumer, stream)
+    start_http_server(ARCHIVE_METRICS_PORT)
     consumer.run()
 
 

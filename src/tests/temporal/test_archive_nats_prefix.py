@@ -18,6 +18,7 @@ from collections.abc import Callable
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from prometheus_client import REGISTRY
 
 from nv_config_manager.temporal.archive.main import main
 from nv_config_manager.temporal.client.nats import NatsClient, NatsConsumer, NatsProducer
@@ -94,6 +95,7 @@ def test_archive_main_does_not_override_the_stream_prefix(
 
     with (
         patch("nv_config_manager.temporal.archive.main.NatsConsumer") as mock_consumer,
+        patch("nv_config_manager.temporal.archive.main.start_http_server"),
         patch("nv_config_manager.temporal.archive.main.configure_logging"),
         patch("nv_config_manager.temporal.archive.main.setup_telemetry"),
         patch("sys.argv", ["archive"]),
@@ -128,3 +130,44 @@ async def test_workflow_result_publish_subject_is_unchanged(
         '{"workflow_id":"workflow-1"}',
         stream="nv-config-manager",
     )
+
+
+def test_archive_main_exports_metrics_and_sets_the_liveness_budget(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entrypoint passes the stall budget to its consumer and serves its progress metrics."""
+    custom_ini(BASE_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", "900")
+    monkeypatch.setenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "site-a")
+
+    with (
+        patch("nv_config_manager.temporal.archive.main.NatsConsumer") as mock_consumer,
+        patch("nv_config_manager.temporal.archive.main.start_http_server") as serve,
+        patch("nv_config_manager.temporal.archive.main.configure_logging"),
+        patch("nv_config_manager.temporal.archive.main.setup_telemetry"),
+        patch("sys.argv", ["archive"]),
+    ):
+        consumer = mock_consumer.return_value
+        consumer.full_queue_name = "nv-config-manager-archive"
+        consumer.last_progress_time = 123.0
+        consumer.oldest_handler_start = 45.0
+        main()
+
+    assert mock_consumer.call_args.kwargs["liveness_timeout"] == 900
+    serve.assert_called_once_with(8000)
+    labels = ("nv-config-manager-archive", "nv-config-manager", "site-a")
+    assert (
+        REGISTRY.get_sample_value(
+            "nv_config_manager_archive_consumer_last_progress_timestamp_seconds",
+            dict(zip(("consumer_name", "stream_name", "namespace"), labels, strict=True)),
+        )
+        == 123.0
+    )
+    assert (
+        REGISTRY.get_sample_value(
+            "nv_config_manager_archive_consumer_processing_start_timestamp_seconds",
+            dict(zip(("consumer_name", "stream_name", "namespace"), labels, strict=True)),
+        )
+        == 45.0
+    )
+    consumer.run.assert_called_once_with()

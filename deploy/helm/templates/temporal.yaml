@@ -808,6 +808,9 @@ spec:
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-archive") | nindent 8 }}
         {{- end }}
+        ports:
+        - name: metrics
+          containerPort: 8000
         resources:
           {{- toYaml .Values.temporal.archive.resources | nindent 10 }}
         volumeMounts:
