@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from nv_config_manager_installer.helm_values import (
     _GLOBAL_IMAGE_DEFAULTS,
@@ -68,6 +69,8 @@ from nv_config_manager_installer.schema import (
     SSOProvider,
     TemplatePath,
     TemplatePluginsConfig,
+    TemplatePreviewConfig,
+    TemplatePreviewImage,
     TemporalDeploymentConfig,
     VaultConfig,
     VaultPathConfig,
@@ -1848,3 +1851,67 @@ class TestRedfishInHelmValues:
     def test_temporal_still_has_client(self):
         values = _gen(_make_config())
         assert values["temporal"]["client"]["useInternalEndpoint"] is True
+
+
+class TestTemplatePreview:
+    """Template Preview as a subchart: off unless asked for, one block for both sides."""
+
+    def test_off_by_default_emits_nothing(self):
+        values = _gen(_make_config())
+
+        assert "templatePreview" not in values
+        assert "templatePreview" not in values["cnpg"]
+
+    def test_enabled_without_plugins_keeps_the_plugin_gate_closed(self):
+        values = _gen(_make_config(template_preview=TemplatePreviewConfig(enabled=True)))
+
+        gate = values["templatePreview"]["unsafeDynamicTemplatePlugins"]
+        assert values["templatePreview"]["enabled"] is True
+        assert gate == {"enabled": False, "acknowledgeArbitraryCodeExecution": False}
+        assert "templatePreview" not in values["cnpg"]
+
+    def test_plugins_open_the_gate_and_create_the_database(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                dynamic_plugins=True,
+                acknowledge_arbitrary_code_execution=True,
+            )
+        )
+        values = _gen(config)
+
+        gate = values["templatePreview"]["unsafeDynamicTemplatePlugins"]
+        assert gate == {"enabled": True, "acknowledgeArbitraryCodeExecution": True}
+        assert values["cnpg"]["templatePreview"]["enabled"] is True
+        assert values["cnpg"]["templatePreview"]["enablePDB"] is False
+        # one block configures both sides: nothing is set on the render service
+        assert "unsafeDynamicTemplatePlugins" not in values.get("renderService", {})
+
+    def test_images_and_token_secret_are_passed_through_only_when_set(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                backend_image=TemplatePreviewImage(
+                    repository="registry.example.com/tp-backend", tag="1.2.3"
+                ),
+                internal_artifact_token_secret="template-preview-artifact-token",
+            )
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert section["backend"]["image"] == {
+            "repository": "registry.example.com/tp-backend",
+            "tag": "1.2.3",
+        }
+        assert section["backend"]["internalArtifactToken"] == {
+            "existingSecret": "template-preview-artifact-token"
+        }
+        assert "frontend" not in section
+
+    def test_plugins_must_be_acknowledged(self):
+        with pytest.raises(ValidationError, match="acknowledge_arbitrary_code_execution"):
+            TemplatePreviewConfig(enabled=True, dynamic_plugins=True)
+
+    def test_plugins_need_template_preview_enabled(self):
+        with pytest.raises(ValidationError, match="requires template_preview.enabled"):
+            TemplatePreviewConfig(dynamic_plugins=True, acknowledge_arbitrary_code_execution=True)

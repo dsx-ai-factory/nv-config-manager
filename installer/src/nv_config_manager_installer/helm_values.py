@@ -958,6 +958,11 @@ def _build_cnpg(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     section["configStore"] = _cluster(svc.config_store)
     section["dhcp"] = _cluster(svc.dhcp)
     section["nautobot"] = _cluster(svc.nautobot)
+    tp = config.template_preview
+    if tp.enabled and tp.dynamic_plugins:
+        # Template Preview's plugin control plane keeps its data in this database; the chart reads
+        # the credentials from the cluster-template-preview-app Secret the installer creates.
+        section["templatePreview"] = _cluster(True)
     return section
 
 
@@ -984,6 +989,31 @@ def _build_rbac(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
                 }
             )
     return {"admin_roles": list(config.rbac.admin_roles), "workflows": workflows}
+
+
+def _build_template_preview(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+    """Build the ``templatePreview`` section (only used when Template Preview is enabled).
+
+    One block configures both Template Preview and NVCM's activation endpoint, so nothing is set
+    under ``renderService`` here.
+    """
+    tp = config.template_preview
+    section: dict[str, Any] = {
+        "enabled": True,
+        "unsafeDynamicTemplatePlugins": {
+            "enabled": tp.dynamic_plugins,
+            "acknowledgeArbitraryCodeExecution": tp.acknowledge_arbitrary_code_execution,
+        },
+    }
+    for key, image in (("backend", tp.backend_image), ("frontend", tp.frontend_image)):
+        image_values = {k: v for k, v in image.model_dump().items() if v}
+        if image_values:
+            section[key] = {"image": image_values}
+    if tp.internal_artifact_token_secret:
+        section.setdefault("backend", {})["internalArtifactToken"] = {
+            "existingSecret": tp.internal_artifact_token_secret
+        }
+    return section
 
 
 def build_values(
@@ -1097,6 +1127,8 @@ def build_values(
     }
 
     values["cnpg"] = _build_cnpg(config)
+    if config.template_preview.enabled:
+        values["templatePreview"] = _build_template_preview(config)
 
     monitoring = config.infrastructure.monitoring
     monitoring_active = monitoring.enabled or monitoring.observability_enabled
