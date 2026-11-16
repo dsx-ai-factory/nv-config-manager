@@ -20,6 +20,9 @@ import asyncio
 import inspect
 import json
 import logging
+import time
+import uuid
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import nats.js
@@ -34,6 +37,7 @@ from nv_config_manager.common.config.nats import (
     nats_config_manager_api_prefix,
     nats_connection,
     nats_render_change_config,
+    nats_render_consumer_name,
 )
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.dcim import DCIMClient, dcim_client_session
@@ -44,6 +48,97 @@ if TYPE_CHECKING:
 
 class DeviceNotEnabledError(Exception):
     """To be raised if a device is not enabled for NVIDIA Config Manager."""
+
+
+# How long a device stays deduped while its render is queued but not yet
+# processed. This has to cover worst-case queue latency: a change to one shared
+# Nautobot object fans out to every attached device, so if the flag expires
+# before the render runs, the next change re-publishes the same device and the
+# queue amplifies by one copy per change.
+QUEUED_FLAG_TTL_SECONDS = 3600
+
+# Message field carrying the token of the queue claim that published it.
+QUEUE_CLAIM_FIELD = "queue_claim"
+
+# A claim that has not recorded its published message by now belongs to a
+# producer that died between claiming and publishing.
+CLAIM_PUBLISH_GRACE_SECONDS = 60
+
+# How long one read of the render consumer's progress is reused when checking
+# claims, so a burst of duplicate requests costs one lookup rather than one each.
+_CONSUMER_PROGRESS_CACHE_SECONDS = 5
+
+# Take the slot if it is free, otherwise return whoever holds it. A command
+# retried after a lost reply then finds its own value and still knows it won.
+_CLAIM_SCRIPT = """
+if redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2]) then
+    return ARGV[1]
+end
+return redis.call('GET', KEYS[1])
+"""
+
+# Swap the claim only while it still holds the expected value. Finding the new
+# value already in place counts as success, for the same retry reason.
+_REPLACE_CLAIM_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    return 1
+end
+if current == ARGV[2] then
+    return 1
+end
+return 0
+"""
+
+_CLEAR_OWN_CLAIM_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current and string.sub(current, 1, string.len(ARGV[1]) + 1) == ARGV[1] .. ':' then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+_consumer_progress_cache: dict[tuple[str, str], tuple[float, int]] = {}
+
+
+@dataclass(frozen=True)
+class QueueClaim:
+    """A producer's hold on a device's render queue slot.
+
+    The slot stores ``token:claimed_at`` until the message is published, then
+    ``token:claimed_at:stream_seq``. The sequence lets a later producer tell a
+    claim whose message is still waiting from one whose message is gone.
+    """
+
+    token: str
+    claimed_at: int
+    stream_seq: int | None = None
+
+    def encode(self) -> bytes:
+        """Return the value stored in the slot."""
+        fields = [self.token, str(self.claimed_at)]
+        if self.stream_seq is not None:
+            fields.append(str(self.stream_seq))
+        return ":".join(fields).encode()
+
+    @classmethod
+    def decode(cls, raw: bytes | str | None) -> QueueClaim | None:
+        """Parse a slot value, or return None for a value this format did not write."""
+        if raw is None:
+            return None
+        text = raw.decode() if isinstance(raw, bytes) else raw
+        fields = text.split(":")
+        if len(fields) not in (2, 3):
+            return None
+        try:
+            return cls(
+                token=fields[0],
+                claimed_at=int(fields[1]),
+                stream_seq=int(fields[2]) if len(fields) == 3 else None,
+            )
+        except ValueError:
+            return None
 
 
 def _get_queue_redis_client() -> RedisClient | None:
@@ -66,8 +161,153 @@ async def _close_queue_redis_client(client: RedisClient | None) -> None:
         await result
 
 
-async def mark_queued(device_uuid: str, client: RedisClient | None = None) -> None:
-    """Mark a device as queued for rendering."""
+def _queue_key(device_uuid: str) -> str:
+    return f"{device_uuid}_queued"
+
+
+async def _eval(client: RedisClient, script: str, key: str, *args: bytes | str | int) -> object:
+    result = client.redis.eval(script, 1, key, *args)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
+
+
+async def _render_consumer_ack_floor(jetstream: nats.js.JetStreamContext) -> int | None:
+    """Return the stream sequence up to which the render consumer is done with messages.
+
+    Uses consumer INFO, which the render consumers already require, rather than
+    stream INFO, which externally managed streams need not grant. Returns None
+    when it cannot be read, so callers keep the claim they found.
+    """
+    stream, _ = nats_render_change_config()
+    durable = nats_render_consumer_name()
+    cached = _consumer_progress_cache.get((stream, durable))
+    now = time.monotonic()
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    try:
+        info = await jetstream.consumer_info(stream, durable)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        get_logger(__name__, category=LogCategory.RENDER_EVENT).debug(
+            "Could not read render consumer progress to check a queue claim: %s", exc
+        )
+        return None
+    ack_floor = info.ack_floor.stream_seq if info.ack_floor else 0
+    _consumer_progress_cache[(stream, durable)] = (
+        now + _CONSUMER_PROGRESS_CACHE_SECONDS,
+        ack_floor,
+    )
+    return ack_floor
+
+
+async def _claim_is_abandoned(holder: QueueClaim, jetstream: nats.js.JetStreamContext) -> bool:
+    """Return whether no message will ever release this claim.
+
+    That happens when the producer died before publishing, or when the claim's
+    message is behind the consumer's ack floor without having released it: it
+    was settled, stopped redelivering, or left the stream, for example through
+    a stream limit.
+    """
+    if holder.stream_seq is None:
+        return time.time() - holder.claimed_at > CLAIM_PUBLISH_GRACE_SECONDS
+    ack_floor = await _render_consumer_ack_floor(jetstream)
+    return ack_floor is not None and holder.stream_seq <= ack_floor
+
+
+async def claim_queued(
+    device_uuid: str,
+    client: RedisClient | None = None,
+    jetstream: nats.js.JetStreamContext | None = None,
+) -> QueueClaim | None:
+    """Atomically claim the render queue slot for a device.
+
+    Returns the claim when the caller won it and should publish, or None when a
+    render is already queued. Separate ``exists`` and ``setex`` calls let
+    concurrent producers both observe an unset flag and both publish, so the
+    check and the set have to happen in one step.
+
+    The claim's token travels with the published message so that only that
+    message can release it; a late or redelivered message cannot release a newer
+    claim. With a JetStream context, a claim that no message will release is
+    taken over instead of suppressing the device until it expires.
+    """
+    claim = QueueClaim(token=uuid.uuid4().hex, claimed_at=int(time.time()))
+    owned_client = client is None
+    client = client or _get_queue_redis_client()
+    if client is None:
+        # Local environment, never dedup
+        return claim
+
+    try:
+        queue_key = _queue_key(device_uuid)
+        current = await _eval(
+            client, _CLAIM_SCRIPT, queue_key, claim.encode(), QUEUED_FLAG_TTL_SECONDS
+        )
+        holder = QueueClaim.decode(current if isinstance(current, (bytes, str)) else None)
+        if holder == claim:
+            return claim
+        if holder is None or jetstream is None:
+            return None
+        if not await _claim_is_abandoned(holder, jetstream):
+            return None
+        replaced = await _eval(
+            client,
+            _REPLACE_CLAIM_SCRIPT,
+            queue_key,
+            holder.encode(),
+            claim.encode(),
+            QUEUED_FLAG_TTL_SECONDS,
+        )
+        if replaced != 1:
+            return None
+        get_logger(__name__, category=LogCategory.RENDER_EVENT).warning(
+            "Took over the render queue claim for %s; its message will never release it",
+            device_uuid,
+        )
+        return claim
+    finally:
+        if owned_client:
+            await _close_queue_redis_client(client)
+
+
+async def record_published(
+    device_uuid: str,
+    claim: QueueClaim,
+    stream_seq: int,
+    client: RedisClient | None = None,
+) -> None:
+    """Store the stream sequence of the message a claim published."""
+    owned_client = client is None
+    client = client or _get_queue_redis_client()
+    if client is None:
+        return
+
+    try:
+        await _eval(
+            client,
+            _REPLACE_CLAIM_SCRIPT,
+            _queue_key(device_uuid),
+            claim.encode(),
+            replace(claim, stream_seq=stream_seq).encode(),
+            QUEUED_FLAG_TTL_SECONDS,
+        )
+    finally:
+        if owned_client:
+            await _close_queue_redis_client(client)
+
+
+async def clear_queued(
+    device_uuid: str,
+    client: RedisClient | None = None,
+    token: str | None = None,
+) -> None:
+    """Release the queued flag for a device while it still holds this claim.
+
+    Without a token there is nothing to release: messages published before
+    claims carried a token came from producers whose flags expire within a minute.
+    """
+    if token is None:
+        return
     owned_client = client is None
     client = client or _get_queue_redis_client()
     if client is None:
@@ -75,40 +315,7 @@ async def mark_queued(device_uuid: str, client: RedisClient | None = None) -> No
         return
 
     try:
-        queue_key = f"{device_uuid}_queued"
-        await client.setex(queue_key, 60, 1, serialize=False)  # TTL of 60 seconds
-    finally:
-        if owned_client:
-            await _close_queue_redis_client(client)
-
-
-async def is_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
-    """Check if a device is already queued for rendering."""
-    owned_client = client is None
-    client = client or _get_queue_redis_client()
-    if client is None:
-        # Local environment, never consider as queued
-        return False
-
-    try:
-        queue_key = f"{device_uuid}_queued"
-        return await client.exists(queue_key)
-    finally:
-        if owned_client:
-            await _close_queue_redis_client(client)
-
-
-async def clear_queued(device_uuid: str, client: RedisClient | None = None) -> None:
-    """Clear the queued flag for a device."""
-    owned_client = client is None
-    client = client or _get_queue_redis_client()
-    if client is None:
-        # Local environment, skip Redis operations
-        return
-
-    try:
-        queue_key = f"{device_uuid}_queued"
-        await client.delete(queue_key)
+        await _eval(client, _CLEAR_OWN_CLAIM_SCRIPT, _queue_key(device_uuid), token.encode())
     finally:
         if owned_client:
             await _close_queue_redis_client(client)
@@ -148,23 +355,24 @@ async def _process_single_device_enqueue(
     Returns:
         None if successful, dict with error details if failed
     """
+    claim: QueueClaim | None = None
     try:
-        # Check if device is already queued for rendering
-        if await is_queued(device_uuid, queue_client):
-            logger.info(
-                "Device %s already has a pending render, skipping duplicate queue request",
-                device_uuid,
-            )
-            return None
-
+        # Look the device up before claiming. A claim held across the lookup makes
+        # a newer change skip itself as a duplicate, and if this lookup then reads
+        # the device as not yet enabled, neither request publishes.
         if not await should_run(device_uuid, dcim_client):
             return {
                 "device_uuid": device_uuid,
                 "error": f"{device_uuid} is not enabled for configuration renders.",
             }
 
-        # Mark device as queued before publishing
-        await mark_queued(device_uuid, queue_client)
+        claim = await claim_queued(device_uuid, queue_client, jetstream)
+        if claim is None:
+            logger.info(
+                "Device %s already has a pending render, skipping duplicate queue request",
+                device_uuid,
+            )
+            return None
 
         # Publish message using provided jetstream connection
         message = {
@@ -172,24 +380,36 @@ async def _process_single_device_enqueue(
             "commit_message": commit_message,
             "user": user,
             "@timestamp": timestamp,
+            QUEUE_CLAIM_FIELD: claim.token,
         }
 
         stream, subject = nats_render_change_config()
-        await jetstream.publish(
+        ack = await jetstream.publish(
             subject=subject,
             payload=json.dumps(message).encode("utf-8"),
             stream=stream,
         )
 
-        logger.debug(f"Successfully queued device {device_uuid}")
-        return None  # Success case
-
     except Exception as exc:
-        # Clear the queued flag if we set it but publishing failed
-        await clear_queued(device_uuid, queue_client)
+        # Release the claim if we won it but publishing failed
+        if claim is not None:
+            await clear_queued(device_uuid, queue_client, token=claim.token)
         error_msg = str(exc)
         logger.warning(f"Failed to queue device {device_uuid}: {error_msg}")
         return {"device_uuid": device_uuid, "error": error_msg}
+
+    try:
+        await record_published(device_uuid, claim, ack.seq, queue_client)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(
+            "Published a render for %s but could not record it on the queue claim; "
+            "the claim will be treated as abandoned after %ss: %s",
+            device_uuid,
+            CLAIM_PUBLISH_GRACE_SECONDS,
+            exc,
+        )
+    logger.debug(f"Successfully queued device {device_uuid}")
+    return None
 
 
 async def queue_render(

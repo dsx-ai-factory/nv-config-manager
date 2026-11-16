@@ -31,6 +31,7 @@ from nv_config_manager.common.config.nats import (
     nats_dcim_change_config,
     nats_nautobot_api_prefix,
     nats_render_change_config,
+    nats_render_consumer_name,
 )
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.common.nats_admin import (
@@ -108,9 +109,7 @@ def get_consumer_configs() -> dict[str, dict[str, str]]:
             "api_prefix": dcim_api_prefix,
         },
         "device": {
-            "durable_name": nats_config.get(
-                "config_manager_consumer_name", "nv-config-manager-device"
-            ),
+            "durable_name": nats_render_consumer_name(config),
             "stream": render_stream,
             "subject": render_subject,
             "api_prefix": render_api_prefix,

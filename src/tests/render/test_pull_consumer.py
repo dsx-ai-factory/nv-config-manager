@@ -14,7 +14,9 @@
 # limitations under the License.
 """Tests for the NATS pull consumer module."""
 
+import asyncio
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,7 +26,10 @@ from nats.aio.msg import Msg
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.errors import NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import LockNotOwnedError
 
+from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
@@ -80,6 +85,7 @@ def mock_lock():
         mock_lock_instance = MagicMock(spec=AsyncRedisLock)
         mock_lock_instance.acquire = AsyncMock(return_value=True)
         mock_lock_instance.release = AsyncMock(return_value=True)
+        mock_lock_instance.reacquire = AsyncMock(return_value=True)
         # create_lock is now async, so we need an AsyncMock
         mock.return_value = mock_lock_instance
         yield mock_lock_instance
@@ -380,10 +386,126 @@ async def test_pull_device_change_consumer_success(mock_dispatcher, mock_lock, c
         mock_dispatcher.nautobot_change_dispatch = AsyncMock()
         await consumer.message_handler(mock_msg)
 
-    mock_clear_queued.assert_awaited_once_with("test-device")
+    mock_clear_queued.assert_awaited_once_with("test-device", token=None)
     mock_msg.ack.assert_called_once()
     mock_dispatcher.nautobot_change_dispatch.assert_called_once_with({"device_id": "test-device"})
     mock_lock.release.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_pull_device_change_consumer_releases_only_its_own_claim(
+    mock_dispatcher, mock_lock, custom_ini
+):
+    """The consumer releases the dedup slot with the claim its message was published under."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.ack = AsyncMock()
+    mock_lock.acquire.return_value = True
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        mock_dispatcher.nautobot_change_dispatch = AsyncMock()
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.ack.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_claim_is_released_before_the_render_reads_device_state(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A change landing mid-render must be able to queue a render of its own."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_lock.acquire.return_value = True
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+
+        async def dispatch(_data: dict[str, str]) -> None:
+            # Holding the claim here would make a concurrent producer drop the
+            # newer change as a duplicate of this render.
+            mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+
+        mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=dispatch)
+        await consumer.message_handler(mock_msg)
+
+    mock_dispatcher.nautobot_change_dispatch.assert_awaited_once()
+    mock_msg.ack.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_device_lock_is_renewed_for_a_render_that_outlives_it(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A long render keeps its lock so a follow-up cannot render the device concurrently."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_lock.acquire.return_value = True
+
+    async def slow_render(_data: dict[str, str]) -> None:
+        await asyncio.sleep(0.05)
+
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=slow_render)
+    with (
+        patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock),
+        patch("nv_config_manager.render.pull_consumer.DEVICE_LOCK_RENEW_INTERVAL_SECONDS", 0.01),
+    ):
+        await consumer.message_handler(mock_msg)
+        renewals = mock_lock.reacquire.await_count
+        await asyncio.sleep(0.03)
+
+    assert renewals >= 1
+    # Renewal stops with the render, so the lock is not held past release.
+    assert mock_lock.reacquire.await_count == renewals
+    mock_lock.release.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "keeps_renewing"),
+    [
+        (RedisConnectionError("connection reset"), True),
+        (LockNotOwnedError("no longer owned"), False),
+    ],
+)
+async def test_device_lock_renewal_survives_transient_errors(
+    mock_dispatcher: MagicMock,
+    mock_lock: MagicMock,
+    custom_ini: Callable[[str], None],
+    error: Exception,
+    keeps_renewing: bool,
+) -> None:
+    """Only losing the lock ends renewal; a Redis blip is retried at the next interval."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_lock.acquire.return_value = True
+    mock_lock.reacquire.side_effect = [error, True, True, True, True, True, True, True]
+
+    async def slow_render(_data: dict[str, str]) -> None:
+        await asyncio.sleep(0.05)
+
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=slow_render)
+    with (
+        patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock),
+        patch("nv_config_manager.render.pull_consumer.DEVICE_LOCK_RENEW_INTERVAL_SECONDS", 0.01),
+    ):
+        await consumer.message_handler(mock_msg)
+
+    assert (mock_lock.reacquire.await_count > 1) is keeps_renewing
+    mock_msg.ack.assert_awaited_once()
+    mock_lock.release.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -406,6 +528,147 @@ async def test_pull_device_change_consumer_lock_failure(mock_dispatcher, mock_lo
     mock_msg.nak.assert_called_once_with(delay=5)
     # Lock release should NOT be called since acquire failed
     mock_lock.release.assert_not_awaited()
+
+
+def _last_delivery_msg(data: dict[str, str]) -> AsyncMock:
+    """Return a message on the delivery after which JetStream stops redelivering."""
+    msg = AsyncMock(spec=Msg)
+    msg.data = json.dumps(data).encode()
+    msg.metadata = MagicMock(num_delivered=CONSUMER_MAX_DELIVER)
+    return msg
+
+
+@pytest.mark.asyncio
+async def test_last_delivery_that_never_wins_the_lock_frees_its_claim(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A message dropped at max_deliver must not keep suppressing later changes."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = False
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_last_delivery_that_fails_is_terminated(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A render that fails on its final delivery is terminated instead of nacked."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = True
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=Exception("boom"))
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    for call in mock_clear_queued.await_args_list:
+        assert call.args == ("test-device",)
+        assert call.kwargs == {"token": "claim-1"}
+    mock_msg.term.assert_awaited_once()
+    mock_msg.nak.assert_not_awaited()
+    mock_lock.release.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_giving_up_terminates_even_if_the_claim_cannot_be_released(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A Redis failure while releasing the claim must not leave the message redelivering."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = _last_delivery_msg({"device_id": "test-device", "queue_claim": "claim-1"})
+    mock_lock.acquire.return_value = False
+
+    with (
+        patch(
+            "nv_config_manager.render.pull_consumer.clear_queued",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("redis down"),
+        ),
+        pytest.raises(ConnectionError),
+    ):
+        await consumer.message_handler(mock_msg)
+
+    mock_msg.term.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_last_delivery_follows_a_lower_limit_on_the_existing_consumer(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """With a durable limited below the default, its last delivery still frees the claim."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = 5
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.metadata = MagicMock(num_delivered=5)
+    mock_lock.acquire.return_value = False
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock
+    ) as mock_clear_queued:
+        await consumer.message_handler(mock_msg)
+
+    mock_clear_queued.assert_awaited_once_with("test-device", token="claim-1")
+    mock_msg.term.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unlimited_consumer_never_gives_up(
+    mock_dispatcher: MagicMock, mock_lock: MagicMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A durable without a delivery limit keeps redelivering, so nothing is terminated."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    consumer.max_deliver = -1
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.metadata = MagicMock(num_delivered=CONSUMER_MAX_DELIVER * 10)
+    mock_lock.acquire.return_value = False
+
+    with patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock):
+        await consumer.message_handler(mock_msg)
+
+    mock_msg.term.assert_not_awaited()
+    mock_msg.nak.assert_awaited_once_with(delay=5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("delivered", "delay"), [(1, 1), (2, 2), (4, 8), (7, 60), (900, 60)])
+async def test_failed_render_backs_off_before_redelivery(
+    mock_dispatcher: MagicMock,
+    mock_lock: MagicMock,
+    custom_ini: Callable[[str], None],
+    delivered: int,
+    delay: int,
+) -> None:
+    """Failures wait longer each time, so an outage cannot burn through the delivery limit."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullDeviceChangeConsumer()
+    mock_msg = AsyncMock(spec=Msg)
+    mock_msg.data = json.dumps({"device_id": "test-device", "queue_claim": "claim-1"}).encode()
+    mock_msg.metadata = MagicMock(num_delivered=delivered)
+    mock_lock.acquire.return_value = True
+    mock_dispatcher.nautobot_change_dispatch = AsyncMock(side_effect=Exception("dcim down"))
+
+    with patch("nv_config_manager.render.pull_consumer.clear_queued", new_callable=AsyncMock):
+        await consumer.message_handler(mock_msg)
+
+    mock_msg.nak.assert_awaited_once_with(delay=delay)
 
 
 @pytest.mark.asyncio
@@ -495,7 +758,7 @@ async def test_resilient_message_handler_consumer_error(custom_ini):
     # Should not raise, should nak the message instead
     await consumer._resilient_message_handler(mock_msg)
 
-    consumer.nak.assert_called_once_with(mock_msg)
+    consumer.nak.assert_called_once_with(mock_msg, delay=1)
 
 
 @pytest.mark.asyncio
@@ -593,6 +856,32 @@ async def test_existing_consumer_mismatch_logs_admin_update_request(custom_ini, 
     assert "max_deliver" in warning[2]
     assert "Ask the NATS administrator" in warning[3]
     assert "Delivery policy may retain" in warning[3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("existing_limit", "effective_limit"), [(5, 5), (-1, -1), (None, -1)])
+async def test_existing_consumer_delivery_limit_is_the_one_enforced(
+    custom_ini: Callable[[str], None],
+    mock_jetstream: MagicMock,
+    existing_limit: int | None,
+    effective_limit: int,
+) -> None:
+    """The consumer gives up on the last delivery JetStream allows, not the one it expects."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = mock_jetstream
+    existing = MagicMock()
+    existing.config = ConsumerConfig(
+        durable_name=consumer.queue,
+        filter_subject="test_subject",
+        ack_policy=AckPolicy.EXPLICIT,
+        max_deliver=existing_limit,
+    )
+    mock_jetstream.consumer_info.return_value = existing
+
+    await consumer._ensure_consumer_exists()
+
+    assert consumer.max_deliver == effective_limit
 
 
 @pytest.mark.asyncio
