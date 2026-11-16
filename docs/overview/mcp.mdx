@@ -8,6 +8,10 @@ NVIDIA Config Manager includes a remote Model Context Protocol (MCP) server for 
 
 Use MCP when you want an assistant or other MCP-capable client to answer operational questions from Config Manager data, such as Nautobot inventory, DHCP reservations, stored device configs, workflow history, and selected safe workflow actions.
 
+DHCP is optional. When it is not deployed, the MCP server still starts and
+serves its other capabilities. A DHCP request returns "DHCP is not deployed on
+this cell." Enable the DHCP service to use those tools.
+
 ## Quick Setup
 
 There are three supported ways to connect to the MCP server.

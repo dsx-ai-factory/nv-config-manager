@@ -123,6 +123,46 @@ uv run nv-config-manager-dhcp-confgen refresh-kea-configuration \
 
 In Kubernetes, the refresh process generates and publishes desired configuration to Redis every five minutes. A sidecar in each Kea pod monitors Redis, applies changed configuration through the Kea Control Agent, and verifies the running configuration hash.
 
+## Configure Container Probes
+
+Set `networkDhcp.probes` in a Helm values override to tune the DHCP containers'
+Kubernetes health checks. When using installer-generated values with Helm or
+ArgoCD, layer this override after `values-generated.yaml`.
+
+For example, allow the API container more failed liveness checks before a
+restart and enable a startup probe:
+
+```yaml
+networkDhcp:
+  probes:
+    api:
+      liveness:
+        failureThreshold: 20
+      startup:
+        enabled: true
+        failureThreshold: 30
+        periodSeconds: 10
+```
+
+The supported container keys are `kea`, `healthcheck`, `api`, and `confgen`.
+Each accepts `liveness`, `readiness`, and `startup` settings. Set
+`enabled: false` to omit a probe, or `enabled: true` to enable one that is off
+by default. Startup probes are off by default for every container; readiness
+probes are off by default for `kea` and `confgen`.
+
+Probe fields such as `periodSeconds`, `timeoutSeconds`, and `failureThreshold`
+override the chart defaults. Zero values are preserved. Set a field to `null`
+to remove an inherited default. A custom `httpGet`, `tcpSocket`, `exec`, or
+`grpc` handler of a different type replaces the default handler. Overrides of
+the same handler type merge with its defaults. For example, setting only
+`httpGet.path` preserves the default port. Without a custom handler, an enabled
+probe uses the container's default health check.
+
+Keep HTTP liveness checks on `/livez` and strict readiness checks on
+`/healthcheck`. A configuration mismatch should affect readiness without
+restarting Kea. The `confgen` container uses an exec probe that checks its
+heartbeat.
+
 ## Manage Leases
 
 The DHCP dashboard summarizes active leases, reservations, configured pools,
