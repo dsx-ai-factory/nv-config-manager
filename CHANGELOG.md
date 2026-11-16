@@ -49,6 +49,9 @@ version before the selected release candidate is promoted.
   `secrets.method: vault-agent`. Before, only `secrets.method: kubernetes`
   rendered `mock = true` in the `[device]` section, so the other methods
   silently kept real device connections.
+- With `secrets.method: vault-agent`, pods now carry a `checksum/vault-agent-ini`
+  annotation, so a change to the rendered `nv-config-manager.ini` template rolls
+  them. Before, the injector kept serving the old template until pods restarted.
 - The Temporal worker no longer re-imports pydantic and the shared workflow
   libraries in the sandbox for every workflow run. This cuts the per-run startup
   CPU and per-run memory that contributed to workflow task timeouts, deadlock
