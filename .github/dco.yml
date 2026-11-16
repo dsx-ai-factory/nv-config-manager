@@ -1,4 +1,4 @@
-# Preserve shared commit history with signed-off follow-up attestations.
+# Allow original authors to add follow-up sign-offs without rewriting history.
 allowRemediationCommits:
   individual: true
-  thirdParty: true
+  thirdParty: false
