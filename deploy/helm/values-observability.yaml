@@ -365,6 +365,15 @@ grafana:
   # A real deployment would use admin.existingSecret instead.
   adminUser: admin
   adminPassword: admin
+
+  # Load dashboards from ConfigMaps labelled grafana_dashboard="1"
+  # (templates/grafana-dashboard-*.yaml) in any namespace.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
   datasources:
     datasources.yaml:
       apiVersion: 1

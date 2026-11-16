@@ -1,0 +1,24 @@
+{{- /*
+ConfigMap picked up by the Grafana dashboard sidecar: the Template Preview dashboard.
+
+Same mechanism as grafana-dashboard-nv-config-manager-overview.yaml: only rendered when the
+in-chart Grafana subchart is enabled, and the datasource placeholder is replaced by the static
+datasource uid from values-observability.yaml. Edit deploy/helm/dashboards/template-preview.json.
+*/ -}}
+{{- $grafana := default (dict) .Values.grafana -}}
+{{- if $grafana.enabled }}
+{{- $dashboardJson := .Files.Get "dashboards/template-preview.json"
+    | replace "${DS_PROMETHEUS}" "prometheus" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nv-config-manager.fullname" . }}-grafana-dashboard-template-preview
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana-dashboard
+    grafana_dashboard: "1"
+data:
+  template-preview.json: |-
+{{ $dashboardJson | indent 4 }}
+{{- end }}
