@@ -1,0 +1,4 @@
+# Preserve shared commit history with signed-off follow-up attestations.
+allowRemediationCommits:
+  individual: true
+  thirdParty: true
