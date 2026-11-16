@@ -15,6 +15,8 @@
 """Tests for the NATS pull consumer module."""
 
 import json
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,7 +24,7 @@ import nats.errors
 import pytest
 from nats.aio.msg import Msg
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
-from nats.js.errors import NotFoundError
+from nats.js.errors import FetchTimeoutError, NotFoundError
 from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.common.lock import LOCK_TIMEOUT_SECONDS
@@ -30,8 +32,15 @@ from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
+    CONSUMER_ACK_WAIT_SECONDS,
     CONSUMER_GIVEN_UP,
+    CONSUMER_LAST_NATS_SUCCESS,
+    CONSUMER_LAST_PROGRESS,
+    CONSUMER_NATS_FAILURES,
+    CONSUMER_NATS_RECONNECTS,
     CONSUMER_PENDING,
+    CONSUMER_PROCESSING_DURATION,
+    CONSUMER_PROCESSING_STARTED,
     CONSUMER_REDELIVERED,
     CONSUMER_WAITING,
     PullConsumer,
@@ -140,6 +149,342 @@ async def test_pull_consumer_can_process_message(custom_ini):
 
     # Default implementation should always return True
     assert await consumer.can_process_message() is True
+
+
+def test_liveness_fails_once_fetches_stop_completing(custom_ini: Callable[[str], None]) -> None:
+    """A consumer that cannot complete a fetch must report itself unhealthy."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+
+    live, _ = consumer.liveness()
+    assert live is True
+
+    # A wedged connection leaves the retry loop running but never completes a
+    # fetch, which is the only state that distinguishes it from an idle queue.
+    consumer._last_round_trip -= consumer.liveness_timeout + 1
+    live, detail = consumer.liveness()
+    assert live is False
+    assert "no successful fetch" in detail
+
+    # A fetch that returns no messages still proves the connection works
+    consumer._record_round_trip()
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+def test_liveness_budget_outlasts_one_slow_message(custom_ini: Callable[[str], None]) -> None:
+    """A render that is slow but working must not be mistaken for a wedged loop."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(
+        stream="test_stream",
+        subject="test_subject",
+        queue_suffix="test_queue",
+    )
+
+    # Synchronous render work blocks the event loop and with it the consumer
+    # info lookups. A budget below the ack wait would restart the pod mid-render, and
+    # the redelivery would be just as slow.
+    assert consumer.liveness_timeout > CONSUMER_ACK_WAIT_SECONDS
+
+
+@pytest.mark.parametrize("timeout", ["0", "-5", str(CONSUMER_ACK_WAIT_SECONDS)])
+def test_liveness_timeout_at_or_below_ack_wait_is_rejected(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, timeout: str
+) -> None:
+    """An override that would restart the pod mid-render fails at startup instead."""
+    custom_ini(TEST_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", timeout)
+
+    with pytest.raises(ValueError, match="must exceed the consumer ack wait"):
+        PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+
+@pytest.mark.parametrize("timeout", ["nan", "inf", "-inf"])
+def test_non_finite_liveness_timeout_is_rejected(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch, timeout: str
+) -> None:
+    """A budget that never expires would leave a stalled consumer running forever."""
+    custom_ini(TEST_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", timeout)
+
+    with pytest.raises(ValueError, match="must be a finite number of seconds"):
+        PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+
+def test_liveness_timeout_above_ack_wait_is_accepted(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Operators can still lengthen or shorten the budget within the safe range."""
+    custom_ini(TEST_NATS_CONFIG)
+    monkeypatch.setenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 1))
+
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+    assert consumer.liveness_timeout == CONSUMER_ACK_WAIT_SECONDS + 1
+
+
+def _metrics_loop_consumer(mock_jetstream: MagicMock, *, handling: bool) -> PullConsumer:
+    """Return a consumer past its liveness budget whose metrics loop runs one lookup."""
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = mock_jetstream
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_closed = False
+    consumer.running = True
+    consumer.metrics_refresh_interval = 0
+    consumer._handler_started = time.monotonic() if handling else None
+    consumer._last_round_trip -= consumer.liveness_timeout + 1
+    return consumer
+
+
+def _info_once(consumer: PullConsumer, error: Exception | None = None) -> AsyncMock:
+    """Return a consumer_info mock that answers once, then stops the metrics loop."""
+
+    async def consumer_info(*_args: object, **_kwargs: object) -> MagicMock:
+        consumer.running = False
+        if error is not None:
+            raise error
+        return MagicMock(num_pending=0, num_ack_pending=1, num_redelivered=0, num_waiting=0)
+
+    return AsyncMock(side_effect=consumer_info)
+
+
+@pytest.mark.asyncio
+async def test_consumer_info_keeps_a_long_handler_live(
+    custom_ini: Callable[[str], None], mock_jetstream: MagicMock
+) -> None:
+    """A config context batch that runs past the budget is not mistaken for a wedged loop."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _metrics_loop_consumer(mock_jetstream, handling=True)
+    mock_jetstream.consumer_info = _info_once(consumer)
+
+    await consumer._record_consumer_metrics_loop()
+
+    live, _ = consumer.liveness()
+    assert live is True
+
+
+@pytest.mark.asyncio
+async def test_consumer_info_does_not_stand_in_for_fetches_while_idle(
+    custom_ini: Callable[[str], None], mock_jetstream: MagicMock
+) -> None:
+    """An idle loop has to prove itself by fetching, so a stuck fetch loop is still restarted."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _metrics_loop_consumer(mock_jetstream, handling=False)
+    mock_jetstream.consumer_info = _info_once(consumer)
+
+    await consumer._record_consumer_metrics_loop()
+
+    live, _ = consumer.liveness()
+    assert live is False
+
+
+@pytest.mark.asyncio
+async def test_failed_consumer_info_does_not_keep_a_handler_live(
+    custom_ini: Callable[[str], None], mock_jetstream: MagicMock
+) -> None:
+    """A wedged connection fails the lookup too, so the pod is restarted mid-handler."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _metrics_loop_consumer(mock_jetstream, handling=True)
+    mock_jetstream.consumer_info = _info_once(consumer, nats.errors.TimeoutError())
+
+    await consumer._record_consumer_metrics_loop()
+
+    live, _ = consumer.liveness()
+    assert live is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True], ids=["returns", "raises"])
+async def test_handling_is_set_only_while_the_handler_runs(
+    custom_ini: Callable[[str], None], fails: bool
+) -> None:
+    """The handler start time clears however the handler ends, so idle liveness relies on fetches."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.nak = AsyncMock()  # type: ignore[method-assign]
+    seen: list[bool] = []
+
+    async def handler(_msg: Msg) -> None:
+        seen.append(consumer._handler_started is not None)
+        if fails:
+            raise RuntimeError("boom")
+
+    consumer.message_handler = handler  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(AsyncMock(spec=Msg))
+
+    assert seen == [True]
+    assert consumer._handler_started is None
+
+
+def _stalled_cycle_consumer(
+    mock_jetstream: MagicMock, mock_pull_subscription: MagicMock, fetch_error: Exception
+) -> PullConsumer:
+    """Return a consumer past its liveness budget whose next fetch raises fetch_error."""
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = mock_jetstream
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_closed = False
+    consumer.running = True
+    consumer.idle_wait = 0
+    consumer._ensure_consumer_exists = AsyncMock()  # type: ignore[method-assign]
+    mock_jetstream.pull_subscribe_bind.return_value = mock_pull_subscription
+
+    async def fetch_once(*_args: object, **_kwargs: object) -> None:
+        consumer.running = False
+        raise fetch_error
+
+    mock_pull_subscription.fetch.side_effect = fetch_once
+    consumer._last_round_trip -= consumer.liveness_timeout + 1
+    return consumer
+
+
+@pytest.mark.asyncio
+async def test_fetch_timeout_with_heartbeats_keeps_consumer_live(
+    custom_ini: Callable[[str], None],
+    mock_jetstream: MagicMock,
+    mock_pull_subscription: MagicMock,
+) -> None:
+    """nats-py raises FetchTimeoutError when heartbeats arrived but no message did: idle, not broken."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stalled_cycle_consumer(mock_jetstream, mock_pull_subscription, FetchTimeoutError())
+
+    await consumer._run_consumer_cycle()
+
+    live, _ = consumer.liveness()
+    assert live is True
+    mock_pull_subscription.unsubscribe.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fetch_error",
+    [nats.errors.TimeoutError(), TimeoutError()],
+    ids=["nats-timeout", "asyncio-timeout"],
+)
+async def test_fetch_timeout_without_response_does_not_refresh_liveness(
+    custom_ini: Callable[[str], None],
+    mock_jetstream: MagicMock,
+    mock_pull_subscription: MagicMock,
+    fetch_error: Exception,
+) -> None:
+    """A plain TimeoutError means nothing came back, so it must not count as a completed fetch."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stalled_cycle_consumer(mock_jetstream, mock_pull_subscription, fetch_error)
+
+    with pytest.raises(TimeoutError):
+        await consumer._run_consumer_cycle()
+
+    live, _ = consumer.liveness()
+    assert live is False
+    mock_pull_subscription.unsubscribe.assert_awaited_once()
+
+
+def _stall_metrics_consumer(monkeypatch: pytest.MonkeyPatch, namespace: str) -> PullConsumer:
+    """Return a consumer whose stall metrics have their own label set."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", namespace)
+    return PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+
+
+@pytest.mark.asyncio
+async def test_stuck_handler_is_visible_in_metrics_until_it_returns(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A handler that never returns keeps its start time exported and progress stale."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stall-handler")
+    labels = consumer._metric_labels
+    started = CONSUMER_PROCESSING_STARTED.labels(*labels)
+    progress = CONSUMER_LAST_PROGRESS.labels(*labels)
+    duration = CONSUMER_PROCESSING_DURATION.labels(*labels)
+    assert started._value.get() == 0
+    progress.set(1)
+    seen: list[tuple[float, float]] = []
+
+    async def handler(_msg: Msg) -> None:
+        seen.append((started._value.get(), progress._value.get()))
+
+    consumer.message_handler = handler  # type: ignore[method-assign]
+
+    await consumer._resilient_message_handler(AsyncMock(spec=Msg))
+
+    assert seen[0][0] == pytest.approx(time.time(), abs=5)
+    assert seen[0][1] == 1
+    assert started._value.get() == 0
+    assert progress._value.get() == pytest.approx(time.time(), abs=5)
+    assert duration._sum.get() >= 0
+    assert sum(bucket.get() for bucket in duration._buckets) == 1
+
+
+@pytest.mark.asyncio
+async def test_idle_fetch_counts_as_progress_but_consumer_info_does_not(
+    custom_ini: Callable[[str], None],
+    monkeypatch: pytest.MonkeyPatch,
+    mock_jetstream: MagicMock,
+) -> None:
+    """Progress comes from the consumer loop itself, not from the background metrics task."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stall-progress")
+    labels = consumer._metric_labels
+    progress = CONSUMER_LAST_PROGRESS.labels(*labels)
+    nats_success = CONSUMER_LAST_NATS_SUCCESS.labels(*labels)
+    consumer.jetstream = mock_jetstream
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_closed = False
+    consumer.running = True
+    consumer.metrics_refresh_interval = 0
+    consumer._handler_started = time.monotonic()
+    mock_jetstream.consumer_info = _info_once(consumer)
+    progress.set(1)
+    nats_success.set(1)
+
+    await consumer._record_consumer_metrics_loop()
+
+    assert progress._value.get() == 1
+    assert nats_success._value.get() == pytest.approx(time.time(), abs=5)
+
+    nats_success.set(1)
+    consumer._record_fetch()
+
+    assert progress._value.get() == pytest.approx(time.time(), abs=5)
+    assert nats_success._value.get() == pytest.approx(time.time(), abs=5)
+
+
+@pytest.mark.asyncio
+async def test_nats_failures_and_reconnects_are_counted(
+    custom_ini: Callable[[str], None],
+    monkeypatch: pytest.MonkeyPatch,
+    mock_jetstream: MagicMock,
+) -> None:
+    """Failed cycles, failed consumer info lookups and reconnects each have a counter."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stall-failures")
+    labels = consumer._metric_labels
+    consumer.jetstream = mock_jetstream
+
+    await _run_one_failed_cycle(consumer, nats.errors.TimeoutError())
+    assert CONSUMER_NATS_FAILURES.labels(*labels, "cycle")._value.get() == 1
+
+    consumer.running = True
+    consumer.metrics_refresh_interval = 0
+    mock_jetstream.consumer_info = _info_once(consumer, nats.errors.TimeoutError())
+    await consumer._record_consumer_metrics_loop()
+    assert CONSUMER_NATS_FAILURES.labels(*labels, "consumer_info")._value.get() == 1
+
+    with (
+        patch(
+            "nv_config_manager.render.pull_consumer.nats_connection", new_callable=AsyncMock
+        ) as connect,
+        patch.object(consumer, "_run_pull_consumer", new_callable=AsyncMock),
+    ):
+        connect.return_value = MagicMock()
+        await consumer.main()
+        await connect.call_args.kwargs["reconnected_cb"]()
+    assert CONSUMER_NATS_RECONNECTS.labels(*labels)._value.get() == 1
 
 
 def test_render_consumer_metrics_are_labeled_by_fixed_consumer(custom_ini, monkeypatch):
@@ -983,6 +1328,49 @@ async def _run_one_failed_cycle(consumer: PullConsumer, error: Exception) -> Non
         patch.object(consumer, "_record_consumer_metrics_loop", new=AsyncMock()),
     ):
         await consumer._run_pull_consumer()
+
+
+@pytest.mark.asyncio
+async def test_failed_cycle_past_liveness_budget_exits_the_consumer(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A loop that only fails raises out, so the process exits instead of retrying forever."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = MagicMock()
+    consumer._last_round_trip -= consumer.liveness_timeout + 1
+
+    with pytest.raises(RuntimeError, match="no successful fetch or consumer info") as excinfo:
+        await _run_one_failed_cycle(consumer, nats.errors.TimeoutError())
+
+    assert isinstance(excinfo.value.__cause__, nats.errors.TimeoutError)
+    assert consumer.running is False
+
+
+@pytest.mark.asyncio
+async def test_failed_cycle_within_liveness_budget_keeps_retrying(
+    custom_ini: Callable[[str], None],
+) -> None:
+    """A transient failure is retried; only a stall past the budget exits."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullConsumer(stream="test_stream", subject="test_subject", queue_suffix="test_queue")
+    consumer.jetstream = MagicMock()
+    cycle = AsyncMock(side_effect=nats.errors.TimeoutError())
+    consumer.nats_conn = MagicMock()
+    consumer.nats_conn.is_closed = False
+    consumer.error_backoff = 0
+
+    async def stop_after_backoff(_delay: float) -> None:
+        consumer.running = False
+
+    with (
+        patch.object(consumer, "_run_consumer_cycle", cycle),
+        patch.object(consumer, "_record_consumer_metrics_loop", new=AsyncMock()),
+        patch("nv_config_manager.render.pull_consumer.asyncio.sleep", new=stop_after_backoff),
+    ):
+        await consumer._run_pull_consumer()
+
+    cycle.assert_awaited_once()
 
 
 @pytest.mark.asyncio
