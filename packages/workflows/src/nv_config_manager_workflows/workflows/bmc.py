@@ -21,21 +21,8 @@ import copy
 import logging
 from datetime import timedelta
 
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.log import get_workflow_logger
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.workflow_references import LocationReference
 
 with workflow.unsafe.imports_passed_through():
     from nv_config_manager_dcim import (
@@ -43,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
         DCIMLocationType,
         dcim_location_reference,
     )
+    from pydantic import BaseModel, Field
 
     from nv_config_manager_workflows.activities.bmc import (
         DiscoverHostsInput,
@@ -70,8 +58,18 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.dcim.models import NetworkDeviceData
     from nv_config_manager_workflows.activities.device import get_device_arp_table
     from nv_config_manager_workflows.clients.redfish.models import RedfishHost, RedfishVendor
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.log import get_workflow_logger
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins import ArchiveMixin
-
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.workflow_references import LocationReference
 
 __all__ = [
     "DCIM_STAGE_IDENTIFIERS_PATCH",

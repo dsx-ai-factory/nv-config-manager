@@ -457,6 +457,13 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           {{- end }}
 
           # -----------------------------------------------------------------
+          # Temporal Worker Configuration
+          # -----------------------------------------------------------------
+          [temporal.worker]
+          max_cached_workflows = {{ $root.Values.temporal.configManagerWorker.maxCachedWorkflows }}
+          max_concurrent_workflow_tasks = {{ $root.Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks }}
+
+          # -----------------------------------------------------------------
           # Device Credentials (for Temporal workflows)
           # -----------------------------------------------------------------
           [device]

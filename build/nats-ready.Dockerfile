@@ -12,9 +12,9 @@ ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""
 
 # Official SHA256 checksums from https://go.dev/dl/
-ARG GO_VERSION=1.26.10
-ARG GO_SHA256_AMD64=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
-ARG GO_SHA256_ARM64=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
+ARG GO_VERSION=1.26.11
+ARG GO_SHA256_AMD64=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
+ARG GO_SHA256_ARM64=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
 
 # Install Go with checksum verification
 COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh

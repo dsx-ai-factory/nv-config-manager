@@ -351,6 +351,9 @@ spec:
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:
         {{- include "nv-config-manager.authIniChecksum" . | nindent 8 }}
+        {{- /* The worker reads the [temporal.worker] INI limits only at startup, so a
+        change to either value must roll the pods. */}}
+        checksum/worker-limits: {{ printf "%v/%v" .Values.temporal.configManagerWorker.maxCachedWorkflows .Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks | sha256sum }}
         {{- if eq .Values.secrets.method "vault-agent" }}
         {{- include "nv-config-manager.vaultAgent.injectorAnnotations" . | nindent 8 }}
         {{- end }}

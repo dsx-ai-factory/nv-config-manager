@@ -18,7 +18,20 @@ import nats.errors
 from nats.js.errors import APIError
 
 CONSUMER_ACK_WAIT_SECONDS = 360
-CONSUMER_MAX_DELIVER = -1
+# Bounded so that a message which can never be processed stops circulating.
+# With the render consumers' 1s-to-60s backoff, 20 deliveries ride out about
+# 14 minutes of handler failures. Bad data needs no longer: fixing it triggers
+# a new render. Lock contention naks also count, backing off from 5s to 30s, so
+# a render waits about 8 minutes for another render's device lock, longer than
+# the lock can be held.
+CONSUMER_MAX_DELIVER = 20
+
+# The archive handles every in-flight message concurrently under its own
+# deadline below the ack wait, so this bounds concurrent backend writes.
+ARCHIVE_CONSUMER_MAX_ACK_PENDING = 2
+# A record that gives up is never archived, so with the archive's 5-minute
+# retry delay this rides out about a day of backend outage.
+ARCHIVE_CONSUMER_MAX_DELIVER = 288
 
 
 def is_nats_permissions_error(exc: Exception) -> bool:
