@@ -38,6 +38,7 @@ def workflow_info() -> SimpleNamespace:
         workflow_type="BackupWorkflow",
         start_time=datetime(2026, 8, 31, 12, 30, tzinfo=UTC),
         search_attributes={"Site": ["rdu"]},
+        namespace="default",
     )
 
 
@@ -56,6 +57,7 @@ def test_result_log_preserves_the_wire_shape(monkeypatch: pytest.MonkeyPatch) ->
         "start_time": "2026-08-31T12:30:00+00:00",
         "publish_time": "2026-08-31T12:45:00+00:00",
         "search_attributes": {"Site": ["rdu"]},
+        "namespace": "default",
     }
 
 

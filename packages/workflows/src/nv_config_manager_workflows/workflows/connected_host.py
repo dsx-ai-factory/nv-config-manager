@@ -21,27 +21,14 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Any, ClassVar
 
-from py_markdown_table.markdown_table import markdown_table
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.markdown import escape_markdown_cell
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import device_field
-from nv_config_manager_workflows.workflow_references import DeviceReference
-from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
-
 with workflow.unsafe.imports_passed_through():
+    from py_markdown_table.markdown_table import markdown_table
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         HostData,
@@ -61,9 +48,21 @@ with workflow.unsafe.imports_passed_through():
         format_mac,
         is_mac_address,
     )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.markdown import escape_markdown_cell
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins.archive import ArchiveMixin
     from nv_config_manager_workflows.mixins.device import DeviceMixin
-
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import device_field
+    from nv_config_manager_workflows.workflow_references import DeviceReference
+    from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 ACTIVITY_NO_RETRY_POLICY = RetryPolicy(maximum_attempts=1)
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)

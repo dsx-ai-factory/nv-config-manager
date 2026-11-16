@@ -19,34 +19,13 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, ClassVar
 
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.search_attributes import ISSUE_KEY_SEARCH_ATTRIBUTE
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import (
-    Dependency,
-    FormOptionProvider,
-    FormOptionSource,
-    FormSchema,
-    OptionSource,
-    ServerOwned,
-    api_options,
-    device_field,
-)
-from nv_config_manager_workflows.workflow_references import DeviceReferences
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
@@ -71,8 +50,28 @@ with workflow.unsafe.imports_passed_through():
         upload_attachment,
         validate_ticket,
     )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins import ArchiveMixin, DeviceMixin
-
+    from nv_config_manager_workflows.search_attributes import ISSUE_KEY_SEARCH_ATTRIBUTE
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import (
+        Dependency,
+        FormOptionProvider,
+        FormOptionSource,
+        FormSchema,
+        OptionSource,
+        ServerOwned,
+        api_options,
+        device_field,
+    )
+    from nv_config_manager_workflows.workflow_references import DeviceReferences
 
 __all__ = [
     "AssembleOutputStageInput",

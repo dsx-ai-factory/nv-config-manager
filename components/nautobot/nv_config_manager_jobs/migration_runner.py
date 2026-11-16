@@ -29,8 +29,9 @@ import sys
 import time
 
 import django
+from django.apps import apps
 from django.contrib.auth import get_user_model
-from django.db import connection
+from django.db import connection, transaction
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "nautobot.core.settings")
 django.setup()
@@ -72,7 +73,7 @@ def set_superuser_password() -> None:
 
 def create_api_token() -> None:
     """Create or update the API token for the superuser."""
-    from nautobot.users.models import Token
+    token_model = apps.get_model("users", "Token")
 
     user_model = get_user_model()
     username = os.environ.get("NAUTOBOT_SUPERUSER_NAME", "admin")
@@ -85,7 +86,7 @@ def create_api_token() -> None:
     api_token = api_token_env.strip()[:40]
     user = user_model.objects.filter(username=username).first()
     if user:
-        _, created = Token.objects.update_or_create(
+        _, created = token_model.objects.update_or_create(
             key=api_token, defaults={"user": user, "description": "Auto-generated API token"}
         )
         print(f"Token {'created' if created else 'updated'}.", flush=True)
@@ -93,9 +94,62 @@ def create_api_token() -> None:
         print(f"User '{username}' not found for token creation.", flush=True)
 
 
+def create_read_only_api_token() -> None:
+    """Register the MCP token with view-only access to inventory, never user credentials."""
+    api_token = os.environ.get("NAUTOBOT_READ_ONLY_API_TOKEN", "").strip()
+    if not api_token:
+        print("No NAUTOBOT_READ_ONLY_API_TOKEN set, skipping read-only token creation.", flush=True)
+        return
+    if len(api_token) != 40 or any(char not in "0123456789abcdef" for char in api_token):
+        raise ValueError("NAUTOBOT_READ_ONLY_API_TOKEN must contain 40 lowercase hexadecimal characters")
+
+    # Resolve models after django.setup(), avoiding imports before the app registry is ready.
+    token_model = apps.get_model("users", "Token")
+    permission_model = apps.get_model("users", "ObjectPermission")
+    content_type_model = apps.get_model("contenttypes", "ContentType")
+    user_model = get_user_model()
+    with transaction.atomic():
+        user, _ = user_model.objects.get_or_create(username="nvcm-mcp-read-only")
+        if user.is_superuser or user.is_staff:
+            raise ValueError("The nvcm-mcp-read-only account must not be a superuser or staff member")
+        user.is_active = True
+        user.set_unusable_password()
+        user.save()
+        user.groups.clear()
+        user.user_permissions.clear()
+
+        permission, _ = permission_model.objects.update_or_create(
+            name="nvcm-mcp-read-only-inventory",
+            defaults={"actions": ["view"], "constraints": {}, "enabled": True},
+        )
+        inventory_types = content_type_model.objects.filter(
+            app_label__in=["dcim", "ipam", "circuits", "tenancy", "virtualization"]
+        )
+        metadata_types = content_type_model.objects.filter(
+            app_label="extras", model__in=["status", "role", "tag", "customfield", "customfieldchoice"]
+        )
+        permission.object_types.set(list(inventory_types) + list(metadata_types))
+        permission.users.set([user])
+        permission.groups.clear()
+        # Reconcile this dedicated account to just its managed view permission.
+        user.object_permissions.set([permission])
+
+        token, _ = token_model.objects.get_or_create(
+            key=api_token,
+            defaults={"user": user, "description": "Config Manager MCP inventory", "write_enabled": False},
+        )
+        if token.user_id != user.pk:
+            raise ValueError("The configured read-only token already belongs to another Nautobot user")
+        token.write_enabled = False
+        token.expires = None
+        token.save()
+        token_model.objects.filter(user=user).exclude(pk=token.pk).delete()
+    print("Read-only inventory API token registered.", flush=True)
+
+
 def run_bootstrap_job() -> None:
     """Enable and run the bootstrap job if custom jobs are enabled."""
-    from nautobot.extras.models import Job
+    job_model = apps.get_model("extras", "Job")
 
     # Check if we should run bootstrap (based on env var set by Helm)
     if os.environ.get("NAUTOBOT_RUN_BOOTSTRAP", "false").lower() != "true":
@@ -103,7 +157,7 @@ def run_bootstrap_job() -> None:
         return
 
     # Enable the bootstrap job
-    job = Job.objects.filter(
+    job = job_model.objects.filter(
         module_name="nv_config_manager_jobs.bootstrap.load_bootstrap_data", job_class_name="LoadBootstrapData"
     ).first()
 
@@ -193,6 +247,9 @@ def main() -> int:
 
             print("Creating API token...", flush=True)
             create_api_token()
+
+            print("Creating read-only inventory API token...", flush=True)
+            create_read_only_api_token()
 
             print("Running post_upgrade...", flush=True)
             run_cmd(["nautobot-server", "post_upgrade"])
