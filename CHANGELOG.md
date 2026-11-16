@@ -33,6 +33,10 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
+- `localDev.mockDevices` now takes effect with `secrets.method: eso` and
+  `secrets.method: vault-agent`. Before, only `secrets.method: kubernetes`
+  rendered `mock = true` in the `[device]` section, so the other methods
+  silently kept real device connections.
 - The installer now refuses to deploy when `--load-kind` is set but the current
   kube context is not the matching Kind cluster, or when `images.source` is
   `local` and the context does not look like a cluster on this machine. Set
