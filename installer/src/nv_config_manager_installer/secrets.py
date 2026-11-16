@@ -117,7 +117,10 @@ def _generate_core_k8s_secrets(
     """Populate core Kubernetes secrets for the selected DCIM and services."""
     if config.dcim.provider == BUILT_IN_NAUTOBOT_PROVIDER:
         state["nautobot_token"] = _v("nautobot", "token") or _generate_token(40)
-        if ro_token := _v("nautobot", "readOnlyToken"):
+        ro_token = _v("nautobot", "readOnlyToken")
+        if not ro_token and config.services.nautobot:
+            ro_token = _generate_token(40)
+        if ro_token:
             state["nautobot_read_only_token"] = ro_token
     else:
         state["dcim_token"] = _v("dcim", "token") or _generate_token(40)

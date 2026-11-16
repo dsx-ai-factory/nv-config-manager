@@ -16,29 +16,29 @@
 
 from datetime import timedelta
 
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from nv_config_manager_workflows.activities.hello_world import (
-    hello_world_activity,
-    hello_world_prompt_activity,
-    hello_world_reject_activity,
-)
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel, Field
+
+    from nv_config_manager_workflows.activities.hello_world import (
+        hello_world_activity,
+        hello_world_prompt_activity,
+        hello_world_reject_activity,
+    )
     from nv_config_manager_workflows.activities.slack import (
         SlackMessageInput,
         send_slack_message,
+    )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
     )
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=1)

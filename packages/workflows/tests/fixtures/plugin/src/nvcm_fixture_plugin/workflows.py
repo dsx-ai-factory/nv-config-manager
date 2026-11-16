@@ -18,19 +18,21 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, ClassVar
 
-from pydantic import BaseModel
 from temporalio import workflow
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import StageMixin
-from nv_config_manager_workflows.ui import (
-    FormOptionProvider,
-    FormOptionSource,
-    FormSchema,
-    api_options,
-)
-from nvcm_fixture_plugin.activities import echo
+with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel
+
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
+    from nv_config_manager_workflows.stage import StageMixin
+    from nv_config_manager_workflows.ui import (
+        FormOptionProvider,
+        FormOptionSource,
+        FormSchema,
+        api_options,
+    )
+    from nvcm_fixture_plugin.activities import echo
 
 
 class FixtureInput(BaseModel):
