@@ -19,6 +19,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
+import responses
 from nv_config_manager_dcim import CableStatus
 from nv_config_manager_dcim.workflow_models import InterfaceData, Platform
 
@@ -44,6 +45,7 @@ from nv_config_manager_workflows.activities.cable_validation import (
 from nv_config_manager_workflows.activities.cable_validation import (
     activities as cable_validation_activities,
 )
+from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection
 from nv_config_manager_workflows.registration import activity_name
 
 
@@ -121,6 +123,61 @@ async def test_validation_classifies_cable_statuses() -> None:
         "link-state-only": CableStatus.CONNECTED,
     }
     assert set(result.interfaces) == {"down", "mismatch", "ignored-no-neighbor"}
+
+
+@pytest.mark.asyncio
+@responses.activate
+@pytest.mark.parametrize("firmware", ["5.14.0", "5.15.0"])
+@pytest.mark.parametrize(("family", "address"), [("ipv4", "192.0.2.10"), ("ipv6", "2001:db8::10")])
+@pytest.mark.parametrize(
+    ("intended_mac", "expected_status"),
+    [("00-11-22-33-44-55", CableStatus.CONNECTED), ("00-11-22-33-44-66", CableStatus.INVALID)],
+)
+async def test_cumulus_neighbors_support_mac_matching_without_lldp_or_fdb(
+    firmware: str, family: str, address: str, intended_mac: str, expected_status: CableStatus
+) -> None:
+    conn = CumulusConnection(
+        "192.0.2.1", settings={"username": "admin", "passwords": ["password"], "mock": False}
+    )
+    base = "https://192.0.2.1:8765/nvue_v1"
+    responses.get(f"{base}/system", json={"version": {"product-release": firmware}})
+    responses.get(f"{base}/interface", json={"swp1": {"type": "swp"}})
+    neighbors = {address: {"lladdr": "00:11:22:33:44:55"}}
+    if firmware == "5.14.0":
+        responses.get(f"{base}/interface/swp1/ip/neighbor", json={family: neighbors})
+    else:
+        for current_family in ("ipv4", "ipv6"):
+            responses.get(
+                f"{base}/interface/swp1/{current_family}/neighbor",
+                json=neighbors if current_family == family else {},
+            )
+
+    result = await validate_device_neighbors(
+        ValidateDeviceNeighborsInput(
+            device=NetworkDeviceData(
+                id="device-1",
+                name="leaf-1",
+                role="leaf",
+                site="site-1",
+                device_type="switch",
+                platform=Platform.CUMULUS_LINUX,
+                primary_ip4="192.0.2.1",
+                primary_ip6=None,
+            ),
+            intended=DeviceNeighborData(
+                neighbors={
+                    "swp1": InterfaceNeighborData(
+                        device_name="host-1", device_role="server", name="eth0", macs=[intended_mac]
+                    )
+                }
+            ),
+            actual=DeviceNeighborData(link_states={"swp1": True}),
+            mac_table=DeviceMacTable(),
+            arp_table=conn.get_arp_table(),
+        )
+    )
+
+    assert result.cable_statuses == {"swp1": expected_status}
 
 
 class TestPortDescriptionValidity:
