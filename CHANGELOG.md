@@ -35,6 +35,11 @@ version before the selected release candidate is promoted.
   `max_concurrent_workflow_tasks`), which the Helm chart renders from
   `temporal.configManagerWorker.maxCachedWorkflows` and
   `maxConcurrentWorkflowTasks`. Invalid values fail worker startup.
+- `nv_config_manager_nautobot_change_message_end_to_end_time` gains buckets at
+  900, 1200, 1800, 2700, 3600, and 7200 seconds. Its time includes queue wait,
+  which can pass ten minutes when one change fans out to many devices, and the
+  old 600-second top bucket left everything beyond that in `+Inf`. Existing
+  bucket boundaries are unchanged, so queries on them keep working.
 
 ### Fixed
 
