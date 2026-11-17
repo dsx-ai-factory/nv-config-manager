@@ -10,12 +10,22 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- A render consumer whose NATS fetches keep failing now exits, and Kubernetes
+  restarts the pod, once no round trip to NATS has completed for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
+  on a connection that was not coming back while the pod stayed `Running`.
+  Expect a container restart where a consumer used to stall. The render
+  consumers also export progress metrics for stalls the exit cannot catch,
+  such as a handler that never returns. See
+  [Render service](docs/render/render-service.mdx).
 - The Temporal archive service now exits, and Kubernetes restarts the pod, once
   its durable consumer has made no progress for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, a subscription that
   stopped receiving left the pod `Running` while archiving nothing. A pod that
   is still receiving and retrying messages during an archive backend outage is
-  not restarted. The archive pod also serves progress metrics on port 8000
+  not restarted. A durable deleted while the service runs is re-created from
+  when it was last seen, so events published in between are still archived.
+  The archive pod also serves progress metrics on port 8000
   (`ARCHIVE_METRICS_PORT` to change it), scraped by a new PodMonitor when
   `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set. See
   [Render service](docs/render/render-service.mdx).
@@ -44,6 +54,11 @@ version before the selected release candidate is promoted.
   `max_concurrent_workflow_tasks`), which the Helm chart renders from
   `temporal.configManagerWorker.maxCachedWorkflows` and
   `maxConcurrentWorkflowTasks`. Invalid values fail worker startup.
+- `nv_config_manager_nautobot_change_message_end_to_end_time` gains buckets at
+  900, 1200, 1800, 2700, 3600, and 7200 seconds. Its time includes queue wait,
+  which can pass ten minutes when one change fans out to many devices, and the
+  old 600-second top bucket left everything beyond that in `+Inf`. Existing
+  bucket boundaries are unchanged, so queries on them keep working.
 
 ### Fixed
 

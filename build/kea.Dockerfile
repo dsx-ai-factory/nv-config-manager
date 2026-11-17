@@ -40,10 +40,10 @@ RUN set -eux; \
     { getent group kea >/dev/null || groupadd -r kea; } && \
     { id -u kea >/dev/null 2>&1 || useradd -r -g kea kea; }
 
-# Install Stork agent (pinned to upstream 2.4.2 for patched Go dependencies)
+# Install Stork agent (upstream 2.6.0 includes patched Go dependencies)
 COPY build/setup.stork.deb.sh /tmp/setup.stork.deb.sh
 RUN bash /tmp/setup.stork.deb.sh && \
-    apt-get install -y --no-install-recommends isc-stork-agent=2.4.2* && \
+    apt-get install -y --no-install-recommends isc-stork-agent=2.6.0* && \
     rm /tmp/setup.stork.deb.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
