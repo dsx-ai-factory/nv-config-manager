@@ -80,7 +80,8 @@ NVDATAFLOW_SUCCESS_STATUSES = frozenset({201, 202})
 NVDATAFLOW_REJECTED_STATUSES = frozenset({400, 413})
 
 
-ARCHIVE_METRICS_PORT = 8000
+# Overridable so it cannot collide with a Temporal SDK metrics listener on the same pod.
+DEFAULT_ARCHIVE_METRICS_PORT = 8000
 ARCHIVE_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
 ARCHIVE_LAST_PROGRESS = Gauge(
     "nv_config_manager_archive_consumer_last_progress_timestamp_seconds",
@@ -434,7 +435,7 @@ def main() -> None:
         ),
     )
     _export_consumer_metrics(consumer, stream)
-    start_http_server(ARCHIVE_METRICS_PORT)
+    start_http_server(int(os.getenv("ARCHIVE_METRICS_PORT", str(DEFAULT_ARCHIVE_METRICS_PORT))))
     consumer.run()
 
 

@@ -171,3 +171,22 @@ def test_archive_main_exports_metrics_and_sets_the_liveness_budget(
         == 45.0
     )
     consumer.run.assert_called_once_with()
+
+
+def test_archive_metrics_port_can_be_moved(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A deployment that already uses port 8000 on the archive pod can pick another."""
+    custom_ini(BASE_NATS_CONFIG)
+    monkeypatch.setenv("ARCHIVE_METRICS_PORT", "8002")
+
+    with (
+        patch("nv_config_manager.temporal.archive.main.NatsConsumer"),
+        patch("nv_config_manager.temporal.archive.main.start_http_server") as serve,
+        patch("nv_config_manager.temporal.archive.main.configure_logging"),
+        patch("nv_config_manager.temporal.archive.main.setup_telemetry"),
+        patch("sys.argv", ["archive"]),
+    ):
+        main()
+
+    serve.assert_called_once_with(8002)

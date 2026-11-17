@@ -10,6 +10,15 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- The Temporal archive service now exits, and Kubernetes restarts the pod, once
+  its durable consumer has made no progress for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, a subscription that
+  stopped receiving left the pod `Running` while archiving nothing. A pod that
+  is still receiving and retrying messages during an archive backend outage is
+  not restarted. The archive pod also serves progress metrics on port 8000
+  (`ARCHIVE_METRICS_PORT` to change it), scraped by a new PodMonitor when
+  `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set. See
+  [Render service](docs/render/render-service.mdx).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
