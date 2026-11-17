@@ -85,6 +85,11 @@ version before the selected release candidate is promoted.
   the workflows package README documents the pattern for plugin workflows. The
   worker also passes through `annotated_types`, which Pydantic imports lazily
   after those blocks have closed.
+- `workflow-cli` now sends the default of a list option as a list when the
+  option is omitted. Before, it sent the default's text split on commas, for
+  example `["['Active'", "'Provisioned']"]` for `--status`, so commands such as
+  `site-cable-validation` failed at their first stage unless every list option
+  was passed explicitly.
 
 ## 1.4.2
 
