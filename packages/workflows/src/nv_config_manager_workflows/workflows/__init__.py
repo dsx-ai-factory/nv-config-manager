@@ -14,7 +14,7 @@
 # limitations under the License.
 """Canonical workflow definitions and payload contracts.
 
-Each name is imported from its defining module on first access, so importing one
+Each name is imported from its defining module when it is accessed, so importing one
 workflow module does not import the others. The Temporal sandbox re-imports a
 run's workflow modules for every run, so eager imports here would make every run
 pay for all of them.
@@ -168,6 +168,7 @@ if TYPE_CHECKING:
     )
 
 _EXPORT_MODULES: dict[str, str] = {
+    # keep-sorted start
     "BUILTIN_WORKFLOWS": "builtin",
     "BackupInput": "backup",
     "BackupResultData": "site_backup",
@@ -259,6 +260,7 @@ _EXPORT_MODULES: dict[str, str] = {
     "TriggerEnum": "backup",
     "ValidateHardwareInput": "cumulus_hardware_validation",
     "ValidateHardwareWorkflow": "cumulus_hardware_validation",
+    # keep-sorted end
 }
 
 __all__ = [
@@ -356,18 +358,20 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str) -> object:
-    """Import an exported name from its defining module on first access."""
-    module = _EXPORT_MODULES.get(name)
-    if module is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    # The import statement machinery, unlike importlib.import_module, goes through
-    # the Temporal sandbox's import hook, which decides passthrough per module.
-    value = getattr(__import__(f"{__name__}.{module}", fromlist=[name]), name)
-    globals()[name] = value
-    return value
+# Type checkers must not see the fallback below, or they would accept any name.
+if not TYPE_CHECKING:
 
+    def __getattr__(name: str) -> object:
+        """Import an exported name from its defining module on each access."""
+        module = _EXPORT_MODULES.get(name)
+        if module is None:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        # __import__ is what an import statement calls, so the Temporal sandbox's
+        # import hook decides passthrough for the module as it would for a statement.
+        # The result is not stored on this package: it depends on the importer that
+        # is active, and sys.modules already caches the module for that importer.
+        return getattr(__import__(f"{__name__}.{module}", fromlist=[name]), name)
 
-def __dir__() -> list[str]:
-    """List every exported name, including those not imported yet."""
-    return sorted(__all__)
+    def __dir__() -> list[str]:
+        """List the package's attributes and every exported name, imported or not."""
+        return sorted(set(globals()) | set(__all__))

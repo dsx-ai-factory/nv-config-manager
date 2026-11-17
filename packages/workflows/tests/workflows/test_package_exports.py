@@ -63,8 +63,29 @@ def test_export_resolves_to_its_defining_module(name: str) -> None:
 
 def test_unknown_attribute_raises_attribute_error() -> None:
     """Names outside the export map still raise AttributeError."""
-    with pytest.raises(AttributeError, match="NotAWorkflow"):
-        _ = workflow_exports.NotAWorkflow
+    missing = "NotAWorkflow"
+
+    with pytest.raises(AttributeError, match=missing):
+        getattr(workflow_exports, missing)
+
+
+def test_dir_lists_exports_and_existing_attributes() -> None:
+    """dir() shows the lazy exports alongside the attributes the package already has."""
+    listed = dir(workflow_exports)
+
+    assert set(workflow_exports.__all__) <= set(listed)
+    assert {"__name__", "_EXPORT_MODULES"} <= set(listed)
+    assert listed == sorted(listed)
+
+
+def _run_isolated(script: str) -> str:
+    """Run a script in a fresh interpreter and return its stdout, failing with its stderr."""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+
+    assert result.returncode == 0, result.stderr
+    return result.stdout
 
 
 def test_importing_one_workflow_module_does_not_import_the_others() -> None:
@@ -74,8 +95,39 @@ def test_importing_one_workflow_module_does_not_import_the_others() -> None:
         f"import {_PACKAGE}.hello_world\n"
         f"print('\\n'.join(m for m in sys.modules if m.startswith('{_PACKAGE}.')))\n"
     )
-    result = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=True
-    )
 
-    assert result.stdout.split() == [f"{_PACKAGE}.hello_world"]
+    assert _run_isolated(script).split() == [f"{_PACKAGE}.hello_world"]
+
+
+_SANDBOX_SCRIPT = f"""
+from temporalio.worker.workflow_sandbox import SandboxRestrictions
+from temporalio.worker.workflow_sandbox._importer import Importer
+from temporalio.worker.workflow_sandbox._restrictions import RestrictionContext
+
+import {_PACKAGE} as package
+import {_PACKAGE}.hello_world as host_module
+
+assert "HelloWorld" not in vars(package)
+restrictions = SandboxRestrictions.default{{passthrough}}
+with Importer(restrictions, RestrictionContext()).applied():
+    in_sandbox = package.HelloWorld
+after_sandbox = package.HelloWorld
+host = host_module.HelloWorld
+print(in_sandbox is host, after_sandbox is host)
+"""
+
+
+def test_export_resolved_in_sandbox_is_not_kept_after_the_sandbox_exits() -> None:
+    """A lookup made while the sandbox importer is active does not leak its class."""
+    stdout = _run_isolated(_SANDBOX_SCRIPT.format(passthrough=""))
+
+    assert stdout.split() == ["False", "True"]
+
+
+def test_export_resolves_through_the_sandbox_importer() -> None:
+    """The sandbox importer decides passthrough for a lazily resolved export."""
+    passthrough = f'.with_passthrough_modules("{_PACKAGE}.hello_world")'
+
+    stdout = _run_isolated(_SANDBOX_SCRIPT.format(passthrough=passthrough))
+
+    assert stdout.split() == ["True", "True"]

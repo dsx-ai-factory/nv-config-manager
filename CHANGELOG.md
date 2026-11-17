@@ -41,7 +41,7 @@ version before the selected release candidate is promoted.
   old 600-second top bucket left everything beyond that in `+Inf`. Existing
   bucket boundaries are unchanged, so queries on them keep working.
 - `nv_config_manager_workflows.workflows` now imports each exported name from
-  its defining module on first access. Importing one workflow module no longer
+  its defining module when the name is accessed. Importing one workflow module no longer
   imports all of them, so each workflow run's sandbox re-imports only the
   modules that run uses instead of all 29 workflow modules. The package's
   public names are unchanged.
