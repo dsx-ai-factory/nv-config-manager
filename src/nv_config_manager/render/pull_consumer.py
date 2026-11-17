@@ -419,12 +419,21 @@ class PullConsumer:
                         "Consumer %s cycle failed, recreating: %s", self.queue, str(e)
                     )
                     CONSUMER_NATS_FAILURES.labels(*self._metric_labels, NATS_FAILURE_CYCLE).inc()
+                    stream_missing = (
+                        isinstance(e, NotFoundError) and e.err_code == STREAM_NOT_FOUND_ERR_CODE
+                    )
+                    if stream_missing and self.local_nats:
+                        # The server answered, so the connection works. Recover in
+                        # this process: a restart would forget which stream it last
+                        # consumed, and its new durable would skip events already
+                        # stored in the re-created stream.
+                        self._record_round_trip()
                     live, detail = self.liveness()
                     if not live:
                         raise RuntimeError(
                             f"Consumer {self.queue} is exiting to be restarted: {detail}"
                         ) from e
-                    if isinstance(e, NotFoundError) and e.err_code == STREAM_NOT_FOUND_ERR_CODE:
+                    if stream_missing:
                         await self._recreate_missing_stream()
                     await asyncio.sleep(self.error_backoff)
         finally:

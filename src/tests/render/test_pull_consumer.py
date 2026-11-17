@@ -1397,6 +1397,44 @@ FIRST_STREAM = datetime(2026, 10, 5, 20, 0, tzinfo=UTC)
 RECREATED_STREAM = datetime(2026, 10, 5, 20, 50, tzinfo=UTC)
 
 
+@pytest.mark.asyncio
+async def test_lost_bundled_stream_is_recovered_in_process_past_the_liveness_budget(
+    custom_ini, mock_jetstream
+):
+    """Exiting would forget the old stream, and the restarted durable would skip stored events."""
+    custom_ini(LOCAL_NATS_CONFIG)
+    consumer = PullNautobotConsumer()
+    consumer.jetstream = mock_jetstream
+    consumer._consumed_stream_created = FIRST_STREAM
+    consumer._last_round_trip -= consumer.liveness_timeout + 1
+    stream_missing = NotFoundError(code=404, err_code=10059, description="stream not found")
+
+    with patch(
+        "nv_config_manager.render.pull_consumer.ensure_local_streams",
+        new=AsyncMock(return_value=["nautobot"]),
+    ) as ensure:
+        await _run_one_failed_cycle(consumer, stream_missing)
+
+    ensure.assert_awaited_once()
+    assert consumer._consumed_stream_created == FIRST_STREAM
+    assert consumer.liveness()[0]
+
+
+@pytest.mark.asyncio
+async def test_missing_external_stream_still_exits_past_the_liveness_budget(
+    custom_ini, mock_jetstream
+):
+    """Only bundled NATS re-creates streams; elsewhere a missing stream is not recoverable here."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = PullNautobotConsumer()
+    consumer.jetstream = mock_jetstream
+    consumer._last_round_trip -= consumer.liveness_timeout + 1
+    stream_missing = NotFoundError(code=404, err_code=10059, description="stream not found")
+
+    with pytest.raises(RuntimeError, match="is exiting to be restarted"):
+        await _run_one_failed_cycle(consumer, stream_missing)
+
+
 def _local_consumer(mock_jetstream: MagicMock, stream_created: datetime) -> PullConsumer:
     """Return a bundled-NATS consumer whose stream reports the given creation time."""
     consumer = PullNautobotConsumer()
