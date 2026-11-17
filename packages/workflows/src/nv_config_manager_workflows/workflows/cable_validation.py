@@ -845,7 +845,7 @@ class DeviceCableValidationWorkflow(
         arp_table = await workflow.execute_activity(
             get_device_arp_table,
             stage_input.device,
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         mac_entries = list(result.by_mac.values())

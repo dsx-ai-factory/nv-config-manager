@@ -10,6 +10,9 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- Cable validation now allows five minutes per ARP collection attempt, up from
+  two, to accommodate switches with large interface inventories and slow NVUE
+  responses.
 - A render consumer whose NATS fetches keep failing now exits, and Kubernetes
   restarts the pod, once no round trip to NATS has completed for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
