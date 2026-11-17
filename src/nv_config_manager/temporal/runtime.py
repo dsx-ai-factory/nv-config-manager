@@ -60,6 +60,7 @@ from nv_config_manager.temporal.client.ufm import UFMClient
 from nv_config_manager.temporal.common.rbac_config import RBACConfig
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.telemetry import get_runtime
+from nv_config_manager.temporal.timeouts import DefaultWorkflowTimeoutInterceptor
 from nv_config_manager.ztp.storage import (
     ObjectStorageClient,
     ObjectStorageNotFoundException,
@@ -241,7 +242,10 @@ async def _scheduler_temporal_client() -> Client:
         temporal_address(),
         **client_connect_options(),
         data_converter=get_data_converter(),
-        interceptors=[TracingInterceptor(always_create_workflow_spans=True)],
+        interceptors=[
+            TracingInterceptor(always_create_workflow_spans=True),
+            DefaultWorkflowTimeoutInterceptor(),
+        ],
         runtime=get_runtime(),
     )
 

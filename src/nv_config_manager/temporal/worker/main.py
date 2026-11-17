@@ -30,6 +30,7 @@ from nv_config_manager.temporal.client.connection import client_connect_options,
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager.temporal.telemetry import setup_telemetry
+from nv_config_manager.temporal.timeouts import DefaultWorkflowTimeoutInterceptor
 from nv_config_manager.temporal.workflow_registry import (
     build_workflow_registry,
     log_workflow_registry,
@@ -115,7 +116,10 @@ async def main() -> None:
         temporal_address(),
         **client_connect_options(),
         data_converter=get_data_converter(),
-        interceptors=[TracingInterceptor(always_create_workflow_spans=True)],
+        interceptors=[
+            TracingInterceptor(always_create_workflow_spans=True),
+            DefaultWorkflowTimeoutInterceptor(),
+        ],
         runtime=runtime,
     )
 

@@ -8,6 +8,18 @@ Every Config Manager workflow runs as a sequence of stages. While a workflow is 
 
 For per-workflow specifics, follow the link in each workflow's guide; this page is the cross-cutting reference for the lifecycle itself.
 
+## Timeouts
+
+New workflows started through Config Manager have a default run timeout of three
+hours. This includes time spent waiting for stage approval, manual retries, and
+workflow locks. A run that reaches its timeout ends with Temporal status
+`TIMED_OUT`; start a new workflow to try again.
+
+Explicit Temporal `run_timeout` or `execution_timeout` values take precedence,
+whether shorter or longer than three hours. The default also applies to newly
+created schedules and child workflows that have no explicit timeout. Existing
+runs and schedules keep their current timeouts.
+
 ## At a glance
 
 | Control | Scope | When it's available | What it does |

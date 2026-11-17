@@ -80,6 +80,7 @@ from nv_config_manager.temporal.common.search_attributes import (
 )
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.telemetry import get_runtime
+from nv_config_manager.temporal.timeouts import DefaultWorkflowTimeoutInterceptor
 from nv_config_manager_workflows.registration.form_catalog import WORKFLOW_FORM_ID_PATTERN
 from nv_config_manager_workflows.secret_redaction import redact_diff_fields
 from nv_config_manager_workflows.tech_support import tech_support_key
@@ -610,7 +611,10 @@ async def get_client() -> Client:
         temporal_address(),
         **client_connect_options(),
         data_converter=get_data_converter(),
-        interceptors=[TracingInterceptor(always_create_workflow_spans=True)],
+        interceptors=[
+            TracingInterceptor(always_create_workflow_spans=True),
+            DefaultWorkflowTimeoutInterceptor(),
+        ],
         runtime=get_runtime(),
     )
 
