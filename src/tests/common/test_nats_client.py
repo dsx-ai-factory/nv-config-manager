@@ -17,6 +17,7 @@
 import asyncio
 import time
 from configparser import ConfigParser
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -1069,6 +1070,72 @@ async def test_consumer_monitor_exits_unless_connected_consumer_info_shows_progr
                 await consumer._monitor_liveness(jetstream)
 
     consumer_info.assert_awaited_once_with("nv-config-manager", "nv-config-manager-archive")
+
+
+@pytest.mark.asyncio
+async def test_consumer_monitor_recreates_a_deleted_durable_from_when_it_was_last_seen():
+    """Exiting would let startup re-create it at new messages and skip what was published since."""
+    consumer = _liveness_consumer()
+    seen_at = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
+    consumer._durable_seen_at = seen_at
+    type(consumer.conn).is_closed = PropertyMock(side_effect=[False, True])
+    gone = NotFoundError(code=404, err_code=10014, description="consumer not found")
+    jetstream = MagicMock(consumer_info=AsyncMock(side_effect=gone), add_consumer=AsyncMock())
+
+    with patch(
+        "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", new_callable=AsyncMock
+    ):
+        await consumer._monitor_liveness(jetstream)
+
+    config = jetstream.add_consumer.await_args.kwargs["config"]
+    assert jetstream.add_consumer.await_args.kwargs["stream"] == "nv-config-manager"
+    assert config.deliver_policy == DeliverPolicy.BY_START_TIME
+    assert config.opt_start_time == seen_at
+    assert config.durable_name == "nv-config-manager-archive"
+    assert config.deliver_subject == "nv-config-manager.archive.delivery"
+    assert consumer._durable_seen_at == seen_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        NotFoundError(code=404, err_code=10059, description="stream not found"),
+        TimeoutError("consumer info timed out"),
+    ],
+    ids=["stream-missing", "timeout"],
+)
+async def test_consumer_monitor_recreates_nothing_unless_the_durable_itself_is_missing(error):
+    """A missing stream or an unanswered poll is not evidence that the durable was deleted."""
+    consumer = _liveness_consumer()
+    type(consumer.conn).is_closed = PropertyMock(side_effect=[False, True])
+    jetstream = MagicMock(consumer_info=AsyncMock(side_effect=error), add_consumer=AsyncMock())
+
+    with patch(
+        "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", new_callable=AsyncMock
+    ):
+        await consumer._monitor_liveness(jetstream)
+
+    jetstream.add_consumer.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_consumer_monitor_survives_a_durable_it_cannot_recreate():
+    """Another replica may win the race, or creation may be left to an administrator."""
+    consumer = _liveness_consumer()
+    type(consumer.conn).is_closed = PropertyMock(side_effect=[False, True])
+    gone = NotFoundError(code=404, err_code=10014, description="consumer not found")
+    jetstream = MagicMock(
+        consumer_info=AsyncMock(side_effect=gone),
+        add_consumer=AsyncMock(side_effect=BadRequestError(description="already in use")),
+    )
+
+    with patch(
+        "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", new_callable=AsyncMock
+    ):
+        await consumer._monitor_liveness(jetstream)
+
+    jetstream.add_consumer.assert_awaited_once()
 
 
 @pytest.mark.asyncio

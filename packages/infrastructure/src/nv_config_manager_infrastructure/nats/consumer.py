@@ -21,6 +21,8 @@ import signal
 import ssl
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from nats.aio.client import Client
@@ -45,6 +47,9 @@ logger = get_logger(__name__, category=LogCategory.NATS)
 HANDLER_DRAIN_SECONDS = 20
 
 LIVENESS_CHECK_INTERVAL_SECONDS = 15.0
+
+# JetStream error code for "consumer not found".
+CONSUMER_NOT_FOUND_ERR_CODE = 10014
 
 
 class NatsConsumer(NatsClient):
@@ -105,6 +110,8 @@ class NatsConsumer(NatsClient):
         self.last_progress_time = time.time()
         self._handler_starts: dict[asyncio.Task[None], float] = {}
         self._last_sequences: tuple[int, int] | None = None
+        # When the durable was last known to exist, to resume from if it is deleted.
+        self._durable_seen_at = datetime.now(UTC)
         self._stop = asyncio.Event()
         self._subscription: Any = None
         self._handler_tasks: set[asyncio.Task[None]] = set()
@@ -170,6 +177,7 @@ class NatsConsumer(NatsClient):
             monitor = None
             if self.liveness_timeout is not None:
                 self._record_progress()
+                self._durable_seen_at = datetime.now(UTC)
                 monitor = asyncio.create_task(self._monitor_liveness(jetstream))
             try:
                 while not self.conn.is_closed and not self._stop.is_set():
@@ -300,8 +308,19 @@ class NatsConsumer(NatsClient):
         A blocked event loop cannot run this check; the progress metrics cover that.
         """
         while self.conn is not None and not self.conn.is_closed:
+            polled_at = datetime.now(UTC)
             try:
                 consumer_info = await jetstream.consumer_info(self.stream, self.full_queue_name)
+            except NotFoundError as e:
+                if e.err_code == CONSUMER_NOT_FOUND_ERR_CODE:
+                    await self._recreate_durable(jetstream)
+                else:
+                    logger.warning(
+                        "Consumer info for %s on stream %s failed: %s",
+                        self.full_queue_name,
+                        self.stream,
+                        e,
+                    )
             except Exception as e:
                 logger.warning(
                     "Consumer info for %s on stream %s failed: %s",
@@ -310,6 +329,7 @@ class NatsConsumer(NatsClient):
                     e,
                 )
             else:
+                self._durable_seen_at = polled_at
                 if self.conn.is_connected:
                     self._record_consumer_info(consumer_info)
             live, detail = self.liveness()
@@ -318,6 +338,39 @@ class NatsConsumer(NatsClient):
                     f"Consumer {self.full_queue_name} is exiting to be restarted: {detail}"
                 )
             await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SECONDS)
+
+    async def _recreate_durable(self, jetstream: JetStreamContext) -> None:
+        """Re-create a durable deleted under this process, from when it was last seen.
+
+        Exiting instead would let startup create it at new messages only, and the
+        events published since the deletion would never be archived. The existing
+        subscription is on the delivery subject, so it receives from the new
+        durable. Events from the last poll interval before the deletion can be
+        delivered again.
+        """
+        config = replace(
+            self._expected_consumer_config(),
+            deliver_policy=DeliverPolicy.BY_START_TIME,
+            opt_start_time=self._durable_seen_at,
+        )
+        try:
+            await jetstream.add_consumer(stream=self.stream, config=config)
+        except Exception as e:
+            # Another replica may have re-created it first, or creation is left
+            # to an administrator. The next poll shows which.
+            logger.warning(
+                "Consumer %s on stream %s is missing and could not be re-created: %s",
+                self.full_queue_name,
+                self.stream,
+                e,
+            )
+            return
+        logger.warning(
+            "Consumer %s on stream %s was missing and has been re-created, starting from %s",
+            self.full_queue_name,
+            self.stream,
+            self._durable_seen_at.isoformat(),
+        )
 
     def _expected_consumer_config(self) -> ConsumerConfig:
         """Build the exact push-consumer configuration owned by this runtime."""
