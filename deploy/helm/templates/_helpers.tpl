@@ -1055,6 +1055,24 @@ Each secret must have an explicit path configured in values.
 {{- end -}}
 
 {{/*
+Keep optional Vault read-only token failures separate from the DCIM token.
+Kubernetes-only installs retain the installer's existing combined secret.
+*/}}
+{{- define "nv-config-manager.nautobotReadOnlyTokenSecretName" -}}
+{{- $tokenSecretName := .Values.dcim.tokenSecret.name | default "nautobot-token" -}}
+{{- if eq .Values.secrets.method "kubernetes" -}}
+{{- $tokenSecretName -}}
+{{- else -}}
+{{- $readerName := printf "%s-read-only" ($tokenSecretName | trunc 53 | trimSuffix "-") -}}
+{{- if eq $readerName $tokenSecretName -}}
+{{- printf "%s-ro-%s" ($tokenSecretName | trunc 51 | trimSuffix "-") ($tokenSecretName | sha256sum | trunc 8) -}}
+{{- else -}}
+{{- $readerName -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Get a key name from secrets.vault.paths configuration
 Usage: {{ include "nv-config-manager.vault.keyName" (dict "root" . "secret" "nautobot" "key" "token") }}
 */}}

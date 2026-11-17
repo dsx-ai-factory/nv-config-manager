@@ -85,14 +85,14 @@ class DeviceMacEntry(BaseModel):
 
 
 class DeviceArpTable(BaseModel):
-    """Device ARP Table."""
+    """IP-to-MAC neighbor mappings, including IPv4 ARP and IPv6 ND."""
 
     ip_to_mac: dict[str, list[str]] = {}
     mac_to_ip: dict[str, list[str]] = {}
     interface_to_mac: dict[str, list[str]] = {}
 
     def add_entry(self, ip: str, mac: str, interface: str) -> None:
-        """Record one ARP entry after normalizing IP and MAC."""
+        """Record one IPv4 or IPv6 neighbor after normalizing IP and MAC."""
         ip_std = str(ipaddress.ip_address(ip))
         mac_std = str(netaddr.EUI(mac))
         _append_unique(self.ip_to_mac, ip_std, mac_std)
@@ -122,15 +122,18 @@ class DeviceArpTable(BaseModel):
 
     @staticmethod
     def from_nvue(data: dict[str, dict[str, Any]]) -> DeviceArpTable:
-        """ARP table from NVUE API."""
+        """Parse both IP families from family-wrapped NVUE neighbor responses."""
         result = DeviceArpTable()
         for interface, item in data.items():
             result.interface_to_mac.setdefault(interface, [])
-            for ipaddr, ip_data in item.get("ipv4", {}).items():
-                if ip_data.get("lladdr"):
-                    result.add_entry(ipaddr, ip_data["lladdr"], interface)
-                else:
-                    logger.warning("ARP entry missing data, skipping: %s %s", ipaddr, ip_data)
+            for family in ("ipv4", "ipv6"):
+                for ipaddr, ip_data in (item.get(family) or {}).items():
+                    if ip_data.get("lladdr"):
+                        result.add_entry(ipaddr, ip_data["lladdr"], interface)
+                    else:
+                        logger.warning(
+                            "Neighbor entry missing data, skipping: %s %s", ipaddr, ip_data
+                        )
 
         return result
 

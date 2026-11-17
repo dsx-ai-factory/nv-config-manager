@@ -18,25 +18,13 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import ClassVar
 
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import device_field
-from nv_config_manager_workflows.workflow_references import DeviceReference
-from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.dcim import (
         CheckRecordedConfigDriftInput,
         GetNetworkDeviceInput,
@@ -61,8 +49,20 @@ with workflow.unsafe.imports_passed_through():
         update_intended_os_image,
         validate_rendered_image_change,
     )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins.archive import ArchiveMixin
     from nv_config_manager_workflows.mixins.device import DeviceMixin
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import device_field
+    from nv_config_manager_workflows.workflow_references import DeviceReference
+    from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
     from nv_config_manager_workflows.workflows.backup import (
         BackupInput,
         BackupWorkflow,

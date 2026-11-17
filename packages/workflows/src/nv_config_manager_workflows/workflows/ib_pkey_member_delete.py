@@ -18,21 +18,11 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, ClassVar
 
-from pydantic import BaseModel, Field, field_validator, model_validator
 from temporalio import workflow
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowLockSpec, WorkflowMetadataMixin
-from nv_config_manager_workflows.mixins import UFMHostLockMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import FormSchema, variant_rows
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel, Field, field_validator, model_validator
+
     from nv_config_manager_workflows.activities.ib_pkey import (
         CleanupEmptyPartitionInput,
         CleanupEmptyPartitionOutput,
@@ -53,7 +43,16 @@ with workflow.unsafe.imports_passed_through():
         verify_pkey_members_absent,
     )
     from nv_config_manager_workflows.activities.lock import LOCK_ACTIVITIES
-    from nv_config_manager_workflows.mixins import ArchiveMixin
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowLockSpec, WorkflowMetadataMixin
+    from nv_config_manager_workflows.mixins import ArchiveMixin, UFMHostLockMixin
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import FormSchema, variant_rows
     from nv_config_manager_workflows.workflows._ib_pkey_helpers import (
         DEFAULT_ACTIVITY_RETRY_POLICY,
         call_resolve_ib_context,

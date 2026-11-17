@@ -177,6 +177,72 @@ configured Vault path; the installer will not invent integration credentials.
 Use `--skip-vault-population` when those paths are managed separately; this also
 avoids requiring a provisioning token for the deployment command.
 
+### `nvcm-installer test`
+
+Run integration tests against an existing deployment without redeploying:
+
+```bash
+nvcm-installer test install.yaml
+nvcm-installer test install.yaml --kubeconfig /path/to/kubeconfig
+# SSO: use the existing oidc-client-secret and sso.client_id by default.
+nvcm-installer test install.yaml --oidc-client-secret-name nvcm-integration-tests
+# Or supply a pre-issued access token in a protected file.
+nvcm-installer test install.yaml --oidc-token-file /run/secrets/nvcm-test-token
+```
+
+Alternatively, run without an installer config:
+
+```bash
+nvcm-installer test --namespace nv-config-manager --release-name nv-config-manager
+# For Keycloak, add the existing client's non-secret connection settings.
+nvcm-installer test \
+  --namespace nv-config-manager --release-name nv-config-manager \
+  --kubeconfig /path/to/kubeconfig \
+  --sso --oidc-client-id config-manager \
+  --oidc-issuer-url https://keycloak.example.com/realms/config-manager
+```
+
+Without a config, both target flags are required. With a config, flags override
+its corresponding settings without rewriting it. A nonempty `client_id` in the
+selected OIDC Secret takes precedence over `--oidc-client-id` or the config's
+client ID. `--oidc-issuer-url` selects
+the realm URL reachable from the test pod, overriding any configured internal
+issuer. `--sso`/`--no-sso` override the config's authentication mode; without a
+config, SSO is disabled unless `--sso` is supplied. Existing credential-Secret
+and token-file options work with either form.
+
+The namespace and release name come from flags or the config file. The command uses
+the current Kubernetes context (or `--kubeconfig`) and runs the pytest suite
+shipped inside the deployed ZTP `sftp` container, streaming its output. No
+repository checkout, Helm chart, Makefile, host-side pytest, or internet access
+is required. The caller needs permission to list pods, read `nautobot-admin`,
+and exec into the ZTP pod. Exit status is zero only when pytest succeeds;
+setup, collection, execution, and test failures return nonzero.
+
+With SSO enabled and no token file, the runner reads the selected OIDC Secret,
+`oidc-client-secret` by default. It uses the Secret's nonempty `client_id`, if
+present; otherwise, it uses `--oidc-client-id` or `sso.client_id`. The secret
+value comes from `client-secret` or `client_secret`. Keycloak must enable
+service accounts for the client and issue
+the audience and roles required by the tested APIs and workflows; browser/PKCE
+configuration alone is insufficient. `sso.internal_issuer`, when set, supplies
+the internal realm URL for token requests. Tokens renew automatically during
+the run. The override Secret supports `client_id` and `client_secret` or
+`client-secret`. A supplied access-token file must remain valid for the whole
+run. Both modes avoid browser login and token-cache writes. Client-credentials
+authentication also requires permission to read the selected OIDC Secret;
+token-file authentication does not. The deployed image must
+include the headless OIDC integration-test helper; token requests verify HTTPS
+certificates using the image's CA trust.
+
+This runner supports the bundled Nautobot provider and the chart's default
+resource naming. Load site topology and templates first, and
+ensure the services under test and the ZTP container are ready. Optional and
+CI-only tests may be skipped. See the
+[airgapped post-deployment test procedure](../docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
+for prerequisites and limitations. Older installer packages without the `test`
+subcommand must be updated to use this workflow.
+
 ### `nvcm-installer pvc-updater`
 
 Use this command from automation after the NVCM GitOps application is healthy.
