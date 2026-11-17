@@ -20,6 +20,7 @@ from __future__ import annotations
 import functools
 import traceback
 from collections.abc import Callable
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from temporalio import workflow
@@ -38,6 +39,9 @@ if TYPE_CHECKING:
     from nv_config_manager_workflows.stage.mixin import StageMixin
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+FAILED_STAGE_RETRY_TIMEOUT = timedelta(hours=3)
+FAILED_STAGE_RETRY_TIMEOUT_PATCH = "failed-stage-retry-timeout-v1"
 
 
 def stage_executor(stage_name: str, *, name_attribute: str | None = None) -> Callable[[F], F]:
@@ -108,10 +112,26 @@ def stage_executor(stage_name: str, *, name_attribute: str | None = None) -> Cal
                             f"Unexpected exception during stage runtime: {exc}",
                             non_retryable=True,
                         ) from exc
-                    # Wait for retry signal that transitions back to in-progress
-                    await workflow.wait_condition(
-                        lambda: current_stage.state == StateEnum.IN_PROGRESS
-                    )
+                    # The retry window starts after the stage body has raised,
+                    # once Temporal has exhausted any automatic activity/child
+                    # retries. Version the new timer for existing histories.
+                    if workflow.patched(FAILED_STAGE_RETRY_TIMEOUT_PATCH):
+                        try:
+                            await workflow.wait_condition(
+                                lambda: current_stage.state == StateEnum.IN_PROGRESS,
+                                timeout=FAILED_STAGE_RETRY_TIMEOUT,
+                            )
+                        except TimeoutError:
+                            raise StageRuntimeFailure(
+                                f"Stage {effective_stage_name} failed and was not retried "
+                                "within 3 hours; closing the workflow as failed.",
+                                type="StageRetryTimeout",
+                                non_retryable=True,
+                            ) from exc
+                    else:
+                        await workflow.wait_condition(
+                            lambda: current_stage.state == StateEnum.IN_PROGRESS
+                        )
                     current_stage.retry_count += 1
 
         return cast(F, wrap_stage)
