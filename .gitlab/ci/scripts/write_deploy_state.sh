@@ -11,7 +11,7 @@
 #          below): promote.env from test-promote-build (PR_NUM, PR_SHA),
 #          chart.env from test-promote-chart (PROMOTE_VERSION,
 #          BASELINE_REVISION, ENV_BRANCH_REVISION), and digests.env from
-#          test-promote-push-images (DIGEST_<IMAGE> x9)
+#          test-promote-push-images (DIGEST_<IMAGE> x10)
 # Requires (eval of test_env_config.sh): NVCM_ENV, NVCM_ENV_BRANCH,
 #          NVCM_ENV_NAMESPACE, NVCM_ENV_RELEASE_NAME, NVCM_ENV_STATE_DIR,
 #          NVCM_ENV_ARGOCD_APPLICATION, NVCM_ENV_BASELINE_VALUES,
@@ -70,6 +70,7 @@ DIGEST_NV_CONFIG_MANAGER_NATS_READY="$(attest DIGEST_NV_CONFIG_MANAGER_NATS_READ
 DIGEST_NV_CONFIG_MANAGER_TEMPORAL="$(attest DIGEST_NV_CONFIG_MANAGER_TEMPORAL "$digest_attest")"
 DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP="$(attest DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP "$digest_attest")"
 DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI="$(attest DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI "$digest_attest")"
+DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY="$(attest DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY "$digest_attest")"
 
 if [[ -n "${NV_CONFIG_MANAGER_VALUES_REPO_URL:-}" ]]; then
     # A full URL override is used as-is (provide any auth it needs in the URL).
@@ -156,7 +157,8 @@ export NVCM_ENV NVCM_ENV_NAMESPACE NVCM_ENV_BRANCH NVCM_ENV_RELEASE_NAME \
     DIGEST_NV_CONFIG_MANAGER_KEA DIGEST_NV_CONFIG_MANAGER_KEA_ADMIN \
     DIGEST_NV_CONFIG_MANAGER_NAUTOBOT DIGEST_NV_CONFIG_MANAGER_NATS_READY \
     DIGEST_NV_CONFIG_MANAGER_TEMPORAL DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP \
-    DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI
+    DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI \
+    DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY
 updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export updated_at
 
@@ -179,6 +181,7 @@ yq -n '
   .images.temporalServer = strenv(DIGEST_NV_CONFIG_MANAGER_TEMPORAL) |
   .images.temporalBootstrap = strenv(DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP) |
   .images.temporalUi = strenv(DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI) |
+  .images.oidcProxy = strenv(DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY) |
   .sourceSHA = strenv(PR_SHA) |
   .pr = (strenv(PR_NUM) | tonumber) |
   .occupant = strenv(occupant) |

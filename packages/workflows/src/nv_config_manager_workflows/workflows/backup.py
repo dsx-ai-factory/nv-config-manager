@@ -20,26 +20,13 @@ from datetime import timedelta
 from enum import StrEnum
 from typing import Annotated, ClassVar
 
-from pydantic import Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.secret_redaction import redact_junos_secrets
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StageWorkflowInput,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import FormExcluded, FormSchema, ServerOwned, device_field
-from nv_config_manager_workflows.workflow_references import DeviceReference
-from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import Field
+
     from nv_config_manager_workflows.activities.backup import (
         PersistConfigBackupInput,
         RecordBackupConfigManagerPluginInput,
@@ -53,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from nv_config_manager_workflows.activities.deploy import (
         DiffActivityInput,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
@@ -61,9 +49,21 @@ with workflow.unsafe.imports_passed_through():
         SlackMessageInput,
         send_slack_message,
     )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins.archive import ArchiveMixin
     from nv_config_manager_workflows.mixins.device import DeviceMixin
-
+    from nv_config_manager_workflows.secret_redaction import redact_device_secrets
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StageWorkflowInput,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import FormExcluded, FormSchema, ServerOwned, device_field
+    from nv_config_manager_workflows.workflow_references import DeviceReference
+    from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID = "backup-unattended-terminate-on-failure-v1"
@@ -270,10 +270,10 @@ class BackupWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
         diff = await workflow.execute_activity(
             perform_candidate_diff,
             DiffActivityInput(device_data=result.device, configuration=content),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(result.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
-        diff = redact_junos_secrets(diff)
+        diff = redact_device_secrets(diff)
 
         has_drift = bool(diff.strip())
         if not has_drift:

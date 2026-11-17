@@ -18,38 +18,40 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, ClassVar
 
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.ui import FormExcluded, device_field
-from nv_config_manager_workflows.workflow_references import (
-    DEVICE_REFERENCE,
-    DeviceReference,
-)
-from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
         get_network_device,
     )
     from nv_config_manager_workflows.activities.deploy import (
         DiffActivityInput,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
     from nv_config_manager_workflows.activities.device import NetworkDeviceData
     from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins.archive import ArchiveMixin
     from nv_config_manager_workflows.mixins.device import DeviceMixin
+    from nv_config_manager_workflows.secret_redaction import redact_device_secrets
     from nv_config_manager_workflows.stage import (
         StageInput,
         StageMixin,
         StageOutput,
         stage_executor,
     )
+    from nv_config_manager_workflows.ui import FormExcluded, device_field
+    from nv_config_manager_workflows.workflow_references import (
+        DEVICE_REFERENCE,
+        DeviceReference,
+    )
+    from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
 
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 CONFIG_DIFF_DEVICE_DESCRIPTION = "Preloaded network device data, if available."
@@ -207,7 +209,7 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
             DiffActivityInput(
                 device_data=stage_input.device, configuration=stage_input.intended_config
             ),
-            start_to_close_timeout=timedelta(minutes=1),
+            start_to_close_timeout=diff_activity_timeout(stage_input.device),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         if not diff.strip():
@@ -220,6 +222,8 @@ class ConfigDiffWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archive
                 ),
             )
 
+        # the diff is returned as the stage output and the workflow result, so both are redacted
+        diff = redact_device_secrets(diff)
         markdown = f"Configuration Diff\n```\n{diff}\n```"
         return ConfigDiffWorkflow.PerformDiffStageOutput(diff=diff, has_diff=True, display=markdown)
 

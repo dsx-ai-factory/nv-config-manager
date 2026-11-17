@@ -45,6 +45,7 @@ class Platform(str, Enum):
     NV_MINUS_OS = 'nv-os'
     MLNX_MINUS_OS = 'mlnx-os'
     JUNIPER_MINUS_JUNOS = 'juniper-junos'
+    CISCO_MINUS_IOS_MINUS_XR = 'cisco-ios-xr'
     UFM = 'ufm'
 
     @classmethod

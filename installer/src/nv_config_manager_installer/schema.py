@@ -945,6 +945,7 @@ NV_CONFIG_MANAGER_IMAGE_KEYS: list[tuple[str, str]] = [
     ("temporalServer", "nv-config-manager-temporal"),
     ("temporalBootstrap", "nv-config-manager-temporal-bootstrap"),
     ("temporalUi", "nv-config-manager-temporal-ui"),
+    ("oidcProxy", "nv-config-manager-oidc-proxy"),
 ]
 
 # Image override keys accepted by the installer. The second field is the
@@ -972,7 +973,7 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("temporalUi", "temporalio/ui"),
     ("nautobotNginx", "docker.io/nginxinc/nginx-unprivileged"),
     ("spiffeHelper", "ghcr.io/spiffe/spiffe-helper"),
-    ("oidcProxy", "quay.io/oauth2-proxy/oauth2-proxy"),
+    ("oidcProxy", "nvcr.io/nvidian/cfa/nv-config-manager-oidc-proxy"),
     ("templatePluginInstaller", "docker.io/library/python"),
     ("dcimProviderInstaller", "docker.io/library/python"),
     ("envoyGateway", "docker.io/envoyproxy/gateway"),

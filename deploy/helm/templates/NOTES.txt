@@ -11,6 +11,7 @@
 {{- if kindIs "map" $persistence -}}
 {{- $installedShards = get $persistence "numHistoryShards" -}}
 {{- end -}}
+
 {{- $requestedShards := include "nv-config-manager.temporalShardCount" . -}}
 {{- if and (ne (toString $installedShards) "") (ne (toString $installedShards) $requestedShards) }}
 WARNING: Temporal history shard count change detected
@@ -25,3 +26,32 @@ approved Temporal shard migration procedure before changing this value.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+
+{{- $gateway := .Values.gateway | default dict -}}
+{{- $oidc := .Values.oidc | default dict -}}
+{{- if and $gateway.enabled $oidc.enabled -}}
+{{- $images := .Values.global.images | default dict -}}
+{{- $globalProxy := $images.oidcProxy | default dict -}}
+{{- $upstreamProxy := eq ($globalProxy.repository | default "") "quay.io/oauth2-proxy/oauth2-proxy" -}}
+{{- if or (include "nv-config-manager.oidcProxyCustomImage" .) $upstreamProxy $globalProxy.installerImageOverride }}
+
+{{- if $globalProxy.installerImageOverride }}
+WARNING: Verify CA stores in the selected installer OIDC proxy image.
+
+The installer uses a custom images.overrides.oidcProxy repository. Verify
+that the image provides refreshed CA stores; an unrefreshed image bypasses
+the emSign CA mitigation. Repository-only overrides retain the upstream
+compatibility image/tag. To use the CA-refreshed wrapper, set its repository
+and release tag explicitly in the installer override. Clear the legacy
+oidc.proxy.image.repository and oidc.proxy.image.tag settings, then
+regenerate Helm values so global.images.oidcProxy selects the wrapper.
+{{- else }}
+WARNING: Selected OIDC proxy image bypasses the project CA wrapper.
+
+The selected image must provide refreshed CA stores; keeping an unrefreshed
+image opts out of the emSign mitigation. To use the project wrapper, clear
+the legacy repository/tag and configure global.images.oidcProxy with the
+mirrored wrapper's release tag or digest.
+{{- end }}
+{{- end }}
+{{- end }}

@@ -167,19 +167,14 @@ _GLOBAL_IMAGE_DEFAULTS: dict[str, tuple[str, str]] = {
     "kubectl": ("docker.io/alpine/kubectl", "1.35.4"),
     "busybox": ("docker.io/library/busybox", "1.36"),
     "redis": ("docker.io/library/redis", "7-alpine"),
-    "redisExporter": ("docker.io/oliver006/redis_exporter", "v1.90.0"),
-    "nats": ("docker.io/library/nats", "2.14-alpine"),
-    "natsBox": ("docker.io/natsio/nats-box", "0.14.3"),
-    "natsExporter": ("docker.io/natsio/prometheus-nats-exporter", "0.20.1"),
+    "redisExporter": ("docker.io/oliver006/redis_exporter", "v1.95.0"),
+    "nats": ("docker.io/library/nats", "2.14.9-alpine"),
+    "natsBox": ("docker.io/natsio/nats-box", "0.20.2"),
+    "natsExporter": ("docker.io/natsio/prometheus-nats-exporter", "0.20.3"),
 }
 
 _NESTED_IMAGE_DEFAULTS: dict[str, tuple[tuple[str, ...], str, str]] = {
-    "spiffeHelper": (("spiffe", "helper", "image"), "ghcr.io/spiffe/spiffe-helper", "0.8.0"),
-    "oidcProxy": (
-        ("oidc", "proxy", "image"),
-        "quay.io/oauth2-proxy/oauth2-proxy",
-        "v7.15.5",
-    ),
+    "spiffeHelper": (("spiffe", "helper", "image"), "ghcr.io/spiffe/spiffe-helper", "0.12.3"),
     "prometheusServer": (
         ("prometheus", "server", "image"),
         "quay.io/prometheus/prometheus",
@@ -427,18 +422,32 @@ def _build_registry_images(img: Any, *, airgapped: bool = False) -> dict[str, An
     images: dict[str, Any] = {}
     for key, short_name in NV_CONFIG_MANAGER_IMAGE_KEYS:
         source_repository = f"nvcr.io/nvidian/cfa/{short_name}"
+        override = img.overrides.get(key)
+        # Preserve the historical tag of explicitly mirrored upstream proxies.
+        # This compatibility tag is fixed; new wrapper images use images.tag.
+        legacy_proxy_repository = bool(
+            key == "oidcProxy" and override and override.repository and not override.tag
+        )
         entry = _build_image_entry(
             img,
             key,
             source_repository,
-            "",
+            "v7.15.5" if legacy_proxy_repository else "",
             include_default=True,
             legacy_short_name=short_name,
-            use_global_tag=True,
+            use_global_tag=not legacy_proxy_repository,
             airgapped=airgapped,
         )
         if entry:
-            images[key] = entry
+            if key == "oidcProxy":
+                # Custom repositories may contain either upstream or CA-refreshed images.
+                # Emit false too, so default wrapper settings clear a reused reminder.
+                images[key] = {
+                    **entry,
+                    "installerImageOverride": bool(override and override.repository),
+                }
+            else:
+                images[key] = entry
 
     for key, (source_repository, default_tag) in _GLOBAL_IMAGE_DEFAULTS.items():
         entry = _build_image_entry(

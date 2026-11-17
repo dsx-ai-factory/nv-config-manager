@@ -25,6 +25,7 @@ const (
 	NV_OS         Platform = "nv-os"
 	MLNX_OS       Platform = "mlnx-os"
 	JUNIPER_JUNOS Platform = "juniper-junos"
+	CISCO_IOS_XR  Platform = "cisco-ios-xr"
 	UFM           Platform = "ufm"
 )
 
@@ -35,6 +36,7 @@ var AllowedPlatformEnumValues = []Platform{
 	"nv-os",
 	"mlnx-os",
 	"juniper-junos",
+	"cisco-ios-xr",
 	"ufm",
 }
 

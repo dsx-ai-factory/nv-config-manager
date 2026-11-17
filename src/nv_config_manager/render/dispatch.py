@@ -57,6 +57,18 @@ HISTOGRAM_BUCKETS = [
     600.0,
     float("inf"),
 ]
+# End-to-end time includes queue wait, which can exceed ten minutes when one
+# change fans out to many devices.
+END_TO_END_HISTOGRAM_BUCKETS = [
+    *HISTOGRAM_BUCKETS[:-1],
+    900.0,
+    1200.0,
+    1800.0,
+    2700.0,
+    3600.0,
+    7200.0,
+    float("inf"),
+]
 
 EVENT_PROCESSING_TIME = Histogram(
     "nv_config_manager_event_processing_time",
@@ -95,7 +107,7 @@ NAUTOBOT_CHANGE_END_TO_END_TIME = Histogram(
     "nv_config_manager_nautobot_change_message_end_to_end_time",
     "End-to-end time from Nautobot message publish to config store persistence in seconds",
     ["instance", "namespace"],
-    buckets=HISTOGRAM_BUCKETS,
+    buckets=END_TO_END_HISTOGRAM_BUCKETS,
 )
 NAUTOBOT_CHANGE_RECEIVED_COUNTER = Counter(
     "nv_config_manager_nautobot_change_messages_received",

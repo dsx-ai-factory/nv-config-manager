@@ -6,6 +6,39 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
+Historical upstream defaults identify an upgrade migration, not a custom image.
+Keep this old tag fixed when the active binary pin changes in the Dockerfile.
+*/}}
+{{- define "nv-config-manager.oidcProxyCustomImage" -}}
+{{- $legacy := .Values.oidc.proxy.image -}}
+{{- $oldRepository := "quay.io/oauth2-proxy/oauth2-proxy" -}}
+{{- $oldTag := "v7.15.5" -}}
+{{- $repository := $legacy.repository | default $oldRepository -}}
+{{- $tag := $legacy.tag | default $oldTag -}}
+{{- if and (or $legacy.repository $legacy.tag) (not (and (eq $repository $oldRepository) (eq $tag $oldTag))) -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nv-config-manager.oidcProxyImage" -}}
+{{- $custom := include "nv-config-manager.oidcProxyCustomImage" . -}}
+{{- if $custom -}}
+{{- $custom -}}
+{{- else -}}
+{{- $image := deepCopy (.Values.global.images.oidcProxy | default dict) -}}
+{{- if not $image.repository -}}
+{{- /* Follow the project registry when the wrapper repository is unset. */ -}}
+{{- $mainRepository := .Values.global.images.nvConfigManager.repository -}}
+{{- if not (hasSuffix "/nv-config-manager" $mainRepository) -}}
+{{- fail "set global.images.oidcProxy.repository to the CA-refreshed project image; it cannot be inferred from global.images.nvConfigManager.repository" -}}
+{{- end -}}
+{{- $_ := set $image "repository" (printf "%s-oidc-proxy" $mainRepository) -}}
+{{- end -}}
+{{- include "nv-config-manager.image" (dict "root" . "image" $image) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create chart name and version as used by the chart label.
 */}}
 {{- define "nv-config-manager.chart" -}}
@@ -407,7 +440,7 @@ Usage: {{ include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "
 {{- if and $useSpiffe (eq $authMode "jwt") }}
 # SPIFFE Helper -- fetches JWT-SVIDs for outbound service-to-service calls
 - name: spiffe-helper
-  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.8.0" }}
+  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.12.3" }}
   imagePullPolicy: {{ index $spiffeHelperImage "pullPolicy" | default "IfNotPresent" }}
   args:
     - -config
@@ -504,7 +537,7 @@ Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nin
 {{- $spiffe := .root.Values.spiffe | default dict }}
 {{- if and (index $spiffe "enabled") (eq (index $spiffe "authMode" | default "jwt") "jwt") }}
 - name: spiffe-helper
-  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.8.0" }}
+  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.12.3" }}
   imagePullPolicy: {{ (index $spiffe "helper" | default dict).image.pullPolicy | default "IfNotPresent" }}
   {{- if .native }}
   restartPolicy: Always
@@ -1018,6 +1051,24 @@ Each secret must have an explicit path configured in values.
 {{- required (printf "secrets.vault.paths.%s.path is required" .secret) $secretConfig.path -}}
 {{- else -}}
 {{- fail (printf "Secret '%s' not found in secrets.vault.paths" .secret) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Keep optional Vault read-only token failures separate from the DCIM token.
+Kubernetes-only installs retain the installer's existing combined secret.
+*/}}
+{{- define "nv-config-manager.nautobotReadOnlyTokenSecretName" -}}
+{{- $tokenSecretName := .Values.dcim.tokenSecret.name | default "nautobot-token" -}}
+{{- if eq .Values.secrets.method "kubernetes" -}}
+{{- $tokenSecretName -}}
+{{- else -}}
+{{- $readerName := printf "%s-read-only" ($tokenSecretName | trunc 53 | trimSuffix "-") -}}
+{{- if eq $readerName $tokenSecretName -}}
+{{- printf "%s-ro-%s" ($tokenSecretName | trunc 51 | trimSuffix "-") ($tokenSecretName | sha256sum | trunc 8) -}}
+{{- else -}}
+{{- $readerName -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
@@ -1696,6 +1747,20 @@ mcp-auth.ini: |
 {{- $temporalName := include "nv-config-manager.componentName" (dict "root" . "component" "temporal") -}}
 {{- $suffix := .Values.temporal.configManagerWorker.nameSuffix | default "nv-config-manager-worker" -}}
 {{- printf "%s-%s" $temporalName $suffix | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Renders "true" when the NVIDIA Config Manager Temporal worker should serve its
+SDK metrics on a Prometheus endpoint (and a PodMonitor should scrape it), and
+nothing otherwise. Scraping, unlike OTLP push, labels every series with the
+pod's Kubernetes namespace. Port 8000 is already admitted from
+monitoring.prometheus.namespace by the namespace-isolation NetworkPolicy.
+Usage: {{- if include "nv-config-manager.temporalWorkerMetricsEnabled" . }}
+*/}}
+{{- define "nv-config-manager.temporalWorkerMetricsEnabled" -}}
+{{- if and .Values.temporal.enabled .Values.monitoring.enabled .Values.monitoring.podMonitors.enabled -}}
+true
 {{- end -}}
 {{- end }}
 

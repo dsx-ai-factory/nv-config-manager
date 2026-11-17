@@ -100,7 +100,7 @@ eval "$image_config"
 : > digests.env
 for image in NV_CONFIG_MANAGER NV_CONFIG_MANAGER_UI NV_CONFIG_MANAGER_KEA NV_CONFIG_MANAGER_KEA_ADMIN \
     NV_CONFIG_MANAGER_NAUTOBOT NV_CONFIG_MANAGER_NATS_READY NV_CONFIG_MANAGER_TEMPORAL \
-    NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP NV_CONFIG_MANAGER_TEMPORAL_UI; do
+    NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP NV_CONFIG_MANAGER_TEMPORAL_UI NV_CONFIG_MANAGER_OIDC_PROXY; do
     digest="$(sed -n "s/^DIGEST_${image}=//p" "$artifact")"
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "invalid digest for ${image}"
     printf 'DIGEST_%s=%s\n' "$image" "$digest" >> digests.env
