@@ -336,7 +336,7 @@ async def test_site_records_child_timeout_and_continues(timeout_enabled: Any) ->
         started_event_id=2,
         retry_state=None,
     )
-    error.__cause__ = ApplicationError("Device validation exceeded ten minutes")
+    error.__cause__ = ApplicationError("Device validation exceeded its execution deadline")
     child.set_exception(error)
     with (
         patch(
@@ -349,7 +349,13 @@ async def test_site_records_child_timeout_and_continues(timeout_enabled: Any) ->
         patch(
             "temporalio.workflow.patched",
             side_effect=lambda name: (
-                timeout_enabled if name == CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID else True
+                timeout_enabled
+                if name
+                in {
+                    CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
+                    "cable-validation-arp-retry-budget-v1",
+                }
+                else True
             ),
         ),
     ):
@@ -357,10 +363,10 @@ async def test_site_records_child_timeout_and_continues(timeout_enabled: Any) ->
             instance, SiteCableValidationWorkflow.ValidateDevicesStageInput(devices=[device])
         )
     assert start_child.call_args.kwargs["execution_timeout"] == (
-        timedelta(minutes=10) if timeout_enabled else None
+        timedelta(minutes=30) if timeout_enabled else None
     )
     assert start_child.call_args.args[1].defer_cable_status_updates is True
-    assert result.failed_devices == {"leaf-1": "Device validation exceeded ten minutes"}
+    assert result.failed_devices == {"leaf-1": "Device validation exceeded its execution deadline"}
     assert result.devices == {}
 
 
