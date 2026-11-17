@@ -110,8 +110,11 @@ class NatsConsumer(NatsClient):
         self.last_progress_time = time.time()
         self._handler_starts: dict[asyncio.Task[None], float] = {}
         self._last_sequences: tuple[int, int] | None = None
-        # When the durable was last known to exist, to resume from if it is deleted.
-        self._durable_seen_at = datetime.now(UTC)
+        # What a durable deleted under this process is re-created from: the
+        # configuration it was bound with, and the last acknowledged position.
+        self._bound_config: ConsumerConfig | None = None
+        self._ack_floor_seq = 0
+        self._bound_at = datetime.now(UTC)
         self._stop = asyncio.Event()
         self._subscription: Any = None
         self._handler_tasks: set[asyncio.Task[None]] = set()
@@ -153,11 +156,7 @@ class NatsConsumer(NatsClient):
             jetstream = self.conn.jetstream(prefix=self.api_prefix)
             durable = self.full_queue_name
             consumer_info = await self._ensure_consumer(jetstream)
-            max_deliver = consumer_info.config.max_deliver
-            if max_deliver is None:
-                self.max_deliver = -1
-            elif isinstance(max_deliver, int):
-                self.max_deliver = max_deliver
+            self._adopt_durable(consumer_info)
 
             # The client's auto-ack would ack as soon as the dispatch returns.
             self._subscription = await jetstream.subscribe_bind(
@@ -177,7 +176,7 @@ class NatsConsumer(NatsClient):
             monitor = None
             if self.liveness_timeout is not None:
                 self._record_progress()
-                self._durable_seen_at = datetime.now(UTC)
+                self._bound_at = datetime.now(UTC)
                 monitor = asyncio.create_task(self._monitor_liveness(jetstream))
             try:
                 while not self.conn.is_closed and not self._stop.is_set():
@@ -308,7 +307,6 @@ class NatsConsumer(NatsClient):
         A blocked event loop cannot run this check; the progress metrics cover that.
         """
         while self.conn is not None and not self.conn.is_closed:
-            polled_at = datetime.now(UTC)
             try:
                 consumer_info = await jetstream.consumer_info(self.stream, self.full_queue_name)
             except NotFoundError as e:
@@ -329,7 +327,7 @@ class NatsConsumer(NatsClient):
                     e,
                 )
             else:
-                self._durable_seen_at = polled_at
+                self._adopt_durable(consumer_info)
                 if self.conn.is_connected:
                     self._record_consumer_info(consumer_info)
             live, detail = self.liveness()
@@ -339,22 +337,52 @@ class NatsConsumer(NatsClient):
                 )
             await asyncio.sleep(LIVENESS_CHECK_INTERVAL_SECONDS)
 
+    def _adopt_durable(self, consumer_info: ConsumerInfo) -> None:
+        """Follow the durable's delivery limit, and remember how to re-create it."""
+        config = consumer_info.config
+        max_deliver = config.max_deliver
+        if max_deliver is None:
+            self.max_deliver = -1
+        elif isinstance(max_deliver, int):
+            self.max_deliver = max_deliver
+        if isinstance(config, ConsumerConfig):
+            self._bound_config = config
+        acked = consumer_info.ack_floor.stream_seq if consumer_info.ack_floor else 0
+        if isinstance(acked, int):
+            self._ack_floor_seq = max(self._ack_floor_seq, acked)
+
     async def _recreate_durable(self, jetstream: JetStreamContext) -> None:
-        """Re-create a durable deleted under this process, from when it was last seen.
+        """Re-create a durable deleted under this process, after its last acknowledged message.
 
         Exiting instead would let startup create it at new messages only, and the
-        events published since the deletion would never be archived. The existing
-        subscription is on the delivery subject, so it receives from the new
-        durable. Events from the last poll interval before the deletion can be
-        delivered again.
+        events published since the deletion would never be archived.
+
+        The replacement copies the configuration this process is bound to, not the
+        configured defaults, so the existing subscription keeps receiving and the
+        delivery limit does not change. It starts after the acknowledgement floor,
+        so messages that were delivered but not yet archived are delivered again.
+        A durable that never acknowledged anything starts from when this process
+        bound to it instead of replaying the stream from its beginning.
         """
-        config = replace(
-            self._expected_consumer_config(),
-            deliver_policy=DeliverPolicy.BY_START_TIME,
-            opt_start_time=self._durable_seen_at,
-        )
+        base = self._bound_config or self._expected_consumer_config()
+        if self._ack_floor_seq > 0:
+            start = f"stream sequence {self._ack_floor_seq + 1}"
+            config = replace(
+                base,
+                deliver_policy=DeliverPolicy.BY_START_SEQUENCE,
+                opt_start_seq=self._ack_floor_seq + 1,
+                opt_start_time=None,
+            )
+        else:
+            start = self._bound_at.isoformat()
+            config = replace(
+                base,
+                deliver_policy=DeliverPolicy.BY_START_TIME,
+                opt_start_seq=None,
+                opt_start_time=self._bound_at,
+            )
         try:
-            await jetstream.add_consumer(stream=self.stream, config=config)
+            consumer_info = await jetstream.add_consumer(stream=self.stream, config=config)
         except Exception as e:
             # Another replica may have re-created it first, or creation is left
             # to an administrator. The next poll shows which.
@@ -365,11 +393,14 @@ class NatsConsumer(NatsClient):
                 e,
             )
             return
+        max_deliver = consumer_info.config.max_deliver
+        if isinstance(max_deliver, int):
+            self.max_deliver = max_deliver
         logger.warning(
             "Consumer %s on stream %s was missing and has been re-created, starting from %s",
             self.full_queue_name,
             self.stream,
-            self._durable_seen_at.isoformat(),
+            start,
         )
 
     def _expected_consumer_config(self) -> ConsumerConfig:

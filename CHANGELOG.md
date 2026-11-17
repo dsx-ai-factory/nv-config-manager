@@ -23,10 +23,10 @@ version before the selected release candidate is promoted.
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, a subscription that
   stopped receiving left the pod `Running` while archiving nothing. A pod that
   is still receiving and retrying messages during an archive backend outage is
-  not restarted. A durable deleted while the service runs is re-created from
-  when it was last seen, so events published in between are still archived.
-  The archive pod also serves progress metrics on port 8000
-  (`ARCHIVE_METRICS_PORT` to change it), scraped by a new PodMonitor when
+  not restarted. A durable deleted while the service runs is re-created after
+  its last acknowledged message, so events published in between are still
+  archived. The archive pod also serves progress metrics on
+  `temporal.archive.metricsPort` (default 8000), scraped by a new PodMonitor when
   `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set. See
   [Render service](docs/render/render-service.mdx).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a

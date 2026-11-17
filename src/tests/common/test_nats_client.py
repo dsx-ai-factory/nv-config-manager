@@ -17,6 +17,7 @@
 import asyncio
 import time
 from configparser import ConfigParser
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
@@ -1072,28 +1073,89 @@ async def test_consumer_monitor_exits_unless_connected_consumer_info_shows_progr
     consumer_info.assert_awaited_once_with("nv-config-manager", "nv-config-manager-archive")
 
 
-@pytest.mark.asyncio
-async def test_consumer_monitor_recreates_a_deleted_durable_from_when_it_was_last_seen():
-    """Exiting would let startup re-create it at new messages and skip what was published since."""
-    consumer = _liveness_consumer()
-    seen_at = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
-    consumer._durable_seen_at = seen_at
-    type(consumer.conn).is_closed = PropertyMock(side_effect=[False, True])
+def _gone_durable_jetstream(recreated_max_deliver: int = 288) -> MagicMock:
+    """Return a JetStream whose durable is missing and can be created again."""
     gone = NotFoundError(code=404, err_code=10014, description="consumer not found")
-    jetstream = MagicMock(consumer_info=AsyncMock(side_effect=gone), add_consumer=AsyncMock())
+    created = MagicMock(config=MagicMock(max_deliver=recreated_max_deliver))
+    return MagicMock(
+        consumer_info=AsyncMock(side_effect=gone), add_consumer=AsyncMock(return_value=created)
+    )
 
+
+async def _poll_once(consumer: NatsConsumer, jetstream: MagicMock) -> None:
+    type(consumer.conn).is_closed = PropertyMock(side_effect=[False, True])
     with patch(
         "nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", new_callable=AsyncMock
     ):
         await consumer._monitor_liveness(jetstream)
 
-    config = jetstream.add_consumer.await_args.kwargs["config"]
+
+@pytest.mark.asyncio
+async def test_consumer_recreates_a_deleted_durable_after_its_acknowledgement_floor():
+    """Exiting would let startup re-create it at new messages and skip what was published since."""
+    consumer = _liveness_consumer()
+    bound = replace(
+        consumer._expected_consumer_config(),
+        deliver_subject="provisioned.delivery",
+        deliver_group="provisioned-group",
+        max_deliver=5,
+    )
+    consumer._adopt_durable(
+        MagicMock(config=bound, ack_floor=SequenceInfo(consumer_seq=40, stream_seq=41))
+    )
+    # A later poll with a lower floor, or an unarchived older event, must not move the start.
+    consumer._adopt_durable(
+        MagicMock(config=bound, ack_floor=SequenceInfo(consumer_seq=40, stream_seq=41))
+    )
+    jetstream = _gone_durable_jetstream(recreated_max_deliver=5)
+
+    await _poll_once(consumer, jetstream)
+
     assert jetstream.add_consumer.await_args.kwargs["stream"] == "nv-config-manager"
+    config = jetstream.add_consumer.await_args.kwargs["config"]
+    assert config.deliver_policy == DeliverPolicy.BY_START_SEQUENCE
+    assert config.opt_start_seq == 42
+    assert config.opt_start_time is None
+    # The live subscription listens on the bound durable's subject and group.
+    assert config.deliver_subject == "provisioned.delivery"
+    assert config.deliver_group == "provisioned-group"
+    assert config.max_deliver == 5
+    assert consumer.max_deliver == 5
+
+
+@pytest.mark.asyncio
+async def test_consumer_recreates_an_unacknowledged_durable_from_when_it_bound():
+    """A durable with no acknowledgements must not replay the stream from its beginning."""
+    consumer = _liveness_consumer()
+    bound_at = datetime(2026, 11, 17, 20, 0, tzinfo=UTC)
+    consumer._bound_at = bound_at
+    jetstream = _gone_durable_jetstream()
+
+    await _poll_once(consumer, jetstream)
+
+    config = jetstream.add_consumer.await_args.kwargs["config"]
     assert config.deliver_policy == DeliverPolicy.BY_START_TIME
-    assert config.opt_start_time == seen_at
+    assert config.opt_start_time == bound_at
+    assert config.opt_start_seq is None
     assert config.durable_name == "nv-config-manager-archive"
     assert config.deliver_subject == "nv-config-manager.archive.delivery"
-    assert consumer._durable_seen_at == seen_at
+
+
+@pytest.mark.asyncio
+async def test_consumer_follows_the_delivery_limit_of_the_durable_it_polls():
+    """An edited or re-created durable's limit decides when a failing archive is given up on."""
+    consumer = _liveness_consumer()
+    info = _durable_info(delivered=3, acked=3)
+    info.config = MagicMock(max_deliver=7)
+    jetstream = MagicMock(consumer_info=AsyncMock(return_value=info))
+
+    await _poll_once(consumer, jetstream)
+    assert consumer.max_deliver == 7
+
+    recreated = _gone_durable_jetstream(recreated_max_deliver=288)
+    await _poll_once(consumer, recreated)
+    assert consumer.max_deliver == 288
+    assert recreated.add_consumer.await_args.kwargs["config"].opt_start_seq == 4
 
 
 @pytest.mark.asyncio

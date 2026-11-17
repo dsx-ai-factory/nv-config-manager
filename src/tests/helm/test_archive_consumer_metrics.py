@@ -85,6 +85,18 @@ def test_archive_metrics_are_scraped_without_a_probe() -> None:
     assert monitor["spec"]["podMetricsEndpoints"][0]["port"] == "metrics"
 
 
+def test_archive_metrics_port_value_moves_the_listener_and_the_scraped_port() -> None:
+    """The container port and the port the process binds come from one value."""
+    docs = _render("temporal.archive.enabled=true", "temporal.archive.metricsPort=8002")
+
+    deployment = _named(docs, "Deployment")
+    assert deployment is not None
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    assert {"name": "metrics", "containerPort": 8002} in container["ports"]
+    env = {e["name"]: e.get("value") for e in container["env"]}
+    assert env["ARCHIVE_METRICS_PORT"] == "8002"
+
+
 def test_archive_pod_monitor_follows_the_archive_deployment() -> None:
     """No PodMonitor is rendered for an archive consumer that is not deployed."""
     docs = _render("monitoring.enabled=true", "monitoring.podMonitors.enabled=true")

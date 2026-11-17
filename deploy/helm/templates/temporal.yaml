@@ -804,13 +804,15 @@ spec:
           value: {{ .Values.global.environment }}
         - name: TEMPORAL_API_HOST
           value: {{ tpl .Values.temporal.gateway.api.hostname . | quote }}
+        - name: ARCHIVE_METRICS_PORT
+          value: {{ .Values.temporal.archive.metricsPort | quote }}
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-archive") | nindent 8 }}
         {{- end }}
         ports:
         - name: metrics
-          containerPort: 8000
+          containerPort: {{ .Values.temporal.archive.metricsPort }}
         resources:
           {{- toYaml .Values.temporal.archive.resources | nindent 10 }}
         volumeMounts:
