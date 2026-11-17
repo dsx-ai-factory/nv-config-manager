@@ -362,7 +362,10 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched("backup-child-result-propagation-v1"):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
         # TODO: once we have a UI, link out to this workflow.
         return DevicePasswordRotationWorkflow.BackupStageOutput(
             display=(

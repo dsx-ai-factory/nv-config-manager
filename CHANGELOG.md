@@ -23,6 +23,13 @@ version before the selected release candidate is promoted.
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. See
   [Render service](docs/render/render-service.mdx).
+- Retryable failed workflow stages now wait at most three hours for a manual
+  retry after automatic activity or child retries are exhausted. An unanswered
+  retry wait closes the workflow as Failed with a non-retryable
+  `StageRetryTimeout` cause. The durable timer survives worker restarts and does
+  not limit healthy work or approval waits. Existing histories that already took
+  the indefinite failure-wait path retain it for replay compatibility.
+
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
@@ -60,6 +67,11 @@ version before the selected release candidate is promoted.
   public names are unchanged.
 
 ### Fixed
+
+- Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
+  NVLink firmware upgrade, and reprovisioning now await the backup child's result
+  so failures and timeouts reach stage failure handling. Histories that already
+  used the old child-completion check retain that path for replay compatibility.
 
 - `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
   anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,

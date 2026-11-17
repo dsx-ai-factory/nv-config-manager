@@ -43,6 +43,24 @@ After fixing the upstream cause, start a new workflow — there is no way to "un
 
 Use when a single stage failed in a way you believe is transient (network blip, momentary device unreachability) and you want to re-run just that stage rather than starting the whole workflow over. The stage's state must be `FAILED`, and the stage itself must be marked retryable.
 
+After an activity or child workflow exhausts its automatic retries and the stage
+enters `FAILED`, you have **three hours** to send a manual Retry. If no retry arrives,
+the workflow closes as **Failed**, with a `StageRetryTimeout` cause identifying the
+stage. This is a durable workflow timer, so worker restarts do not reset the window.
+The deadline is processed when a worker can run the workflow task.
+
+The clock starts when the stage enters its failure wait, not when the workflow
+starts. Healthy work and approval waits do not start this clock. A manual retry
+before the deadline resumes the stage; a subsequent failure starts a new retry
+window. Non-retryable failures and workflows configured to terminate on failure
+still fail immediately. Existing shorter workflow deadlines also continue to apply.
+
+The new wait is versioned for Temporal history compatibility. Workflows already
+parked on the previous indefinite failure-wait path retain that behavior; deploying
+this change does not retroactively add a deadline to them. Backup stages taking the
+new child-result path now surface child failures and timeouts rather than treating
+a completed child handle as proof of a successful backup.
+
 Retry is not appropriate when:
 
 - The stage failed because of a non-retryable error class (for example `ConfigSyntaxException`, `DiffChangedException`, `FirmwareUpgradeException`). These are deliberate fail-closed conditions — fix the underlying cause and run a new workflow.

@@ -334,7 +334,10 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched("backup-child-result-propagation-v1"):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
 
         # Check if the backup workflow reported config drift to the DCIM
         config_drift = await workflow.execute_activity(

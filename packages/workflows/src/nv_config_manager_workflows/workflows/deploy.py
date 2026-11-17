@@ -357,7 +357,10 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched("backup-child-result-propagation-v1"):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
         # TODO: once we have a UI, link out to this workflow.
         return DeployWorkflow.BackupStageOutput(
             display=(f"Configuration change has been backed up via workflow {backup_handle.id}.")
@@ -835,7 +838,10 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched("backup-child-result-propagation-v1"):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
 
         backup_workflow_url = build_workflow_url(ui_base_url, backup_handle.id)
 

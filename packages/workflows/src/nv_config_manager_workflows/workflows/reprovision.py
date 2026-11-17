@@ -337,7 +337,10 @@ class ReprovisionWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched("backup-child-result-propagation-v1"):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
 
         if ui_base_url:
             backup_workflow_url = build_workflow_url(ui_base_url, backup_handle.id)
