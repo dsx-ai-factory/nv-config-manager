@@ -243,14 +243,17 @@ def test_worker_limits_are_written_to_unified_ini(secret_method: str, template: 
         f"secrets.method={secret_method}",
         "temporal.configManagerWorker.maxCachedWorkflows=400",
         "temporal.configManagerWorker.maxConcurrentWorkflowTasks=20",
+        "temporal.configManagerWorker.failedStageRetryTimeoutSeconds=7200",
         templates=(template,),
     )
 
     assert "[temporal.worker]" in default
     assert "max_cached_workflows = 200" in default
     assert "max_concurrent_workflow_tasks = 10" in default
+    assert "failed_stage_retry_timeout_seconds = 10800" in default
     assert "max_cached_workflows = 400" in overridden
     assert "max_concurrent_workflow_tasks = 20" in overridden
+    assert "failed_stage_retry_timeout_seconds = 7200" in overridden
 
 
 @pytest.mark.parametrize("secret_method", ["eso", "kubernetes", "vault-agent"])
@@ -259,6 +262,7 @@ def test_worker_limits_are_written_to_unified_ini(secret_method: str, template: 
     [
         "temporal.configManagerWorker.maxCachedWorkflows=400",
         "temporal.configManagerWorker.maxConcurrentWorkflowTasks=20",
+        "temporal.configManagerWorker.failedStageRetryTimeoutSeconds=7200",
     ],
 )
 def test_worker_limit_change_rolls_the_worker_pods(secret_method: str, override: str) -> None:
@@ -273,6 +277,14 @@ def test_worker_limit_change_rolls_the_worker_pods(secret_method: str, override:
         return worker["spec"]["template"]["metadata"]["annotations"]["checksum/worker-limits"]
 
     assert checksum() != checksum(override)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "true", "null"])
+def test_failed_stage_retry_window_requires_positive_integer(value: str) -> None:
+    command = _helm_command(f"temporal.configManagerWorker.failedStageRetryTimeoutSeconds={value}")
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "failedStageRetryTimeoutSeconds must be a positive integer" in result.stderr
 
 
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:

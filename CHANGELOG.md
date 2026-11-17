@@ -23,9 +23,15 @@ version before the selected release candidate is promoted.
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. See
   [Render service](docs/render/render-service.mdx).
+- Helm `temporal.configManagerWorker.failedStageRetryTimeoutSeconds` configures
+  the failed-stage manual retry window in positive integer seconds (default
+  10800). It is rendered for every secrets method and recorded in new workflow
+  histories and schedule actions so replay and child runs keep their original
+  value across worker restarts and later configuration changes.
+
 - Retryable failed workflow stages now wait at most three hours for a manual
-  retry after automatic activity or child retries are exhausted. An unanswered
-  retry wait closes the workflow as Failed with a non-retryable
+  retry by default after automatic activity or child retries are exhausted. An
+  unanswered retry wait closes the workflow as Failed with a non-retryable
   `StageRetryTimeout` cause. The durable timer survives worker restarts and does
   not limit healthy work or approval waits. Existing histories that already took
   the indefinite failure-wait path retain it for replay compatibility.

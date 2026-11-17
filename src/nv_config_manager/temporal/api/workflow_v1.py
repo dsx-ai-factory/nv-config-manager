@@ -56,7 +56,11 @@ from nv_config_manager.temporal.api.workflow_catalog import (
     build_workflow_metadata,
 )
 from nv_config_manager.temporal.api.workflow_submission import resolve_workflow_references
-from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
+from nv_config_manager.temporal.client.connection import (
+    client_connect_options,
+    failed_stage_retry_timeout_seconds,
+    temporal_address,
+)
 from nv_config_manager.temporal.client.redis import RedisClient
 from nv_config_manager.temporal.common.mixins.base import BaseMixin
 from nv_config_manager.temporal.common.mixins.stage import (
@@ -81,6 +85,7 @@ from nv_config_manager.temporal.common.search_attributes import (
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.telemetry import get_runtime
 from nv_config_manager_workflows.registration.form_catalog import WORKFLOW_FORM_ID_PATTERN
+from nv_config_manager_workflows.retry_timeout import FailedStageRetryTimeoutInterceptor
 from nv_config_manager_workflows.secret_redaction import redact_diff_fields
 from nv_config_manager_workflows.tech_support import tech_support_key
 from nv_config_manager_workflows.ui import wire_schema
@@ -610,7 +615,10 @@ async def get_client() -> Client:
         temporal_address(),
         **client_connect_options(),
         data_converter=get_data_converter(),
-        interceptors=[TracingInterceptor(always_create_workflow_spans=True)],
+        interceptors=[
+            TracingInterceptor(always_create_workflow_spans=True),
+            FailedStageRetryTimeoutInterceptor(failed_stage_retry_timeout_seconds()),
+        ],
         runtime=get_runtime(),
     )
 

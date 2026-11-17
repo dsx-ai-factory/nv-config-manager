@@ -21,12 +21,17 @@ from uuid import uuid4
 import pytest
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
-from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.client import Client, WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from nv_config_manager_workflows.converter import get_data_converter
 from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+from nv_config_manager_workflows.retry_timeout import (
+    FAILED_STAGE_RETRY_TIMEOUT_HEADER,
+    FailedStageRetryTimeoutInterceptor,
+)
 from nv_config_manager_workflows.stage import StageMixin, StageOutput, StateEnum, stage_executor
 
 pytestmark = pytest.mark.timeout(120)
@@ -192,3 +197,63 @@ async def test_retry_deadline_survives_worker_restart(time_skipping_env):
                 )
                 == 1
             )
+
+
+@pytest.mark.parametrize("mode", ["activity", "child"])
+async def test_configured_retry_window_is_pinned_and_replays_after_config_change(
+    time_skipping_env, mode
+):
+    """Use the start-time value even when a later worker has different configuration."""
+    async with time_skipping_env() as env:
+        client = Client(
+            **{
+                **env.client.config(),
+                "interceptors": [
+                    *env.client.config()["interceptors"],
+                    FailedStageRetryTimeoutInterceptor(5400),
+                ],
+            }
+        )
+        queue = str(uuid4())
+        async with Worker(
+            env.client,
+            task_queue=queue,
+            workflows=[_FailedStageProbe, _FailingChild],
+            activities=[_fails_until_retries_exhausted],
+            interceptors=[FailedStageRetryTimeoutInterceptor(60)],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await client.start_workflow(
+                _FailedStageProbe.run, mode, id=str(uuid4()), task_queue=queue
+            )
+            with pytest.raises(WorkflowFailureError) as caught:
+                await handle.result()
+            assert "within 5400 seconds" in str(caught.value.cause.cause)
+            assert (await handle.describe()).status == WorkflowExecutionStatus.FAILED
+            history = await handle.fetch_history()
+            started = history.events[0].workflow_execution_started_event_attributes
+            assert started.header.fields[FAILED_STAGE_RETRY_TIMEOUT_HEADER].data == b"5400"
+            timers = [
+                event.timer_started_event_attributes.start_to_fire_timeout.seconds
+                for event in history.events
+                if event.event_type == EventType.EVENT_TYPE_TIMER_STARTED
+            ]
+            assert 5400 in timers
+            assert 10800 not in timers
+            if mode == "child":
+                child_starts = [
+                    event.start_child_workflow_execution_initiated_event_attributes
+                    for event in history.events
+                    if event.event_type
+                    == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED
+                ]
+                assert (
+                    child_starts[0].header.fields[FAILED_STAGE_RETRY_TIMEOUT_HEADER].data == b"5400"
+                )
+
+        await Replayer(
+            workflows=[_FailedStageProbe, _FailingChild],
+            interceptors=[FailedStageRetryTimeoutInterceptor(1)],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            data_converter=get_data_converter(),
+        ).replay_workflow(history)

@@ -239,6 +239,26 @@ def _worker_ini(**options: str) -> str:
     return "[temporal.worker]\n" + "".join(f"{key} = {value}\n" for key, value in options.items())
 
 
+async def test_worker_records_configured_failed_stage_retry_window(mocker, custom_ini) -> None:
+    custom_ini(_worker_ini(failed_stage_retry_timeout_seconds="7200"))
+    _mock_worker_startup(mocker)
+    await worker_main.main()
+    (interceptor,) = [
+        interceptor
+        for interceptor in worker_main.Client.connect.await_args.kwargs["interceptors"]
+        if isinstance(interceptor, worker_main.FailedStageRetryTimeoutInterceptor)
+    ]
+    assert interceptor.seconds == 7200
+
+
+async def test_invalid_failed_stage_retry_window_prevents_worker_start(mocker, custom_ini) -> None:
+    custom_ini(_worker_ini(failed_stage_retry_timeout_seconds="0"))
+    worker = _mock_worker_startup(mocker)
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        await worker_main.main()
+    worker.assert_not_called()
+
+
 async def test_worker_uses_bounded_cache_and_task_slots(mocker: MockerFixture) -> None:
     """Without [temporal.worker] settings the worker uses the default limits."""
     worker_constructor = _mock_worker_startup(mocker)

@@ -1,3 +1,11 @@
+{{- define "nv-config-manager.failedStageRetryTimeoutSeconds" -}}
+{{- $seconds := .Values.temporal.configManagerWorker.failedStageRetryTimeoutSeconds -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" (toString $seconds)) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must be a positive integer" -}}
+{{- end -}}
+{{- $seconds -}}
+{{- end -}}
+
 {{/*
 Expand the name of the chart.
 */}}

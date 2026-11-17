@@ -18,6 +18,34 @@ The installer controls Temporal deployment through `nv-config-manager-install.ya
 - `rbac`: configures workflow read and execute roles.
 - `infrastructure`: configures TLS, gateway, storage, and optional observability.
 
+### Failed-stage retry window
+
+Configure the manual retry window after an activity or child workflow exhausts its
+automatic retries:
+
+```yaml
+temporal:
+  configManagerWorker:
+    failedStageRetryTimeoutSeconds: 10800 # Three hours; use 7200 for two hours
+```
+
+The value must be a positive integer in seconds; zero does not disable the cap.
+It is written to `[temporal.worker].failed_stage_retry_timeout_seconds` in the unified
+INI for Kubernetes Secrets, ESO, and Vault Agent deployments. Changing it rolls the
+worker pods. Configuration errors are rejected rather than silently disabling the cap.
+
+The API and scheduler clients record the setting in each new workflow or schedule
+action. Children and continue-as-new runs inherit it from the parent history, so a
+worker restart or configuration update cannot alter a recorded retry window.
+Existing schedules keep their recorded value until recreated; workflows started
+without this setting in history retain the three-hour default. Existing histories
+already waiting on the legacy indefinite retry path remain on that path.
+
+This setting does not impose a total workflow run timeout or limit healthy work
+and approval waits. When an unanswered failure wait expires, the workflow closes
+as **Failed** with a `StageRetryTimeout` cause. Existing shorter run or execution
+deadlines continue to apply. See [Workflow Lifecycle](../user-guides/workflow-lifecycle/index.mdx#retry).
+
 ### Workflow attribution domain
 
 Authenticated email identities supply their own domain for new workflow

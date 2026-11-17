@@ -1985,6 +1985,8 @@ temporal:
     # the cache is enabled, the task slot count must be at least 2.
     maxCachedWorkflows: 200
     maxConcurrentWorkflowTasks: 10
+    # Manual retry window in positive seconds, captured at workflow start.
+    failedStageRetryTimeoutSeconds: 10800
     resources:
       requests:
         cpu: 1

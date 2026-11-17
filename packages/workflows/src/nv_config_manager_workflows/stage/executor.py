@@ -20,7 +20,6 @@ from __future__ import annotations
 import functools
 import traceback
 from collections.abc import Callable
-from datetime import timedelta
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
 from temporalio import workflow
@@ -32,6 +31,7 @@ from temporalio.exceptions import (
     TemporalError,
 )
 
+from nv_config_manager_workflows.retry_timeout import failed_stage_retry_timeout
 from nv_config_manager_workflows.stage.exceptions import StageRuntimeFailure, StageStateFailure
 from nv_config_manager_workflows.stage.models import StageInput, StageOutput, StateEnum
 
@@ -40,7 +40,6 @@ if TYPE_CHECKING:
 
 F = TypeVar("F", bound=Callable[..., Any])
 
-FAILED_STAGE_RETRY_TIMEOUT = timedelta(hours=3)
 FAILED_STAGE_RETRY_TIMEOUT_PATCH = "failed-stage-retry-timeout-v1"
 
 
@@ -112,19 +111,19 @@ def stage_executor(stage_name: str, *, name_attribute: str | None = None) -> Cal
                             f"Unexpected exception during stage runtime: {exc}",
                             non_retryable=True,
                         ) from exc
-                    # The retry window starts after the stage body has raised,
-                    # once Temporal has exhausted any automatic activity/child
-                    # retries. Version the new timer for existing histories.
+                    # Preserve histories that used an indefinite retry wait.
                     if workflow.patched(FAILED_STAGE_RETRY_TIMEOUT_PATCH):
+                        retry_timeout = failed_stage_retry_timeout()
                         try:
                             await workflow.wait_condition(
                                 lambda: current_stage.state == StateEnum.IN_PROGRESS,
-                                timeout=FAILED_STAGE_RETRY_TIMEOUT,
+                                timeout=retry_timeout,
                             )
                         except TimeoutError:
                             raise StageRuntimeFailure(
                                 f"Stage {effective_stage_name} failed and was not retried "
-                                "within 3 hours; closing the workflow as failed.",
+                                f"within {retry_timeout.total_seconds():g} seconds; "
+                                "closing the workflow as failed.",
                                 type="StageRetryTimeout",
                                 non_retryable=True,
                             ) from exc
