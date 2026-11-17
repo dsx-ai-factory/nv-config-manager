@@ -15,7 +15,7 @@ dependencies:
   repository: https://grafana.github.io/helm-charts
   version: 1.24.4
 - name: kiwi-render-ui
-  repository: file://../../../kiwi_repos/kiwi-render-ui/deploy/helm
+  repository: file://../../../kiwi_repos/nvcm-template-preview/deploy/helm
   version: 0.7.0
 digest: sha256:45cf566465b3dd74b2f7425054f471c0cfc4aa896b201a49e1e47b01c0415022
 generated: "2026-10-06T17:18:21.229927-05:00"
