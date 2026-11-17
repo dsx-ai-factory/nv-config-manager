@@ -1055,6 +1055,24 @@ Each secret must have an explicit path configured in values.
 {{- end -}}
 
 {{/*
+Keep optional Vault read-only token failures separate from the DCIM token.
+Kubernetes-only installs retain the installer's existing combined secret.
+*/}}
+{{- define "nv-config-manager.nautobotReadOnlyTokenSecretName" -}}
+{{- $tokenSecretName := .Values.dcim.tokenSecret.name | default "nautobot-token" -}}
+{{- if eq .Values.secrets.method "kubernetes" -}}
+{{- $tokenSecretName -}}
+{{- else -}}
+{{- $readerName := printf "%s-read-only" ($tokenSecretName | trunc 53 | trimSuffix "-") -}}
+{{- if eq $readerName $tokenSecretName -}}
+{{- printf "%s-ro-%s" ($tokenSecretName | trunc 51 | trimSuffix "-") ($tokenSecretName | sha256sum | trunc 8) -}}
+{{- else -}}
+{{- $readerName -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Get a key name from secrets.vault.paths configuration
 Usage: {{ include "nv-config-manager.vault.keyName" (dict "root" . "secret" "nautobot" "key" "token") }}
 */}}
@@ -1729,6 +1747,20 @@ mcp-auth.ini: |
 {{- $temporalName := include "nv-config-manager.componentName" (dict "root" . "component" "temporal") -}}
 {{- $suffix := .Values.temporal.configManagerWorker.nameSuffix | default "nv-config-manager-worker" -}}
 {{- printf "%s-%s" $temporalName $suffix | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Renders "true" when the NVIDIA Config Manager Temporal worker should serve its
+SDK metrics on a Prometheus endpoint (and a PodMonitor should scrape it), and
+nothing otherwise. Scraping, unlike OTLP push, labels every series with the
+pod's Kubernetes namespace. Port 8000 is already admitted from
+monitoring.prometheus.namespace by the namespace-isolation NetworkPolicy.
+Usage: {{- if include "nv-config-manager.temporalWorkerMetricsEnabled" . }}
+*/}}
+{{- define "nv-config-manager.temporalWorkerMetricsEnabled" -}}
+{{- if and .Values.temporal.enabled .Values.monitoring.enabled .Values.monitoring.podMonitors.enabled -}}
+true
 {{- end -}}
 {{- end }}
 

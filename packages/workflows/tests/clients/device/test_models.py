@@ -81,6 +81,32 @@ def test_add_entry_raises_on_invalid_ip() -> None:
         table.add_entry("not-an-ip", "00:11:22:33:44:55", "swp1")
 
 
+def test_nvue_neighbors_merge_ip_families_and_preserve_link_local_interfaces() -> None:
+    table = DeviceArpTable.from_nvue(
+        {
+            "swp1": {
+                "ipv4": {"192.0.2.10": {"lladdr": "00:11:22:33:44:55"}},
+                "ipv6": {
+                    "2001:0DB8:0:0:0:0:0:10": {"lladdr": "00:11:22:33:44:55"},
+                    "fe80::1": {"lladdr": "00:11:22:33:44:55"},
+                    "2001:db8::11": {},
+                },
+            },
+            "swp2": {"ipv6": {"fe80::1": {"lladdr": "00:11:22:33:44:66"}}},
+            "swp3": {"ipv4": None, "ipv6": None},
+        }
+    )
+
+    mac1, mac2 = "00-11-22-33-44-55", "00-11-22-33-44-66"
+    assert table.ip_to_mac == {
+        "192.0.2.10": [mac1],
+        "2001:db8::10": [mac1],
+        "fe80::1": [mac1, mac2],
+    }
+    assert table.mac_to_ip == {mac1: ["192.0.2.10", "2001:db8::10", "fe80::1"], mac2: ["fe80::1"]}
+    assert table.interface_to_mac == {"swp1": [mac1], "swp2": [mac2], "swp3": []}
+
+
 def test_device_models_round_trip_through_json() -> None:
     mac_entry = DeviceMacEntry(
         mac="00-11-22-33-44-55",

@@ -351,6 +351,9 @@ spec:
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:
         {{- include "nv-config-manager.authIniChecksum" . | nindent 8 }}
+        {{- /* The worker reads the [temporal.worker] INI limits only at startup, so a
+        change to either value must roll the pods. */}}
+        checksum/worker-limits: {{ printf "%v/%v" .Values.temporal.configManagerWorker.maxCachedWorkflows .Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks | sha256sum }}
         {{- if eq .Values.secrets.method "vault-agent" }}
         {{- include "nv-config-manager.vaultAgent.injectorAnnotations" . | nindent 8 }}
         {{- end }}
@@ -425,6 +428,14 @@ spec:
         {{- end }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-worker") | nindent 8 }}
+        {{- end }}
+        {{- if include "nv-config-manager.temporalWorkerMetricsEnabled" . }}
+        # Serve SDK metrics for the PodMonitor; replaces OTLP metric export for this pod.
+        - name: TEMPORAL_METRICS_PROMETHEUS_ADDRESS
+          value: "0.0.0.0:8000"
+        ports:
+        - name: metrics
+          containerPort: 8000
         {{- end }}
         resources:
           {{- toYaml .Values.temporal.configManagerWorker.resources | nindent 10 }}

@@ -68,6 +68,11 @@ def test_supported_platforms_include_juniper_junos() -> None:
     assert Platform.JUNIPER_JUNOS in SUPPORTED_PLATFORMS
 
 
+def test_cisco_ios_xr_is_not_a_supported_platform() -> None:
+    """IOS XR has no image install path yet, so the workflow must reject it up front."""
+    assert Platform.CISCO_IOS_XR not in SUPPORTED_PLATFORMS
+
+
 @activity.defn(name="get_network_device")
 async def mock_get_network_device(
     activity_input: GetNetworkDeviceInput,

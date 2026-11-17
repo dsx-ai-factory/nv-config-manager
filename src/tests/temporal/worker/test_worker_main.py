@@ -15,6 +15,7 @@
 """Tests for Temporal worker startup composition."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -23,6 +24,7 @@ import pytest
 from pydantic import BaseModel
 from pytest_mock import MockerFixture
 from temporalio import workflow
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner
 
 from nv_config_manager.temporal.worker import main as worker_main
 from nv_config_manager_workflows.activities.builtin import BUILTIN_ACTIVITIES
@@ -230,3 +232,112 @@ async def test_worker_registers_the_frozen_temporal_type_names(
     assert sorted(activity_name(item) for item in options["activities"]) == frozen["activities"]
     (logged_registry,) = log_registry.call_args.args
     assert HelloWorldRunning not in logged_registry.all_workflows
+
+
+def _worker_ini(**options: str) -> str:
+    """Return an INI with only a [temporal.worker] section holding the given options."""
+    return "[temporal.worker]\n" + "".join(f"{key} = {value}\n" for key, value in options.items())
+
+
+async def test_worker_uses_bounded_cache_and_task_slots(mocker: MockerFixture) -> None:
+    """Without [temporal.worker] settings the worker uses the default limits."""
+    worker_constructor = _mock_worker_startup(mocker)
+    mocker.patch.object(worker_main, "log_workflow_registry")
+
+    await worker_main.main()
+
+    options = worker_constructor.call_args.kwargs
+    assert options["max_cached_workflows"] == worker_main.DEFAULT_MAX_CACHED_WORKFLOWS
+    assert (
+        options["max_concurrent_workflow_tasks"]
+        == worker_main.DEFAULT_MAX_CONCURRENT_WORKFLOW_TASKS
+    )
+
+
+async def test_worker_reads_limits_from_ini(
+    mocker: MockerFixture, custom_ini: Callable[[str], None]
+) -> None:
+    """The [temporal.worker] section sets the cache size and task slots."""
+    custom_ini(_worker_ini(max_cached_workflows="400", max_concurrent_workflow_tasks="20"))
+    worker_constructor = _mock_worker_startup(mocker)
+    mocker.patch.object(worker_main, "log_workflow_registry")
+
+    await worker_main.main()
+
+    options = worker_constructor.call_args.kwargs
+    assert options["max_cached_workflows"] == 400
+    assert options["max_concurrent_workflow_tasks"] == 20
+
+
+@pytest.mark.parametrize(
+    ("cache", "slots", "expected"),
+    [
+        ("", "", (200, 10)),
+        (" 50 ", " 25 ", (50, 25)),
+        ("0", "1", (0, 1)),
+        ("200", "2", (200, 2)),
+    ],
+)
+def test_workflow_cache_and_task_limits_accept_valid_values(
+    custom_ini: Callable[[str], None],
+    cache: str,
+    slots: str,
+    expected: tuple[int, int],
+) -> None:
+    """Blank values use the defaults; one task slot is allowed only with the cache disabled."""
+    custom_ini(_worker_ini(max_cached_workflows=cache, max_concurrent_workflow_tasks=slots))
+
+    assert worker_main._workflow_cache_and_task_limits() == expected
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("max_cached_workflows", "-1"),
+        ("max_cached_workflows", "many"),
+        ("max_concurrent_workflow_tasks", "0"),
+        ("max_concurrent_workflow_tasks", "-1"),
+        ("max_concurrent_workflow_tasks", "many"),
+    ],
+)
+def test_workflow_cache_and_task_limits_reject_invalid_values(
+    custom_ini: Callable[[str], None], option: str, value: str
+) -> None:
+    """A malformed limit fails worker startup instead of silently using a default."""
+    custom_ini(_worker_ini(**{option: value}))
+
+    with pytest.raises(ValueError):
+        worker_main._workflow_cache_and_task_limits()
+
+
+async def test_one_task_slot_with_sticky_cache_fails_before_worker_construction(
+    mocker: MockerFixture, custom_ini: Callable[[str], None]
+) -> None:
+    """A single task slot with the sticky cache enabled fails worker startup."""
+    custom_ini(_worker_ini(max_concurrent_workflow_tasks="1"))
+    worker_constructor = _mock_worker_startup(mocker)
+
+    with pytest.raises(ValueError, match="must be >= 2 when max_cached_workflows is nonzero"):
+        await worker_main.main()
+
+    worker_constructor.assert_not_called()
+
+
+async def test_worker_uses_sandbox_runner_with_passthrough_modules(mocker: MockerFixture) -> None:
+    """The worker runs workflows in a sandbox that passes the worker-level modules through."""
+    worker_constructor = _mock_worker_startup(mocker)
+    mocker.patch.object(worker_main, "log_workflow_registry")
+
+    await worker_main.main()
+
+    runner = worker_constructor.call_args.kwargs["workflow_runner"]
+    assert isinstance(runner, SandboxedWorkflowRunner)
+    assert set(worker_main.SANDBOX_PASSTHROUGH_MODULES) <= runner.restrictions.passthrough_modules
+
+
+@pytest.mark.parametrize("workflow_class", BUILTIN_WORKFLOWS, ids=workflow_type_name)
+async def test_builtin_workflows_load_in_worker_sandbox(workflow_class: type[Any]) -> None:
+    """Every built-in workflow passes validation in the worker's sandbox."""
+    worker_main.workflow_runner().prepare_workflow(
+        workflow._Definition.must_from_class(workflow_class)
+    )

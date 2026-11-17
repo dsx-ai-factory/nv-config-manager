@@ -703,8 +703,15 @@ class ZTPSFTPSubsystemHandler(SFTPServer):
             server.close_session()
 
 
+def _generate_host_keys() -> tuple[paramiko.PKey, ...]:
+    """Offer ECDSA for device clients that cannot negotiate RSA SHA-2 signatures."""
+    # Paramiko 5 removed ssh-rsa (SHA-1). An RSA-only server cannot negotiate
+    # with Cumulus NVUE SFTP clients that lack RSA SHA-2 support.
+    return (paramiko.RSAKey.generate(2048), paramiko.ECDSAKey.generate(bits=256))
+
+
 def handle_connection(
-    conn: socket.socket, addr: tuple[str, int], host_key: paramiko.RSAKey
+    conn: socket.socket, addr: tuple[str, int], host_keys: tuple[paramiko.PKey, ...]
 ) -> None:
     """Handle an individual client connection to the SFTP server."""
     logger = get_logger_for_addr(addr)
@@ -712,7 +719,8 @@ def handle_connection(
     transport: Transport | None = None
     try:
         transport = paramiko.Transport(conn)
-        transport.add_server_key(host_key)
+        for host_key in host_keys:
+            transport.add_server_key(host_key)
 
         # Load system moduli file for group exchange KEX
         moduli_path = "/etc/ssh/moduli"
@@ -778,10 +786,10 @@ def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -
     start_http_server(metrics_port, addr="0.0.0.0")  # nosec: B104
     logger.info("SFTP metrics server listening on 0.0.0.0:%d", metrics_port)
 
-    # Generate host key once at startup (RSA key generation is CPU-intensive)
-    logger.info("Generating RSA host key...")
-    host_key = paramiko.RSAKey.generate(2048)
-    logger.info("RSA host key generated")
+    # Generate host keys once at startup (RSA key generation is CPU-intensive)
+    logger.info("Generating RSA and ECDSA host keys...")
+    host_keys = _generate_host_keys()
+    logger.info("RSA and ECDSA host keys generated")
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
@@ -797,7 +805,7 @@ def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -
             try:
                 conn, addr = server_socket.accept()
                 # Handle each client in a separate thread
-                t = threading.Thread(target=handle_connection, args=(conn, addr, host_key))
+                t = threading.Thread(target=handle_connection, args=(conn, addr, host_keys))
                 t.daemon = True
                 t.start()
             except TimeoutError:
