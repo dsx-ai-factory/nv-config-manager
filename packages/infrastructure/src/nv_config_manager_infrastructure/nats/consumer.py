@@ -232,7 +232,11 @@ class NatsConsumer(NatsClient):
             await asyncio.gather(*pending, return_exceptions=True)
 
     async def _close_connection(self, conn: Client) -> None:
-        """Close the connection without reporting a TLS teardown race."""
+        """Close the connection without reporting a TLS teardown race.
+
+        A connection that is already dead can fail to close. That must not
+        replace the error main() is exiting with, such as a stalled durable.
+        """
         asyncio_logger = logging.getLogger("asyncio")
         old_loglevel = asyncio_logger.level
         asyncio_logger.setLevel(logging.ERROR)
@@ -240,6 +244,8 @@ class NatsConsumer(NatsClient):
             await conn.close()
         except ssl.SSLError:
             pass
+        except Exception as e:
+            logger.warning("Could not close the NATS connection cleanly: %r", e)
         finally:
             asyncio_logger.setLevel(old_loglevel)
 

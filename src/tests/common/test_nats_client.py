@@ -1097,6 +1097,31 @@ async def test_consumer_main_exits_when_the_durable_stalls():
 
 
 @pytest.mark.asyncio
+async def test_consumer_stall_is_the_reported_error_when_closing_a_dead_connection_fails():
+    """A dead connection can fail to close; the stall must still be what the process exits with."""
+    consumer = _liveness_consumer()
+    conn = MagicMock(is_connected=False, is_closed=False)
+    conn.close = AsyncMock(side_effect=AttributeError("'NoneType' object has no attribute 'x'"))
+    conn.jetstream.return_value.consumer_info = AsyncMock(
+        return_value=MagicMock(config=consumer._expected_consumer_config())
+    )
+    conn.jetstream.return_value.subscribe_bind = AsyncMock()
+
+    async def stalled(_jetstream):
+        raise RuntimeError("Consumer nv-config-manager-archive is exiting to be restarted")
+
+    with (
+        patch.object(consumer, "connect", new_callable=AsyncMock, return_value=conn),
+        patch.object(consumer, "_monitor_liveness", stalled),
+        patch("nv_config_manager_infrastructure.nats.consumer.asyncio.sleep", _yield_once),
+        pytest.raises(RuntimeError, match="is exiting to be restarted"),
+    ):
+        await consumer.main()
+
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_consumer_reports_progress_and_in_flight_handlers_for_metrics():
     """The oldest in-flight delivery and the last progress are readable as Unix time."""
     release = asyncio.Event()
