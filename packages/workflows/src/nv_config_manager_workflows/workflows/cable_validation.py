@@ -152,16 +152,6 @@ DCIM_PERSISTENCE_PENDING_MESSAGE = (
 )
 
 
-def _device_validation_child_timeout() -> timedelta | None:
-    """Allow ARP retries while preserving deadlines recorded by older workflows."""
-    if workflow.patched("cable-validation-arp-retry-budget-v1"):
-        # Three five-minute ARP attempts leave fifteen minutes for other stages.
-        return timedelta(minutes=30)
-    if workflow.patched(CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID):
-        return timedelta(minutes=10)
-    return None
-
-
 class SiteCableValidationInput(BaseModel):
     """Input for Site Cable Validation Workflow."""
 
@@ -435,7 +425,11 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceM
                 ),
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 search_attributes=search_attrs,
-                execution_timeout=_device_validation_child_timeout(),
+                execution_timeout=(
+                    timedelta(minutes=30)
+                    if workflow.patched(CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID)
+                    else None
+                ),
             )
             self.append_child_workflow("validate_devices", handles[device.name].id)
 

@@ -14,7 +14,7 @@ version before the selected release candidate is promoted.
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
   so the ARP retries and remaining validation stages fit within the child
-  workflow deadline. Replayed workflows retain their recorded deadline.
+  workflow deadline. Already-started child workflows keep their existing deadline.
 - A render consumer whose NATS fetches keep failing now exits, and Kubernetes
   restarts the pod, once no round trip to NATS has completed for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying

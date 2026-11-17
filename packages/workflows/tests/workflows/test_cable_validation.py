@@ -349,13 +349,7 @@ async def test_site_records_child_timeout_and_continues(timeout_enabled: Any) ->
         patch(
             "temporalio.workflow.patched",
             side_effect=lambda name: (
-                timeout_enabled
-                if name
-                in {
-                    CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
-                    "cable-validation-arp-retry-budget-v1",
-                }
-                else True
+                timeout_enabled if name == CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID else True
             ),
         ),
     ):
