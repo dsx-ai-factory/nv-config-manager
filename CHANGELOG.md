@@ -10,6 +10,11 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- Cable validation now allows five minutes per ARP collection attempt, up from
+  two, to accommodate switches with large interface inventories and slow NVUE
+  responses. New site validations allow thirty minutes per device, up from ten,
+  so the ARP retries and remaining validation stages fit within the child
+  workflow deadline. Already-started child workflows keep their existing deadline.
 - A render consumer whose NATS fetches keep failing now exits, and Kubernetes
   restarts the pod, once no round trip to NATS has completed for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
@@ -59,6 +64,11 @@ version before the selected release candidate is promoted.
   which can pass ten minutes when one change fans out to many devices, and the
   old 600-second top bucket left everything beyond that in `+Inf`. Existing
   bucket boundaries are unchanged, so queries on them keep working.
+- `nv_config_manager_workflows.workflows` now imports each exported name from
+  its defining module when the name is accessed. Importing one workflow module no longer
+  imports all of them, so each workflow run's sandbox re-imports only the
+  modules that run uses instead of all 29 workflow modules. The package's
+  public names are unchanged.
 
 ### Fixed
 
@@ -86,6 +96,11 @@ version before the selected release candidate is promoted.
   the workflows package README documents the pattern for plugin workflows. The
   worker also passes through `annotated_types`, which Pydantic imports lazily
   after those blocks have closed.
+- `workflow-cli` now sends the default of a list option as a list when the
+  option is omitted. Before, it sent the default's text split on commas, for
+  example `["['Active'", "'Provisioned']"]` for `--status`, so commands such as
+  `site-cable-validation` failed at their first stage unless every list option
+  was passed explicitly.
 
 ## 1.4.2
 
