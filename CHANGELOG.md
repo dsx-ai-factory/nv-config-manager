@@ -10,6 +10,14 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- A render consumer whose NATS fetches keep failing now exits, and Kubernetes
+  restarts the pod, once no round trip to NATS has completed for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
+  on a connection that was not coming back while the pod stayed `Running`.
+  Expect a container restart where a consumer used to stall. The render
+  consumers also export progress metrics for stalls the exit cannot catch,
+  such as a handler that never returns. See
+  [Render service](docs/render/render-service.mdx).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
