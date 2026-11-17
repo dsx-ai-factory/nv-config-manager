@@ -10,6 +10,8 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- Increased the default ZTP replica count from 3 to 6 to spread provisioning
+  and firmware-download traffic across more pods.
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's

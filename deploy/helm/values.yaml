@@ -1491,7 +1491,7 @@ networkZtp:
       # Dedicated Prometheus endpoint for metrics emitted by the SFTP process.
       metricsPort: 9100
   # Deployment configuration
-  replicas: 3
+  replicas: 6
   # Resources per container type
   resources:
     http:
