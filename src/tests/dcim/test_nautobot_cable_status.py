@@ -26,6 +26,7 @@ from nv_config_manager_dcim import (
     DCIMCableStatusClient,
 )
 from nv_config_manager_dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
+from nv_config_manager_dcim_nautobot_2x.client import NautobotException
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient
 
 from nv_config_manager_workflows.activities.cable_validation import (
@@ -304,6 +305,66 @@ async def test_cable_lookup_preserves_not_found_for_valid_empty_page() -> None:
     async with client:
         with pytest.raises(DCIMNotFoundError, match="No interface named"):
             await client.update_cable_status(_update())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("during_lookup", [False, True])
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    [(400, DCIMInvalidDataError), (404, DCIMNotFoundError), (409, DCIMConflictError)],
+)
+async def test_batch_lookup_and_write_errors_retain_dcim_type_and_target_context(
+    monkeypatch: pytest.MonkeyPatch, during_lookup: bool, status: int, error_type: type[Exception]
+) -> None:
+    client = _client()
+    backend_error = NautobotException("request rejected", status_code=status)
+    client.get_all = AsyncMock(
+        side_effect=backend_error if during_lookup else None,
+        return_value=[
+            {"name": "Ethernet1/1", "cable": {"id": "cable-1"}},
+            {"name": "Ethernet1/2", "cable": {"id": "cable-2"}},
+        ],
+    )
+    client.get = AsyncMock(side_effect=backend_error)
+    client.patch = AsyncMock()
+    monkeypatch.setattr(
+        "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
+        lambda: client,
+    )
+    with pytest.raises(error_type) as raised:
+        await update_cable_statuses(
+            UpdateCableStatusesInput(
+                device_id="device-1",
+                cable_statuses={
+                    "Ethernet1/1": CableStatus.INVALID,
+                    "Ethernet1/2": CableStatus.INVALID,
+                },
+                workflow_id="validation-1",
+            )
+        )
+    assert "device-1" in str(raised.value)
+    assert "Ethernet1/1" in str(raised.value)
+    if during_lookup:
+        assert "Ethernet1/2" in str(raised.value)
+        client.get.assert_not_awaited()
+    assert raised.value.__cause__ is backend_error
+    client.patch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cached_invalid_interface_raises_a_fresh_exception_each_time() -> None:
+    client = _client()
+    client.get_all = AsyncMock(return_value=[{"id": "missing-name"}])
+    errors: list[DCIMInvalidDataError] = []
+    async with client:
+        await client.prepare_cable_status_updates("device-1", ["Ethernet1/1"])
+        for _ in range(3):
+            with pytest.raises(DCIMInvalidDataError, match="invalid interface lookup") as raised:
+                await client.update_cable_status(_update())
+            errors.append(raised.value)
+    assert len({id(error) for error in errors}) == 3
+    assert all(str(error) == str(errors[0]) for error in errors)
+    client.get_all.assert_awaited_once()
 
 
 @pytest.mark.asyncio

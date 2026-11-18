@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from itertools import batched
 from typing import Any, Self, TypedDict
 from uuid import UUID
@@ -271,7 +272,23 @@ def _metadata_from_nautobot_graphql(data: dict[str, Any]) -> DeviceMetadata:
     )
 
 
-type _CableInterfaceIndex = dict[str, list[Mapping[str, Any]] | DCIMInvalidDataError]
+@contextmanager
+def _cable_status_error_context(message: str) -> Iterator[None]:
+    """Translate write and batch-lookup failures with the affected targets."""
+    try:
+        yield
+    except NautobotException as exc:
+        if exc.status_code == 404:
+            raise DCIMNotFoundError(message) from exc
+        if exc.status_code == 409:
+            raise DCIMConflictError(message) from exc
+        if exc.status_code == 400:
+            raise DCIMInvalidDataError(message) from exc
+        raise
+
+
+# Cache invalid-data messages rather than exception instances with mutable tracebacks.
+type _CableInterfaceIndex = dict[str, list[Mapping[str, Any]] | str]
 
 
 class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
@@ -884,7 +901,12 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         """Share a filtered lookup for the current activity's requested interfaces."""
         names = tuple(sorted(set(interface_names)))
         self._cable_update_names[device_id] = names
-        await self._cable_interface_index(device_id, names)
+        message = (
+            f"Unable to look up interfaces {list(names)!r} on device '{device_id}' "
+            "for cable status updates"
+        )
+        with _cable_status_error_context(message):
+            await self._cable_interface_index(device_id, names)
 
     async def _cable_interface_index(
         self, device_id: str, interface_names: tuple[str, ...]
@@ -926,21 +948,26 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                     # Do not discard valid matches because another record is malformed.
                     # Unresolved targets must still surface an invalid-data error.
                     if not index[name]:
-                        index[name] = DCIMInvalidDataError(
-                            f"Nautobot returned invalid interface lookup data for '{name}'"
+                        index[name] = (
+                            f"Nautobot returned invalid interface lookup data for '{name}' "
+                            f"on device '{device_id}'"
                         )
         return index
 
     async def update_cable_status(self, update: CableStatusUpdate) -> None:
         """Update the cable attached to a Nautobot device interface."""
-        try:
+        message = (
+            f"Unable to update cable status for interface '{update.interface_name}' "
+            f"on device '{update.device_id}'"
+        )
+        with _cable_status_error_context(message):
             names = self._cable_update_names.get(update.device_id, ())
             if update.interface_name not in names:
                 names = (update.interface_name,)
             index = await self._cable_interface_index(update.device_id, names)
             interfaces = index.get(update.interface_name, [])
-            if isinstance(interfaces, DCIMInvalidDataError):
-                raise interfaces
+            if isinstance(interfaces, str):
+                raise DCIMInvalidDataError(interfaces)
             if not interfaces:
                 raise DCIMNotFoundError(
                     f"No interface named '{update.interface_name}' found on device "
@@ -1002,18 +1029,6 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                         "note": note,
                     },
                 )
-        except NautobotException as exc:
-            message = (
-                f"Unable to update cable status for interface '{update.interface_name}' "
-                f"on device '{update.device_id}'"
-            )
-            if exc.status_code == 404:
-                raise DCIMNotFoundError(message) from exc
-            if exc.status_code == 409:
-                raise DCIMConflictError(message) from exc
-            if exc.status_code == 400:
-                raise DCIMInvalidDataError(message) from exc
-            raise
 
     async def get_render_enabled_devices_matching(self, filters: Mapping[str, Any]) -> list[str]:
         """Resolve Nautobot-managed devices matching a provider event filter."""
