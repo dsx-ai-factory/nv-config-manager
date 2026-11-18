@@ -363,12 +363,17 @@ class NatsConsumer(NatsClient):
         so messages that were delivered but not yet archived are delivered again.
         A durable that never acknowledged anything starts from when this process
         bound to it instead of replaying the stream from its beginning.
+
+        The server-returned ``name`` is cleared so the request goes to the
+        ``CONSUMER.DURABLE.CREATE`` subject that startup uses, rather than
+        ``CONSUMER.CREATE``, which an account's permissions may not allow.
         """
         base = self._bound_config or self._expected_consumer_config()
         if self._ack_floor_seq > 0:
             start = f"stream sequence {self._ack_floor_seq + 1}"
             config = replace(
                 base,
+                name=None,
                 deliver_policy=DeliverPolicy.BY_START_SEQUENCE,
                 opt_start_seq=self._ack_floor_seq + 1,
                 opt_start_time=None,
@@ -377,6 +382,7 @@ class NatsConsumer(NatsClient):
             start = self._bound_at.isoformat()
             config = replace(
                 base,
+                name=None,
                 deliver_policy=DeliverPolicy.BY_START_TIME,
                 opt_start_seq=None,
                 opt_start_time=self._bound_at,

@@ -1099,6 +1099,7 @@ async def test_consumer_recreates_a_deleted_durable_after_its_acknowledgement_fl
         deliver_subject="provisioned.delivery",
         deliver_group="provisioned-group",
         max_deliver=5,
+        name="nv-config-manager-archive",
     )
     consumer._adopt_durable(
         MagicMock(config=bound, ack_floor=SequenceInfo(consumer_seq=40, stream_seq=41))
@@ -1121,6 +1122,9 @@ async def test_consumer_recreates_a_deleted_durable_after_its_acknowledgement_fl
     assert config.deliver_group == "provisioned-group"
     assert config.max_deliver == 5
     assert consumer.max_deliver == 5
+    # A set name would send the create to CONSUMER.CREATE instead of the durable subject.
+    assert config.name is None
+    assert config.durable_name == "nv-config-manager-archive"
 
 
 @pytest.mark.asyncio
