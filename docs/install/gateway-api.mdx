@@ -58,6 +58,32 @@ Only one identity-provider callback is required. It always uses
 https://<gateway.baseHostname>/oauth2/callback
 ```
 
+## OIDC session refresh
+
+`oidc.proxy.cookieRefresh` sets the oauth2-proxy session refresh interval and
+defaults to `"1h"` for compatibility with existing deployments. Choose an interval
+shorter than the lifetime of the ID token forwarded to Config Manager APIs.
+Otherwise, a browser session can still exist while the APIs reject its expired
+ID token as unauthenticated.
+
+For an identity provider that issues five-minute ID tokens, set:
+
+```yaml
+oidc:
+  proxy:
+    cookieRefresh: "2m"
+```
+
+Refresh is request-driven: oauth2-proxy attempts to refresh an eligible session
+when a request arrives, rather than on a background timer. Successful renewal
+also depends on the identity provider's refresh-token and session policies;
+this setting does not extend token lifetimes or bypass token validation.
+
+Apply the value through your normal Helm upgrade or GitOps configuration. The
+proxy Deployment's existing OIDC configuration checksum triggers a rollout when
+this value changes. After signing in, verify that protected API requests continue
+to succeed during active use beyond the original ID token's expiry.
+
 ## Managed Envoy Gateway
 
 The defaults create a Gateway and an Envoy GatewayClass:
