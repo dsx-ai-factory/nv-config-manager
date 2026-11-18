@@ -38,16 +38,20 @@ from temporalio.worker import (
 from temporalio.worker import Interceptor as WorkerInterceptor
 
 DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS = 10800
+# 365 days. Keeps timers well inside Temporal's maximum duration and Python's timedelta.
+# The Helm chart and the installer schema enforce the same limit.
+MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS = 31_536_000
 FAILED_STAGE_RETRY_TIMEOUT_HEADER = "nvcm-failed-stage-retry-timeout-seconds"
 
 
 def validate_retry_timeout_seconds(seconds: int) -> int:
     if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 1:
         raise ValueError("failed_stage_retry_timeout_seconds must be a positive integer")
-    try:
-        timedelta(seconds=seconds)
-    except OverflowError as error:
-        raise ValueError("failed_stage_retry_timeout_seconds is too large") from error
+    if seconds > MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS:
+        raise ValueError(
+            "failed_stage_retry_timeout_seconds must not exceed "
+            f"{MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS} seconds (365 days)"
+        )
     return seconds
 
 

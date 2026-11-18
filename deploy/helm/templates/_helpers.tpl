@@ -14,6 +14,14 @@ floats stay floats and fail the check below.
 {{- if not (regexMatch "^[1-9][0-9]*$" (toString $seconds)) -}}
 {{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must be a positive integer" -}}
 {{- end -}}
+{{- /*
+365 days, matching MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS in the workflows package.
+The value is decimal digits here; more than eight digits always exceeds the limit.
+*/ -}}
+{{- $digits := toString $seconds -}}
+{{- if or (gt (len $digits) 8) (gt (int64 $digits) 31536000) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must not exceed 31536000 seconds (365 days)" -}}
+{{- end -}}
 {{- $seconds -}}
 {{- end -}}
 

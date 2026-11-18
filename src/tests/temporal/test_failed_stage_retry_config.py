@@ -53,7 +53,10 @@ from nv_config_manager_workflows.workflows.site_password_rotation import (
 )
 
 
-@pytest.mark.parametrize("raw,expected", [(None, 10800), ("", 10800), (" 7200 ", 7200), ("1", 1)])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [(None, 10800), ("", 10800), (" 7200 ", 7200), ("1", 1), ("31536000", 31536000)],
+)
 def test_ini_retry_window(custom_ini, raw, expected):
     custom_ini(
         "" if raw is None else f"[temporal.worker]\nfailed_stage_retry_timeout_seconds={raw}\n"
@@ -61,7 +64,9 @@ def test_ini_retry_window(custom_ini, raw, expected):
     assert failed_stage_retry_timeout_seconds() == expected
 
 
-@pytest.mark.parametrize("raw", ["0", "-1", "1.5", "true", "forever", "9" * 30])
+@pytest.mark.parametrize(
+    "raw", ["0", "-1", "1.5", "true", "forever", "31536001", "1000000000000000", "9" * 30]
+)
 def test_invalid_ini_retry_window_is_rejected(custom_ini, raw):
     custom_ini(f"[temporal.worker]\nfailed_stage_retry_timeout_seconds={raw}\n")
     with pytest.raises(ValueError):

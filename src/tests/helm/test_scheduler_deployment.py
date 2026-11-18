@@ -306,7 +306,12 @@ def _retry_window_values_file(tmp_path: Path, value: str) -> str:
 )
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("1209600", "1209600"), ("1209600.0", "1209600"), ("10000000", "10000000")],
+    [
+        ("1209600", "1209600"),
+        ("1209600.0", "1209600"),
+        ("10000000", "10000000"),
+        ("31536000", "31536000"),
+    ],
 )
 def test_values_file_retry_window_renders_decimal_seconds(
     tmp_path: Path, secret_method: str, template: str, value: str, expected: str
@@ -327,6 +332,33 @@ def test_values_file_retry_window_rejects_non_positive_integers(tmp_path: Path, 
     result = subprocess.run(command, check=False, capture_output=True, text=True)
     assert result.returncode != 0
     assert "failedStageRetryTimeoutSeconds must be a positive integer" in result.stderr
+
+
+_TOO_LARGE = "failedStageRetryTimeoutSeconds must not exceed 31536000 seconds (365 days)"
+
+
+@pytest.mark.parametrize("value", ["31536001", "1000000000000000"])
+def test_values_file_retry_window_rejects_more_than_365_days(tmp_path: Path, value: str) -> None:
+    command = _helm_command(extra_values=(_retry_window_values_file(tmp_path, value),))
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert _TOO_LARGE in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("set_args", "set_string_args"),
+    [
+        (("temporal.configManagerWorker.failedStageRetryTimeoutSeconds=31536001",), ()),
+        ((), ("temporal.configManagerWorker.failedStageRetryTimeoutSeconds=" + "9" * 30,)),
+    ],
+)
+def test_set_retry_window_rejects_more_than_365_days(
+    set_args: tuple[str, ...], set_string_args: tuple[str, ...]
+) -> None:
+    command = _helm_command(*set_args, set_string_args=set_string_args)
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert _TOO_LARGE in result.stderr
 
 
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:

@@ -35,6 +35,8 @@ _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Z
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
 _RESERVED_CUSTOM_LABEL_PREFIXES = ("app.kubernetes.io/", "helm.sh/")
+# 365 days; mirrors MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS (workflows package is not a dependency).
+_MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS = 31_536_000
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -565,7 +567,9 @@ class TemporalDeploymentConfig(BaseModel):
 
     history_replicas: int = Field(default=0, ge=0)
     num_history_shards: int = Field(default=0, ge=0)
-    failed_stage_retry_timeout_seconds: int = Field(default=0, ge=0)
+    failed_stage_retry_timeout_seconds: int = Field(
+        default=0, ge=0, le=_MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
+    )
 
 
 class RedfishVendorCreds(BaseModel):

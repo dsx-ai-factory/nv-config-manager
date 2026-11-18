@@ -122,7 +122,7 @@ def stage_executor(stage_name: str, *, name_attribute: str | None = None) -> Cal
                         except TimeoutError:
                             raise StageRuntimeFailure(
                                 f"Stage {effective_stage_name} failed and was not retried "
-                                f"within {retry_timeout.total_seconds():g} seconds; "
+                                f"within {int(retry_timeout.total_seconds())} seconds; "
                                 "closing the workflow as failed.",
                                 type="StageRetryTimeout",
                                 non_retryable=True,

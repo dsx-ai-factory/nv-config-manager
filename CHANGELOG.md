@@ -25,7 +25,7 @@ version before the selected release candidate is promoted.
   [Render service](docs/render/render-service.mdx).
 - Helm `temporal.configManagerWorker.failedStageRetryTimeoutSeconds` configures
   the failed-stage manual retry window in positive integer seconds (default
-  10800). It is rendered for every secrets method and recorded in new workflow
+  10800, maximum 31536000, or 365 days). It is rendered for every secrets method and recorded in new workflow
   histories and schedule actions so replay and child runs keep their original
   value across worker restarts and later configuration changes. Installer
   deployments set it with `temporal.failed_stage_retry_timeout_seconds` in

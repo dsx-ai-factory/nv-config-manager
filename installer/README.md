@@ -892,7 +892,8 @@ migration.
 
 `temporal.failed_stage_retry_timeout_seconds` sets how long a failed, retryable
 workflow stage waits for a manual retry before the workflow closes as Failed.
-Omit it or set it to `0` to keep the three-hour chart default. Unlike the sizing
+Omit it or set it to `0` to keep the three-hour chart default; the maximum is
+`31536000` (365 days). Unlike the sizing
 fields, it also applies when Temporal is external:
 
 ```yaml

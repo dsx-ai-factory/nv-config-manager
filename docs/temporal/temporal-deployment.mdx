@@ -122,7 +122,8 @@ temporal:
     failedStageRetryTimeoutSeconds: 7200
 ```
 
-The value must be a positive integer in seconds; zero does not disable the cap.
+The value must be a positive integer in seconds, up to 31536000 (365 days); zero
+does not disable the cap.
 It is written to `[temporal.worker].failed_stage_retry_timeout_seconds` in the unified
 INI for Kubernetes Secrets, ESO, and Vault Agent deployments. Configuration errors
 are rejected rather than silently disabling the cap.

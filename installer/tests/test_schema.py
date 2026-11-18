@@ -235,6 +235,15 @@ class TestNVConfigManagerInstallConfig:
         with pytest.raises(ValueError, match="greater than or equal to 0"):
             TemporalDeploymentConfig(**{field: -1})
 
+    def test_failed_stage_retry_window_accepts_up_to_365_days(self) -> None:
+        config = TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=31_536_000)
+
+        assert config.failed_stage_retry_timeout_seconds == 31_536_000
+
+    def test_failed_stage_retry_window_rejects_more_than_365_days(self) -> None:
+        with pytest.raises(ValueError, match="less than or equal to 31536000"):
+            TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=31_536_001)
+
     @pytest.mark.parametrize(
         "config",
         [
