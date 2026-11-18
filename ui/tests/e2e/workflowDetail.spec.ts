@@ -362,9 +362,11 @@ test.describe("Workflow Detail Page", () => {
   }) => {
     const workflowId = "closed-before-retry";
     let status = "RUNNING";
-    let retryCalled = false;
+    let conflictAt = 0;
+    const fetchedAt: number[] = [];
 
     await page.route(`**/v1/workflow/${workflowId}`, async (route) => {
+      fetchedAt.push(Date.now());
       await route.fulfill({
         status: 200,
         json: createWorkflowWithStage({
@@ -379,7 +381,7 @@ test.describe("Workflow Detail Page", () => {
     await page.route(
       `**/v1/workflow/${workflowId}/retry/apply_config`,
       async (route) => {
-        retryCalled = true;
+        conflictAt = Date.now();
         // The retry window expired after the page loaded.
         status = "FAILED";
         await route.fulfill({
@@ -395,7 +397,13 @@ test.describe("Workflow Detail Page", () => {
     await page.goto(`/workflows/${workflowId}`);
     await page.getByRole("button", { name: "Retry" }).click();
 
-    await expect.poll(() => retryCalled).toBe(true);
+    await expect.poll(() => conflictAt).toBeGreaterThan(0);
+    await expect
+      .poll(() => fetchedAt.some((time) => time > conflictAt), { timeout: 1000 })
+      .toBe(true);
+    const previousFetch = Math.max(...fetchedAt.filter((time) => time <= conflictAt));
+    const refetch = fetchedAt.find((time) => time > conflictAt)!;
+    expect(refetch - previousFetch).toBeLessThan(4000);
     await expect(
       page.getByText("Retry: Unavailable", { exact: true })
     ).toBeVisible();

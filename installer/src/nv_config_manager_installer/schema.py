@@ -28,7 +28,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
@@ -567,7 +574,7 @@ class TemporalDeploymentConfig(BaseModel):
 
     history_replicas: int = Field(default=0, ge=0)
     num_history_shards: int = Field(default=0, ge=0)
-    failed_stage_retry_timeout_seconds: int = Field(
+    failed_stage_retry_timeout_seconds: StrictInt = Field(
         default=0, ge=0, le=_MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
     )
 

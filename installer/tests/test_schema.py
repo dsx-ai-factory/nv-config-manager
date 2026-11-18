@@ -244,6 +244,17 @@ class TestNVConfigManagerInstallConfig:
         with pytest.raises(ValueError, match="less than or equal to 31536000"):
             TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=31_536_001)
 
+    @pytest.mark.parametrize("raw", ["yes", "on", "true", "no", "'7200'", "7200.0"])
+    def test_failed_stage_retry_window_rejects_non_integer_yaml(
+        self, tmp_path: Path, raw: str
+    ) -> None:
+        """YAML booleans would otherwise become a 1-second window."""
+        path = tmp_path / "config.yaml"
+        path.write_text(f"temporal:\n  failed_stage_retry_timeout_seconds: {raw}\n")
+
+        with pytest.raises(ValueError, match="valid integer"):
+            NVConfigManagerInstallConfig.from_yaml(path)
+
     @pytest.mark.parametrize(
         "config",
         [
