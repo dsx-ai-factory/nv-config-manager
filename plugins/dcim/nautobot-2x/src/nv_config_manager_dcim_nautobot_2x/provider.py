@@ -325,7 +325,10 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             },
         )
         self._public_url = (public_url or nautobot_url).rstrip("/")
-        self._cable_interfaces: dict[str, asyncio.Task[_CableInterfaceIndex]] = {}
+        self._cable_interfaces: dict[
+            tuple[str, tuple[str, ...]], asyncio.Task[_CableInterfaceIndex]
+        ] = {}
+        self._cable_update_names: dict[str, tuple[str, ...]] = {}
 
     async def close(self) -> None:
         """Release the session and device lookups scoped to this client."""
@@ -334,6 +337,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 lookup.cancel()
         await asyncio.gather(*self._cable_interfaces.values(), return_exceptions=True)
         self._cable_interfaces.clear()
+        self._cable_update_names.clear()
         await super().close()
 
     @classmethod
@@ -938,26 +942,38 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
     ) -> None:
         """Load the device's interface-to-cable mapping before bounded updates."""
         names = tuple(sorted(set(interface_names)))
+        self._cable_update_names[device_id] = names
+        preview = repr(list(names[:3]))[:200]
+        if len(names) > 3:
+            preview += "..."
         message = (
-            f"Unable to look up interfaces {list(names)!r} on device '{device_id}' "
+            f"Unable to look up {len(names)} interfaces {preview} on device '{device_id}' "
             "for cable status updates"
         )
         with _cable_status_error_context(message):
-            await self._cable_interface_index(device_id)
+            await self._cable_interface_index(device_id, names)
 
-    async def _cable_interface_index(self, device_id: str) -> _CableInterfaceIndex:
-        """Share one GraphQL interface mapping per device for this client context."""
-        if device_id not in self._cable_interfaces:
+    async def _cable_interface_index(
+        self, device_id: str, interface_names: tuple[str, ...]
+    ) -> _CableInterfaceIndex:
+        """Share one GraphQL mapping for the requested device and interface names."""
+        key = (device_id, interface_names)
+        if key not in self._cable_interfaces:
             # Share failures too, so an unavailable endpoint is not retried once
             # per interface. The next activity gets a fresh client and lookup.
-            self._cable_interfaces[device_id] = asyncio.create_task(
-                self._load_cable_interface_index(device_id)
+            self._cable_interfaces[key] = asyncio.create_task(
+                self._load_cable_interface_index(device_id, interface_names)
             )
-        return await asyncio.shield(self._cable_interfaces[device_id])
+        return await asyncio.shield(self._cable_interfaces[key])
 
-    async def _load_cable_interface_index(self, device_id: str) -> _CableInterfaceIndex:
+    async def _load_cable_interface_index(
+        self, device_id: str, interface_names: tuple[str, ...]
+    ) -> _CableInterfaceIndex:
+        if not interface_names:
+            return _CableInterfaceIndex(by_name={}, has_malformed_records=False)
         response = await self.graphql_query(
-            _CABLE_STATUS_INTERFACES_QUERY, {"device_id": [device_id]}
+            _CABLE_STATUS_INTERFACES_QUERY,
+            {"device_id": [device_id], "names": list(interface_names)},
         )
         data = response.get("data") if isinstance(response, Mapping) else None
         invalid_data_message = (
@@ -999,7 +1015,10 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             f"on device '{update.device_id}'"
         )
         with _cable_status_error_context(message):
-            index = await self._cable_interface_index(update.device_id)
+            names = self._cable_update_names.get(update.device_id, ())
+            if update.interface_name not in names:
+                names = (update.interface_name,)
+            index = await self._cable_interface_index(update.device_id, names)
             interfaces = index.by_name.get(update.interface_name, [])
             if not interfaces:
                 if index.has_malformed_records:

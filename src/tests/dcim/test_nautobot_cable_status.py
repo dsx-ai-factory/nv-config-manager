@@ -99,7 +99,8 @@ async def test_update_cable_status_patches_attached_cable() -> None:
     await client.update_cable_status(_update())
 
     client.graphql_query.assert_awaited_once_with(
-        _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
+        _CABLE_STATUS_INTERFACES_QUERY,
+        {"device_id": ["device-1"], "names": ["Ethernet1/1"]},
     )
     assert sum(call.args[0] == "extras/notes/" for call in client.get.await_args_list) == 1
     client.patch.assert_awaited_once_with(
@@ -277,11 +278,15 @@ async def test_close_cancels_an_incomplete_interface_lookup() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cable_snapshot_is_shared_across_different_interface_updates() -> None:
+async def test_prepared_names_share_a_lookup_and_other_names_get_their_own() -> None:
     client = _client()
     client.graphql_query = AsyncMock(
-        return_value=_snapshot([_interface(), _interface("Ethernet1/2", "cable-2")])
+        side_effect=[
+            _snapshot([_interface(), _interface("Ethernet1/2", "cable-2")]),
+            _snapshot([_interface("Ethernet1/3", "cable-3")]),
+        ]
     )
+    await client._prepare_cable_status_updates("device-1", ["Ethernet1/1", "Ethernet1/2"])
     await client.update_cable_status(
         CableStatusUpdate(
             device_id="device-1",
@@ -292,9 +297,23 @@ async def test_cable_snapshot_is_shared_across_different_interface_updates() -> 
     )
     await client.update_cable_status(_update(CableStatus.CONNECTED))
     client.graphql_query.assert_awaited_once_with(
-        _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
+        _CABLE_STATUS_INTERFACES_QUERY,
+        {"device_id": ["device-1"], "names": ["Ethernet1/1", "Ethernet1/2"]},
     )
     assert client.get.await_count == 2
+    await client.update_cable_status(
+        CableStatusUpdate(
+            device_id="device-1",
+            interface_name="Ethernet1/3",
+            status=CableStatus.CONNECTED,
+            workflow_id="validation-1",
+        )
+    )
+    assert client.graphql_query.await_count == 2
+    client.graphql_query.assert_awaited_with(
+        _CABLE_STATUS_INTERFACES_QUERY,
+        {"device_id": ["device-1"], "names": ["Ethernet1/3"]},
+    )
     await client.close()
 
 
@@ -441,19 +460,25 @@ async def test_cached_invalid_interface_raises_a_fresh_exception_each_time() -> 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("requested_count", [3, 500])
 async def test_large_inventory_uses_one_snapshot_and_only_writes_requested_interfaces(
     monkeypatch: pytest.MonkeyPatch,
+    requested_count: int,
 ) -> None:
     inventory = {
         f"Ethernet1/{index}": _interface(f"Ethernet1/{index}", f"cable-{index}")
         for index in range(2000)
     }
-    requested = list(inventory)[:500]
+    requested = list(inventory)[:requested_count]
     clients: list[NautobotDCIMClient] = []
+
+    async def lookup(query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        assert variables == {"device_id": ["device-1"], "names": sorted(requested)}
+        return _snapshot([inventory[name] for name in variables["names"]])
 
     def create_client() -> NautobotDCIMClient:
         client = _client()
-        client.graphql_query = AsyncMock(return_value=_snapshot(list(inventory.values())))
+        client.graphql_query = AsyncMock(side_effect=lookup)
         client.patch = AsyncMock()
         client.post = AsyncMock()
         clients.append(client)
@@ -471,19 +496,39 @@ async def test_large_inventory_uses_one_snapshot_and_only_writes_requested_inter
         )
     )
 
-    assert sum(client.patch.await_count for client in clients) == 500
+    assert sum(client.patch.await_count for client in clients) == requested_count
     assert len(clients) == 1
     clients[0].graphql_query.assert_awaited_once_with(
-        _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
+        _CABLE_STATUS_INTERFACES_QUERY,
+        {"device_id": ["device-1"], "names": sorted(requested)},
     )
     assert {call.args[0] for call in clients[0].patch.await_args_list} == {
-        f"dcim/cables/cable-{index}/" for index in range(500)
+        f"dcim/cables/cable-{index}/" for index in range(requested_count)
     }
-    assert sum(call.args[0] == "extras/notes/" for call in clients[0].get.await_args_list) == 500
+    assert (
+        sum(call.args[0] == "extras/notes/" for call in clients[0].get.await_args_list)
+        == requested_count
+    )
     assert (
         sum(call.args[0].startswith("dcim/cables/") for call in clients[0].get.await_args_list)
-        == 500
+        == requested_count
     )
+
+
+@pytest.mark.asyncio
+async def test_large_lookup_error_keeps_target_summary_bounded() -> None:
+    client = _client()
+    client.graphql_query = AsyncMock(
+        side_effect=NautobotException("upstream unavailable", status_code=500)
+    )
+    names = [f"Ethernet1/{index}" for index in range(500)]
+    async with client:
+        with pytest.raises(NautobotException) as raised:
+            await client._prepare_cable_status_updates("device-1", names)
+    message = str(raised.value)
+    assert "500 interfaces" in message and "device-1" in message
+    assert "Ethernet1/0" in message and "Ethernet1/499" not in message
+    assert len(message) < 512
 
 
 @pytest.mark.asyncio

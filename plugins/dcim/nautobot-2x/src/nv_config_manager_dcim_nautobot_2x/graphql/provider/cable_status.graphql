@@ -1,12 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-query GetCableStatusInterfaces($device_id: [String]) {
+query GetCableStatusInterfaces($device_id: [String], $names: [String]!) {
   devices(id: $device_id) {
     id
   }
   # Preserve the REST filter's module and virtual-chassis interface scope.
-  interfaces(device_id: $device_id) {
+  interfaces(device_id: $device_id, name: $names) {
     name
     cable {
       id

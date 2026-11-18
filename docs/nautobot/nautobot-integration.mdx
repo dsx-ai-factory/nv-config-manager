@@ -121,8 +121,8 @@ curl -X POST https://nautobot.config-manager.example.com/api/graphql/ \
 ## Cable-Status Persistence
 
 The Nautobot DCIM plugin saves cable-validation changes with at most two
-concurrent updates. One GraphQL query per device loads its interfaces and
-attached cable IDs before the updates start.
+concurrent updates. One GraphQL query per device loads only the requested
+interfaces and their attached cable IDs before the updates start.
 Valid interface matches are saved even when another record is malformed;
 unresolved targets report an invalid-data error.
 
