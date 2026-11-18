@@ -279,12 +279,31 @@ def test_worker_limit_change_rolls_the_worker_pods(secret_method: str, override:
     assert checksum() != checksum(override)
 
 
-@pytest.mark.parametrize("value", ["0", "-1", "1.5", "true", "null"])
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "true"])
 def test_failed_stage_retry_window_requires_positive_integer(value: str) -> None:
     command = _helm_command(f"temporal.configManagerWorker.failedStageRetryTimeoutSeconds={value}")
     result = subprocess.run(command, check=False, capture_output=True, text=True)
     assert result.returncode != 0
     assert "failedStageRetryTimeoutSeconds must be a positive integer" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+def test_missing_retry_window_renders_the_default(secret_method: str, template: str) -> None:
+    """helm upgrade --reuse-values from an older release has no key; null removes it here."""
+    rendered = _render(
+        f"secrets.method={secret_method}",
+        "temporal.configManagerWorker.failedStageRetryTimeoutSeconds=null",
+        templates=(template, _TEMPORAL_TEMPLATE),
+    )
+
+    assert "failed_stage_retry_timeout_seconds = 10800\n" in rendered
 
 
 def _retry_window_values_file(tmp_path: Path, value: str) -> str:

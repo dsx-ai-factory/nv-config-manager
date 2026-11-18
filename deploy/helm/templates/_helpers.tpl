@@ -1,6 +1,13 @@
 {{- define "nv-config-manager.failedStageRetryTimeoutSeconds" -}}
 {{- $seconds := .Values.temporal.configManagerWorker.failedStageRetryTimeoutSeconds -}}
 {{- /*
+Missing or null, e.g. after helm upgrade --reuse-values from a release that predates
+this key: use the three-hour default, as the services do for an unset INI value.
+*/ -}}
+{{- if kindIs "invalid" $seconds -}}
+{{- $seconds = 10800 -}}
+{{- end -}}
+{{- /*
 Values files decode numbers as float64, which toString renders in exponent form
 from 1e+06 upward. Convert whole floats within the exactly representable integer
 range (2^53) to int64 so they render as decimal digits; fractional and larger

@@ -93,7 +93,7 @@ The rendered intended configuration is malformed for this device. Do not retry â
 
 **Apply succeeded but `perform_backup` failed.**
 
-The device is configured; only the post-deploy backup is missing. Run [Configuration Backup](../configuration-backup/index.mdx) against the device once the underlying issue is resolved.
+The device is configured; only the post-deploy backup is missing. The workflow waits at the failed `perform_backup` stage: resolve the underlying issue, then retry the stage to start a new backup. If the stage is not retried within the [failed-stage retry window](../workflow-lifecycle/index.mdx#retry) (three hours by default), the workflow closes as **Failed** even though the configuration was applied. You do not need to re-run the deploy; run [Configuration Backup](../configuration-backup/index.mdx) against the device instead.
 
 **Workflow refuses to start because the device is deploy-disabled.**
 

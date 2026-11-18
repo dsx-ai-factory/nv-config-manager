@@ -66,7 +66,9 @@ After all three stages complete, the workflow archives its results and returns t
 Backups with a `SCHEDULED` or `SYSLOG` trigger fail after their activity retries
 are exhausted instead of waiting for a manual retry signal. API and child
 workflow invocations retain interactive retry behavior unless the caller sets
-`terminate_on_failure: true`.
+`terminate_on_failure: true`. That retry is available within the
+[failed-stage retry window](../workflow-lifecycle/index.mdx#retry) (three hours by
+default); a child backup's own run timeout can end it sooner.
 
 Runs started before this change retain their previous wait-for-retry behavior
 unless `terminate_on_failure` was explicitly enabled. Upgrading workers does
