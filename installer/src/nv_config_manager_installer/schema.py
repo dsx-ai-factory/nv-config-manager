@@ -28,13 +28,22 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
 _RESERVED_CUSTOM_LABEL_PREFIXES = ("app.kubernetes.io/", "helm.sh/")
+# 365 days; mirrors MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS (workflows package is not a dependency).
+_MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS = 31_536_000
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -555,10 +564,19 @@ class ServicesConfig(BaseModel):
 
 
 class TemporalDeploymentConfig(BaseModel):
-    """Optional sizing for the installer-managed Temporal server."""
+    """Optional Temporal deployment overrides.
+
+    ``history_replicas`` and ``num_history_shards`` size the installer-managed
+    Temporal server. ``failed_stage_retry_timeout_seconds`` sets the workflow
+    failed-stage manual retry window and applies with managed or external Temporal.
+    Zero leaves each value at the chart default.
+    """
 
     history_replicas: int = Field(default=0, ge=0)
     num_history_shards: int = Field(default=0, ge=0)
+    failed_stage_retry_timeout_seconds: StrictInt = Field(
+        default=0, ge=0, le=_MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
+    )
 
 
 class RedfishVendorCreds(BaseModel):
@@ -1283,7 +1301,12 @@ def _prune_services(services: dict[str, Any]) -> None:
 
 def _prune_temporal(data: dict[str, Any]) -> None:
     temporal = _as_dict(data.get("temporal"))
+    if not temporal.get("failed_stage_retry_timeout_seconds"):
+        temporal.pop("failed_stage_retry_timeout_seconds", None)
     if not temporal.get("history_replicas") and not temporal.get("num_history_shards"):
+        temporal.pop("history_replicas", None)
+        temporal.pop("num_history_shards", None)
+    if not temporal:
         data.pop("temporal", None)
 
 
