@@ -204,7 +204,33 @@ class TestNVConfigManagerInstallConfig:
             "num_history_shards": 128,
         }
 
-    @pytest.mark.parametrize("field", ["history_replicas", "num_history_shards"])
+    def test_failed_stage_retry_window_yaml_roundtrip_without_sizing(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200)
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.temporal.failed_stage_retry_timeout_seconds == 7200
+        assert yaml.safe_load(path.read_text())["temporal"] == {
+            "failed_stage_retry_timeout_seconds": 7200,
+        }
+
+    def test_failed_stage_retry_window_is_allowed_with_external_temporal(self) -> None:
+        config = NVConfigManagerInstallConfig(
+            external_services=ExternalServicesConfig(
+                temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+            ),
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200),
+        )
+
+        assert config.temporal.failed_stage_retry_timeout_seconds == 7200
+
+    @pytest.mark.parametrize(
+        "field", ["history_replicas", "num_history_shards", "failed_stage_retry_timeout_seconds"]
+    )
     def test_temporal_deployment_rejects_negative_values(self, field: str) -> None:
         with pytest.raises(ValueError, match="greater than or equal to 0"):
             TemporalDeploymentConfig(**{field: -1})

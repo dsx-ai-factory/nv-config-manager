@@ -888,6 +888,22 @@ shards from replicas, confirm and pin its persisted shard count before changing
 `history_replicas`. Changing the persisted count requires a separate-cluster
 migration.
 
+### Failed-Stage Retry Window
+
+`temporal.failed_stage_retry_timeout_seconds` sets how long a failed, retryable
+workflow stage waits for a manual retry before the workflow closes as Failed.
+Omit it or set it to `0` to keep the three-hour chart default. Unlike the sizing
+fields, it also applies when Temporal is external:
+
+```yaml
+temporal:
+  failed_stage_retry_timeout_seconds: 7200 # Two hours
+```
+
+The installer maps it to the Helm value
+`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`. See
+[Failed-stage retry window](../docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
+
 ### File Storage Example (on-prem with OS images)
 
 ```yaml

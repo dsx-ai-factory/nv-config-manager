@@ -555,10 +555,17 @@ class ServicesConfig(BaseModel):
 
 
 class TemporalDeploymentConfig(BaseModel):
-    """Optional sizing for the installer-managed Temporal server."""
+    """Optional Temporal deployment overrides.
+
+    ``history_replicas`` and ``num_history_shards`` size the installer-managed
+    Temporal server. ``failed_stage_retry_timeout_seconds`` sets the workflow
+    failed-stage manual retry window and applies with managed or external Temporal.
+    Zero leaves each value at the chart default.
+    """
 
     history_replicas: int = Field(default=0, ge=0)
     num_history_shards: int = Field(default=0, ge=0)
+    failed_stage_retry_timeout_seconds: int = Field(default=0, ge=0)
 
 
 class RedfishVendorCreds(BaseModel):
@@ -1283,7 +1290,12 @@ def _prune_services(services: dict[str, Any]) -> None:
 
 def _prune_temporal(data: dict[str, Any]) -> None:
     temporal = _as_dict(data.get("temporal"))
+    if not temporal.get("failed_stage_retry_timeout_seconds"):
+        temporal.pop("failed_stage_retry_timeout_seconds", None)
     if not temporal.get("history_replicas") and not temporal.get("num_history_shards"):
+        temporal.pop("history_replicas", None)
+        temporal.pop("num_history_shards", None)
+    if not temporal:
         data.pop("temporal", None)
 
 

@@ -27,8 +27,9 @@ version before the selected release candidate is promoted.
   the failed-stage manual retry window in positive integer seconds (default
   10800). It is rendered for every secrets method and recorded in new workflow
   histories and schedule actions so replay and child runs keep their original
-  value across worker restarts and later configuration changes. The installer
-  does not expose it; set it as a Helm values override. See
+  value across worker restarts and later configuration changes. Installer
+  deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
+  `nv-config-manager-install.yaml`. See
   [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 
 - Retryable failed workflow stages now wait at most three hours for a manual
