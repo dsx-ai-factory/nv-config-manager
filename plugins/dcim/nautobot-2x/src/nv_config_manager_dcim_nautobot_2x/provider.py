@@ -21,7 +21,6 @@ import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from itertools import batched
 from typing import Any, Self, TypedDict
 from uuid import UUID
 
@@ -278,7 +277,7 @@ def _metadata_from_nautobot_graphql(data: dict[str, Any]) -> DeviceMetadata:
 
 @contextmanager
 def _cable_status_error_context(message: str) -> Iterator[None]:
-    """Translate write and batch-lookup failures with the affected targets."""
+    """Translate write and lookup failures with the affected targets."""
     try:
         yield
     except NautobotException as exc:
@@ -293,13 +292,12 @@ def _cable_status_error_context(message: str) -> Iterator[None]:
 
 @dataclass
 class _CableInterfaceIndex:
-    """A device snapshot that retains malformed-record information for missing targets."""
+    """Device interface mappings with malformed-record information for missing targets."""
 
     by_name: dict[str, list[Mapping[str, Any]]]
     has_malformed_records: bool
 
 
-_CABLE_STATUS_BATCH_SIZE = 25
 _CABLE_STATUS_CONCURRENCY = 2
 
 
@@ -328,7 +326,6 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         )
         self._public_url = (public_url or nautobot_url).rstrip("/")
         self._cable_interfaces: dict[str, asyncio.Task[_CableInterfaceIndex]] = {}
-        self._cable_statuses: dict[str, str] = {}
 
     async def close(self) -> None:
         """Release the session and device lookups scoped to this client."""
@@ -337,7 +334,6 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 lookup.cancel()
         await asyncio.gather(*self._cable_interfaces.values(), return_exceptions=True)
         self._cable_interfaces.clear()
-        self._cable_statuses.clear()
         await super().close()
 
     @classmethod
@@ -906,7 +902,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         )
 
     async def update_cable_statuses(self, updates: Sequence[CableStatusUpdate]) -> None:
-        """Persist the full change set with Nautobot-specific lookup and write limits."""
+        """Persist the full change set with a shared lookup and bounded concurrency."""
         devices: dict[str, list[CableStatusUpdate]] = {}
         for update in updates:
             devices.setdefault(update.device_id, []).append(update)
@@ -923,25 +919,24 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                     device_id, [update.interface_name for update in device_updates]
                 )
             except Exception as error:
-                # A failed device snapshot affects every batch, so load it only once.
+                # A failed device lookup affects every target, so load it only once.
                 errors.append(error)
                 continue
-            for batch in batched(device_updates, _CABLE_STATUS_BATCH_SIZE, strict=False):
-                results = await asyncio.gather(
-                    *(update_one(update) for update in batch), return_exceptions=True
-                )
-                for result in results:
-                    if isinstance(result, asyncio.CancelledError):
-                        raise result
-                    if isinstance(result, Exception):
-                        errors.append(result)
+            results = await asyncio.gather(
+                *(update_one(update) for update in device_updates), return_exceptions=True
+            )
+            for result in results:
+                if isinstance(result, asyncio.CancelledError):
+                    raise result
+                if isinstance(result, Exception):
+                    errors.append(result)
         if errors:
             raise errors[0]
 
     async def _prepare_cable_status_updates(
         self, device_id: str, interface_names: Sequence[str]
     ) -> None:
-        """Load the device's interface and cable-status snapshot before write batches."""
+        """Load the device's interface-to-cable mapping before bounded updates."""
         names = tuple(sorted(set(interface_names)))
         message = (
             f"Unable to look up interfaces {list(names)!r} on device '{device_id}' "
@@ -951,7 +946,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             await self._cable_interface_index(device_id)
 
     async def _cable_interface_index(self, device_id: str) -> _CableInterfaceIndex:
-        """Share one GraphQL snapshot per device for this client context."""
+        """Share one GraphQL interface mapping per device for this client context."""
         if device_id not in self._cable_interfaces:
             # Share failures too, so an unavailable endpoint is not retried once
             # per interface. The next activity gets a fresh client and lookup.
@@ -993,15 +988,6 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 index.has_malformed_records = True
                 continue
             index.by_name.setdefault(name, []).append(interface)
-            cable = interface.get("cable")
-            status = cable.get("status") if isinstance(cable, Mapping) else None
-            if (
-                isinstance(cable, Mapping)
-                and cable.get("id")
-                and isinstance(status, Mapping)
-                and isinstance(status.get("name"), str)
-            ):
-                self._cable_statuses[str(cable["id"])] = status["name"]
         if index.has_malformed_records:
             logger.warning("Nautobot returned malformed interface records for device %s", device_id)
         return index
@@ -1040,7 +1026,8 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 )
 
             cable_id = str(cable_reference["id"])
-            current_status = cable_reference.get("status")
+            cable = await self.get(f"dcim/cables/{cable_id}/", params={"depth": 1})
+            current_status = cable.get("status") if isinstance(cable, Mapping) else None
             if not isinstance(current_status, Mapping) or not isinstance(
                 current_status_name := current_status.get("name"), str
             ):
@@ -1048,7 +1035,6 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                     f"Nautobot returned invalid cable status for interface "
                     f"'{update.interface_name}' on device '{update.device_id}'"
                 )
-            current_status_name = self._cable_statuses.get(cable_id, current_status_name)
             if current_status_name == update.status.value:
                 return
 
@@ -1056,7 +1042,6 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 f"dcim/cables/{cable_id}/",
                 {"status": update.status.value},
             )
-            self._cable_statuses[cable_id] = update.status.value
 
             note = (
                 f"Cable validation workflow {update.workflow_id} "

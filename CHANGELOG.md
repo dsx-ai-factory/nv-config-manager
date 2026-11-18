@@ -12,10 +12,10 @@ version before the selected release candidate is promoted.
 
 - Cable-status persistence now passes each device's full change set to bulk-capable
   DCIM providers, which control their write strategy. The Nautobot plugin uses
-  batches of up to 25 interfaces, two concurrent updates, and one GraphQL snapshot
-  of interfaces and cable statuses per device, replacing per-batch interface
-  lookups and individual cable reads. Malformed records do not prevent valid
-  matches in other batches from being saved. The full-device activity timeout increases from
+  two concurrent updates and one GraphQL interface-to-cable lookup per device,
+  replacing per-batch REST interface lookups. Cable statuses are read live before
+  deciding to skip or write each update. Malformed records do not prevent valid
+  matches from being saved. The full-device activity timeout increases from
   fifteen minutes to one hour per attempt, with up to three attempts in total;
   single-update providers remain supported.
   Persistence sends background heartbeats with a two-minute heartbeat timeout

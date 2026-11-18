@@ -41,8 +41,18 @@ from nv_config_manager_workflows.activities.cable_validation import (
 )
 
 
+def _rest_read(path: str, **kwargs: Any) -> dict[str, Any]:
+    if path.startswith("dcim/cables/"):
+        return {"status": {"name": "Connected"}}
+    if path == "extras/notes/":
+        return {"results": []}
+    raise AssertionError(f"Unexpected REST request: {path}")
+
+
 def _client() -> NautobotDCIMClient:
-    return NautobotDCIMClient("https://nautobot.example", "token")
+    client = NautobotDCIMClient("https://nautobot.example", "token")
+    client.get = AsyncMock(side_effect=_rest_read)
+    return client
 
 
 def _interface(
@@ -68,8 +78,21 @@ def _update(status: CableStatus = CableStatus.INVALID) -> CableStatusUpdate:
 async def test_update_cable_status_patches_attached_cable() -> None:
     client = _client()
     client.graphql_query = AsyncMock(return_value=_snapshot([_interface()]))
-    client.get = AsyncMock(return_value={"results": []})
-    client.patch = AsyncMock()
+    current_status = "Connected"
+
+    def read(path: str, **kwargs: Any) -> dict[str, Any]:
+        return (
+            {"status": {"name": current_status}}
+            if path.startswith("dcim/cables/")
+            else _rest_read(path, **kwargs)
+        )
+
+    async def patch(path: str, data: dict[str, Any]) -> None:
+        nonlocal current_status
+        current_status = data["status"]
+
+    client.get = AsyncMock(side_effect=read)
+    client.patch = AsyncMock(side_effect=patch)
     client.post = AsyncMock()
 
     await client.update_cable_status(_update())
@@ -78,7 +101,7 @@ async def test_update_cable_status_patches_attached_cable() -> None:
     client.graphql_query.assert_awaited_once_with(
         _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
     )
-    assert all(call.args[0] == "extras/notes/" for call in client.get.await_args_list)
+    assert sum(call.args[0] == "extras/notes/" for call in client.get.await_args_list) == 1
     client.patch.assert_awaited_once_with(
         "dcim/cables/cable-1/",
         {"status": "Invalid"},
@@ -91,8 +114,7 @@ async def test_update_cable_status_patches_attached_cable() -> None:
             "note": "Cable validation workflow cable-validation-1 set status to Invalid.",
         },
     )
-    # Returning to the original status must use the result of our first write,
-    # rather than incorrectly treating the prefetched status as still current.
+    # Returning to the original status must use the live result of our first write.
     await client.update_cable_status(_update(CableStatus.CONNECTED))
     assert client.patch.await_count == 2
     client.patch.assert_awaited_with("dcim/cables/cable-1/", {"status": "Connected"})
@@ -101,18 +123,34 @@ async def test_update_cable_status_patches_attached_cable() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", list(CableStatus))
-async def test_unchanged_cable_status_skips_notes(status: CableStatus) -> None:
+@pytest.mark.parametrize("changed_after_lookup", [False, True])
+async def test_skipping_cable_status_updates_requires_a_live_match(
+    status: CableStatus, changed_after_lookup: bool
+) -> None:
     client = _client()
     client.graphql_query = AsyncMock(return_value=_snapshot([_interface(status=status.value)]))
-    client.get = AsyncMock()
+    live_status = (
+        next(item for item in CableStatus if item != status) if changed_after_lookup else status
+    )
+    client.get = AsyncMock(
+        side_effect=lambda path, **kwargs: (
+            {"status": {"name": live_status.value}}
+            if path.startswith("dcim/cables/")
+            else _rest_read(path, **kwargs)
+        )
+    )
     client.patch = AsyncMock()
     client.post = AsyncMock()
 
     await client.update_cable_status(_update(status))
 
-    client.patch.assert_not_awaited()
-    client.get.assert_not_awaited()
-    client.post.assert_not_awaited()
+    client.get.assert_any_await("dcim/cables/cable-1/", params={"depth": 1})
+    if changed_after_lookup:
+        client.patch.assert_awaited_once_with("dcim/cables/cable-1/", {"status": status.value})
+        client.post.assert_awaited_once()
+    else:
+        client.patch.assert_not_awaited()
+        client.post.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -145,7 +183,6 @@ async def test_concurrent_updates_share_interface_lookup_and_close_clears_it() -
         )
 
     client.graphql_query = AsyncMock(side_effect=lookup)
-    client.get = AsyncMock()
     async with client:
         preparation = asyncio.create_task(
             client._prepare_cable_status_updates(
@@ -169,7 +206,7 @@ async def test_concurrent_updates_share_interface_lookup_and_close_clears_it() -
         release.set()
         await asyncio.gather(preparation, *tasks)
     client.graphql_query.assert_awaited_once()
-    client.get.assert_not_awaited()
+    assert client.get.await_count == 20
 
     async with client:
         await client.update_cable_status(_update(CableStatus.CONNECTED))
@@ -245,7 +282,6 @@ async def test_cable_snapshot_is_shared_across_different_interface_updates() -> 
     client.graphql_query = AsyncMock(
         return_value=_snapshot([_interface(), _interface("Ethernet1/2", "cable-2")])
     )
-    client.get = AsyncMock()
     await client.update_cable_status(
         CableStatusUpdate(
             device_id="device-1",
@@ -258,7 +294,7 @@ async def test_cable_snapshot_is_shared_across_different_interface_updates() -> 
     client.graphql_query.assert_awaited_once_with(
         _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
     )
-    client.get.assert_not_awaited()
+    assert client.get.await_count == 2
     await client.close()
 
 
@@ -281,6 +317,7 @@ async def test_interface_lookup_preserves_validation_errors(
 ) -> None:
     client = _client()
     client.graphql_query = AsyncMock(return_value=_snapshot(interfaces))
+    client.get = AsyncMock(return_value={"status": None})
     with pytest.raises(error, match=message):
         await client.update_cable_status(_update())
 
@@ -361,7 +398,6 @@ async def test_batch_lookup_and_write_errors_retain_dcim_type_and_target_context
         side_effect=backend_error if during_lookup else None,
         return_value=_snapshot([_interface(), _interface("Ethernet1/2", "cable-2")]),
     )
-    client.get = AsyncMock()
     client.patch = AsyncMock(side_effect=backend_error)
     monkeypatch.setattr(
         "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
@@ -418,7 +454,6 @@ async def test_large_inventory_uses_one_snapshot_and_only_writes_requested_inter
     def create_client() -> NautobotDCIMClient:
         client = _client()
         client.graphql_query = AsyncMock(return_value=_snapshot(list(inventory.values())))
-        client.get = AsyncMock(return_value={"results": []})
         client.patch = AsyncMock()
         client.post = AsyncMock()
         clients.append(client)
@@ -444,7 +479,11 @@ async def test_large_inventory_uses_one_snapshot_and_only_writes_requested_inter
     assert {call.args[0] for call in clients[0].patch.await_args_list} == {
         f"dcim/cables/cable-{index}/" for index in range(500)
     }
-    assert all(call.args[0] == "extras/notes/" for call in clients[0].get.await_args_list)
+    assert sum(call.args[0] == "extras/notes/" for call in clients[0].get.await_args_list) == 500
+    assert (
+        sum(call.args[0].startswith("dcim/cables/") for call in clients[0].get.await_args_list)
+        == 500
+    )
 
 
 @pytest.mark.asyncio
@@ -482,7 +521,7 @@ async def test_nautobot_bulk_writes_bound_concurrency_in_the_plugin() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_status", [False, True])
-async def test_invalid_interface_does_not_prevent_later_nautobot_batches(
+async def test_invalid_interface_does_not_prevent_other_nautobot_updates(
     invalid_status: bool,
 ) -> None:
     client = _client()
@@ -493,7 +532,13 @@ async def test_invalid_interface_does_not_prevent_later_nautobot_batches(
         else {"id": "malformed"}
     )
     client.graphql_query = AsyncMock(return_value=_snapshot(interfaces))
-    client.get = AsyncMock(return_value={"results": []})
+    client.get = AsyncMock(
+        side_effect=lambda path, **kwargs: (
+            {"status": None}
+            if invalid_status and path == "dcim/cables/Ethernet1-0/"
+            else _rest_read(path, **kwargs)
+        )
+    )
     client.patch = AsyncMock()
     client.post = AsyncMock()
     async with client:
@@ -527,7 +572,6 @@ async def test_malformed_record_does_not_block_other_interface_writes(
     ]
 
     client.graphql_query = AsyncMock(return_value=_snapshot(interfaces))
-    client.get = AsyncMock(return_value={"results": []})
     client.patch = AsyncMock()
     client.post = AsyncMock()
     monkeypatch.setattr(
