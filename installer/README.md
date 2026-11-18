@@ -175,7 +175,10 @@ nvcm-installer deploy nv-config-manager-install.yaml \
 | `--populate-vault` / `--skip-vault-population` | populate | Populate missing ESO values, or use pre-provisioned Vault paths |
 | `--dry-run` | `false` | Generate values but skip Helm install |
 
-Prerequisite operator versions are read from `deploy/operator-versions.env`.
+Prerequisite operator versions are read from `deploy/operator-versions.env` in
+a source checkout or from an operator manifest alongside the chart. The
+standalone installer wheel also bundles that manifest, so it remains available
+when the installer and chart are staged separately.
 When `cluster.airgapped` is true, or the chart directory sits inside an
 airgapped bundle with sibling `charts/` and `manifests/` directories, the
 installer uses the local bundled artifacts.

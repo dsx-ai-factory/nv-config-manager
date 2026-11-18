@@ -11,6 +11,12 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 . "$SCRIPT_DIR/installer-packaging.sh"
 
 version="${1:?usage: create-installer.sh VERSION [OUTPUT_DIR]}"
+if command -v sha256sum >/dev/null 2>&1; then
+    checksum_command=(sha256sum)
+else
+    checksum_command=(shasum -a 256)
+fi
+command -v "${checksum_command[0]}" >/dev/null
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] || {
     echo "Expected a Docker-compatible semver version" >&2; exit 1;
 }
@@ -30,4 +36,4 @@ cp "$REPO_ROOT/installer/README.md" "$BUILD_DIR/installer/"
 name="nvcm-installer-${version}"
 mv "$BUILD_DIR/installer" "$BUILD_DIR/$name"
 tar -czf "$output/$name.tar.gz" -C "$BUILD_DIR" "$name"
-(cd "$output" && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+(cd "$output" && "${checksum_command[@]}" "$name.tar.gz" > "$name.tar.gz.sha256")
