@@ -407,12 +407,17 @@ Configure these variables on the internal mirror:
 
 | Variable | Purpose |
 | -------- | ------- |
-| `NVCM_CI_IMAGE_NGC` | Pinned CI image containing Bash and the NGC CLI |
+| `NVCM_CI_IMAGE_NGC` | Pinned CI image containing Bash, curl, and the NGC CLI |
 | `NVCM_INSTALLER_NGC_PATH` | Resource destination as `org/team` |
 | `NVCM_INSTALLER_NGC_RESOURCE` | Resource name; defaults to `nvcm-installer` |
 | `NVCM_INSTALLER_NGC_TOKEN_VAR` | Name of the masked/protected token variable |
 
 The upload retains versioned filenames and includes the checksum sidecar.
+The publisher reserves each version with an atomic NGC create request before
+uploading. Lookup errors and reservation conflicts fail closed, including an
+existing unfinished upload. A failed reservation or upload needs investigation;
+the job never deletes or resumes a version from an earlier attempt. NGC CLI
+4.8.2 was verified to upload into a newly reserved version and finalize it.
 Existing published versions are never overwritten. Configure image and chart
 destinations using the same service key where its permissions allow, with a
 chart `image_target` mapping to the matching image destination. Destination
