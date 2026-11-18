@@ -287,6 +287,48 @@ def test_failed_stage_retry_window_requires_positive_integer(value: str) -> None
     assert "failedStageRetryTimeoutSeconds must be a positive integer" in result.stderr
 
 
+def _retry_window_values_file(tmp_path: Path, value: str) -> str:
+    """Write the retry window as an unquoted values-file number."""
+    values_file = tmp_path / "retry-window.yaml"
+    values_file.write_text(
+        f"temporal:\n  configManagerWorker:\n    failedStageRetryTimeoutSeconds: {value}\n"
+    )
+    return str(values_file)
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("1209600", "1209600"), ("1209600.0", "1209600"), ("10000000", "10000000")],
+)
+def test_values_file_retry_window_renders_decimal_seconds(
+    tmp_path: Path, secret_method: str, template: str, value: str, expected: str
+) -> None:
+    """Values files decode numbers as floats; large whole values must still render."""
+    rendered = _render(
+        f"secrets.method={secret_method}",
+        extra_values=(_retry_window_values_file(tmp_path, value),),
+        templates=(template,),
+    )
+
+    assert f"failed_stage_retry_timeout_seconds = {expected}\n" in rendered
+
+
+@pytest.mark.parametrize("value", ["0", "-7200", "1.5", "1209600.5", "1.0e+30"])
+def test_values_file_retry_window_rejects_non_positive_integers(tmp_path: Path, value: str) -> None:
+    command = _helm_command(extra_values=(_retry_window_values_file(tmp_path, value),))
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "failedStageRetryTimeoutSeconds must be a positive integer" in result.stderr
+
+
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:
     # Changing a live Deployment from the server-defaulted strategy to Recreate is
     # rejected under server-side apply, so the scheduler must follow the chart-wide

@@ -1,5 +1,16 @@
 {{- define "nv-config-manager.failedStageRetryTimeoutSeconds" -}}
 {{- $seconds := .Values.temporal.configManagerWorker.failedStageRetryTimeoutSeconds -}}
+{{- /*
+Values files decode numbers as float64, which toString renders in exponent form
+from 1e+06 upward. Convert whole floats within the exactly representable integer
+range (2^53) to int64 so they render as decimal digits; fractional and larger
+floats stay floats and fail the check below.
+*/ -}}
+{{- if kindIs "float64" $seconds -}}
+{{- if and (eq $seconds (floor $seconds)) (le $seconds 9007199254740992.0) -}}
+{{- $seconds = int64 $seconds -}}
+{{- end -}}
+{{- end -}}
 {{- if not (regexMatch "^[1-9][0-9]*$" (toString $seconds)) -}}
 {{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must be a positive integer" -}}
 {{- end -}}

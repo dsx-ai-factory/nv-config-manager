@@ -18,34 +18,6 @@ The installer controls Temporal deployment through `nv-config-manager-install.ya
 - `rbac`: configures workflow read and execute roles.
 - `infrastructure`: configures TLS, gateway, storage, and optional observability.
 
-### Failed-stage retry window
-
-Configure the manual retry window after an activity or child workflow exhausts its
-automatic retries:
-
-```yaml
-temporal:
-  configManagerWorker:
-    failedStageRetryTimeoutSeconds: 10800 # Three hours; use 7200 for two hours
-```
-
-The value must be a positive integer in seconds; zero does not disable the cap.
-It is written to `[temporal.worker].failed_stage_retry_timeout_seconds` in the unified
-INI for Kubernetes Secrets, ESO, and Vault Agent deployments. Changing it rolls the
-worker pods. Configuration errors are rejected rather than silently disabling the cap.
-
-The API and scheduler clients record the setting in each new workflow or schedule
-action. Children and continue-as-new runs inherit it from the parent history, so a
-worker restart or configuration update cannot alter a recorded retry window.
-Existing schedules keep their recorded value until recreated; workflows started
-without this setting in history retain the three-hour default. Existing histories
-already waiting on the legacy indefinite retry path remain on that path.
-
-This setting does not impose a total workflow run timeout or limit healthy work
-and approval waits. When an unanswered failure wait expires, the workflow closes
-as **Failed** with a `StageRetryTimeout` cause. Existing shorter run or execution
-deadlines continue to apply. See [Workflow Lifecycle](../user-guides/workflow-lifecycle/index.mdx#retry).
-
 ### Workflow attribution domain
 
 Authenticated email identities supply their own domain for new workflow
@@ -67,6 +39,49 @@ API leaves nullable `user_domain` fields as `None` and rejects unresolved
 non-nullable fields with `422`.
 Explicit caller-owned domain values are preserved, while fields declared
 `ServerOwned` are always replaced by authenticated attribution.
+
+## Failed-Stage Retry Window
+
+The manual retry window after an activity or child workflow exhausts its automatic
+retries is a Helm chart value. It is not an installer input:
+`nv-config-manager-install.yaml` does not accept it, and the installer's generated
+values leave it at the chart default of three hours.
+
+Set it in a Helm values file:
+
+```yaml
+temporal:
+  configManagerWorker:
+    failedStageRetryTimeoutSeconds: 10800 # Three hours; use 7200 for two hours
+```
+
+Apply the file as a values override layered after any other values:
+
+- **Direct Helm or GitOps (for example ArgoCD):** add the file after the chart or
+  generated values, such as the output of `nvcm-installer generate-values`. Later
+  values files take precedence.
+- **Installer-managed releases:** run
+  `helm upgrade <release> <chart> --reuse-values --values retry-window.yaml` after
+  the installer deploys. The installer runs `helm upgrade --install` with only its
+  generated values, so each later installer deployment resets the window to the
+  three-hour default. Reapply the override after every installer deployment.
+
+The value must be a positive integer in seconds; zero does not disable the cap.
+It is written to `[temporal.worker].failed_stage_retry_timeout_seconds` in the unified
+INI for Kubernetes Secrets, ESO, and Vault Agent deployments. Changing it rolls the
+worker pods. Configuration errors are rejected rather than silently disabling the cap.
+
+The API and scheduler clients record the setting in each new workflow or schedule
+action. Children and continue-as-new runs inherit it from the parent history, so a
+worker restart or configuration update cannot alter a recorded retry window.
+Existing schedules keep their recorded value until recreated; workflows started
+without this setting in history retain the three-hour default. Existing histories
+already waiting on the legacy indefinite retry path remain on that path.
+
+This setting does not impose a total workflow run timeout or limit healthy work
+and approval waits. When an unanswered failure wait expires, the workflow closes
+as **Failed** with a `StageRetryTimeout` cause. Existing shorter run or execution
+deadlines continue to apply. See [Workflow Lifecycle](../user-guides/workflow-lifecycle/index.mdx#retry).
 
 ## History Shards and Replicas
 
