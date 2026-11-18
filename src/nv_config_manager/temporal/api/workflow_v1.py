@@ -727,10 +727,40 @@ async def signal_workflow(request: Request, workflow_id: str, signal_name: str, 
     handle = client.get_workflow_handle(workflow_id=workflow_id)
 
     if await is_authorized(request, handle, "execute"):
-        await handle.signal(signal_name, *args)
+        try:
+            await handle.signal(signal_name, *args)
+        except RPCError as e:
+            if e.status != RPCStatusCode.NOT_FOUND:
+                raise
+            raise await _unavailable_signal_target_error(handle, e) from e
         await invalidate_workflow_stage_query_cache(workflow_id)
     else:
         raise HTTPException(status_code=403, detail="Forbidden")
+
+
+async def _unavailable_signal_target_error(
+    handle: WorkflowHandle, signal_error: RPCError
+) -> Exception:
+    """Classify a NOT_FOUND signal failure as a closed or missing workflow.
+
+    Temporal reports NOT_FOUND both for a missing workflow and for one that closed,
+    including one that closed after the caller loaded its state.
+    """
+    try:
+        description = await handle.describe()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return HTTPException(
+                status_code=404, detail=f"Workflow with ID '{handle.id}' not found"
+            )
+        raise
+    if description.status == WorkflowExecutionStatus.RUNNING:
+        return signal_error
+    status_name = description.status.name if description.status else "UNKNOWN"
+    return HTTPException(
+        status_code=409,
+        detail=f"Workflow is not running (status: {status_name}); refresh to see its current state",
+    )
 
 
 async def invalidate_workflow_stage_query_cache(workflow_id: str) -> None:

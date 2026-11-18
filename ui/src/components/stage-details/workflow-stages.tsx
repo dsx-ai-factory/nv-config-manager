@@ -94,6 +94,20 @@ const getApiConfig = async () => {
   return (await configResponse.json()).workflowApiUrl;
 };
 
+class WorkflowSignalError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "WorkflowSignalError";
+    this.status = status;
+  }
+}
+
+// The workflow API returns 409 when the workflow closed before the signal arrived.
+const isClosedWorkflowError = (error: unknown) =>
+  error instanceof WorkflowSignalError && error.status === 409;
+
 const sendWorkflowSignal = async (
   workflowId: string,
   stageName: string,
@@ -111,7 +125,8 @@ const sendWorkflowSignal = async (
   );
 
   if (!response.ok) {
-    throw new Error(
+    throw new WorkflowSignalError(
+      response.status,
       `API returned ${response.status}: ${await response.text()}`
     );
   }
@@ -235,6 +250,19 @@ export const WorkflowClientComponent: React.FC<
     setTerminateOutcome(null);
   }, [workflow.id]);
 
+  async function handleClosedWorkflow(error: unknown, action: string) {
+    if (!isClosedWorkflowError(error)) {
+      return false;
+    }
+    toast({
+      variant: "destructive",
+      title: `${action}: Unavailable`,
+      description: "The workflow is no longer running. Showing its current state.",
+    });
+    await mutate?.();
+    return true;
+  }
+
   async function handleRetry() {
     try {
       setIsLoading(true);
@@ -245,6 +273,9 @@ export const WorkflowClientComponent: React.FC<
       });
     } catch (error) {
       console.error(error);
+      if (await handleClosedWorkflow(error, "Retry")) {
+        return;
+      }
       toast({
         variant: "destructive",
         title: "Retry: Failed",
@@ -266,6 +297,9 @@ export const WorkflowClientComponent: React.FC<
       setIsReviewed(true);
     } catch (error) {
       console.error(error);
+      if (await handleClosedWorkflow(error, "Approval")) {
+        return;
+      }
       toast({
         variant: "destructive",
         title: "Approval: Failed",
@@ -287,6 +321,9 @@ export const WorkflowClientComponent: React.FC<
       setIsReviewed(true);
     } catch (error) {
       console.error(error);
+      if (await handleClosedWorkflow(error, "Rejection")) {
+        return;
+      }
       toast({
         variant: "destructive",
         title: "Rejection: Failed",

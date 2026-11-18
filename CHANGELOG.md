@@ -82,6 +82,11 @@ version before the selected release candidate is promoted.
   so failures and timeouts reach stage failure handling. Histories that already
   used the old child-completion check retain that path for replay compatibility.
 
+- Workflow API approve, reject, and retry requests for a workflow that closed
+  before the signal arrived now return `409 Conflict` with the workflow status
+  instead of `500`, and return `404` if the workflow no longer exists. The UI
+  reports that the workflow is no longer running and refreshes it.
+
 - `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
   anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
   and CloudNativePG then enabled preferred anti-affinity by default.
