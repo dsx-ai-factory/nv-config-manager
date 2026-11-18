@@ -14,8 +14,9 @@ version before the selected release candidate is promoted.
   DCIM providers, which control their write strategy. The Nautobot plugin uses
   batches of up to 25 interfaces, two concurrent updates, and shared filtered
   interface lookups. Malformed records do not prevent valid matches in other
-  batches from being saved. The full-device activity deadline increases from
-  fifteen minutes to one hour; single-update providers remain supported.
+  batches from being saved. The full-device activity timeout increases from
+  fifteen minutes to one hour per attempt, with up to three attempts in total;
+  single-update providers remain supported.
   REST GETs retry transient connection failures, timeouts, and HTTP 502/503/504
   once with jittered backoff, excluding TLS verification failures. New standalone
   device cable validations allow a manual retry of transient persistence failures

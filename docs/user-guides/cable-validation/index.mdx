@@ -84,7 +84,7 @@ When the provider supports cable status persistence, validation records these re
 
 Status persistence is idempotent: repeating validation preserves cable statuses that already match the observations. The DCIM provider controls how it reads and writes statuses. Deployments without cable-status persistence support treat the update as a no-op.
 
-For a site validation, the `format_result` stage displays the Markdown report and Excel link, then remains **In Progress** while the DCIM provider saves the collected cable statuses. For a standalone device validation, `validate_connections` behaves the same way. Each device's persistence activity has a one-hour deadline. The provider controls bulk requests, batching, and concurrency. The stage becomes **Complete** only after persistence succeeds.
+For a site validation, the `format_result` stage displays the Markdown report and Excel link, then remains **In Progress** while the DCIM provider saves the collected cable statuses. For a standalone device validation, `validate_connections` behaves the same way. Each device's persistence activity has a one-hour timeout per attempt and allows up to three attempts in total. The provider controls bulk requests, batching, and concurrency. The stage becomes **Complete** only after persistence succeeds.
 
 If persistence fails, the stage is marked **Failed**, but its output retains the report and replaces the progress message with a warning that cable statuses may be partially updated. Resolve the reported DCIM error and use **Retry** on the stage if available; otherwise rerun validation. A stage retry reuses collected device tables and preserves already-correct statuses.
 
