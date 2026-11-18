@@ -26,8 +26,14 @@ from nv_config_manager_dcim import (
     DCIMCableStatusClient,
 )
 from nv_config_manager_dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
-from nv_config_manager_dcim_nautobot_2x.client import NautobotException
-from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient
+from nv_config_manager_dcim_nautobot_2x.client import (
+    NautobotException,
+    NautobotReadCancelledError,
+)
+from nv_config_manager_dcim_nautobot_2x.provider import (
+    _CABLE_STATUS_INTERFACES_QUERY,
+    NautobotDCIMClient,
+)
 
 from nv_config_manager_workflows.activities.cable_validation import (
     UpdateCableStatusesInput,
@@ -37,6 +43,16 @@ from nv_config_manager_workflows.activities.cable_validation import (
 
 def _client() -> NautobotDCIMClient:
     return NautobotDCIMClient("https://nautobot.example", "token")
+
+
+def _interface(
+    name: str = "Ethernet1/1", cable_id: str = "cable-1", status: str = "Connected"
+) -> dict[str, Any]:
+    return {"name": name, "cable": {"id": cable_id, "status": {"name": status}}}
+
+
+def _snapshot(interfaces: object, device_id: str = "device-1") -> dict[str, Any]:
+    return {"data": {"devices": [{"id": device_id}], "interfaces": interfaces}}
 
 
 def _update(status: CableStatus = CableStatus.INVALID) -> CableStatusUpdate:
@@ -51,22 +67,18 @@ def _update(status: CableStatus = CableStatus.INVALID) -> CableStatusUpdate:
 @pytest.mark.asyncio
 async def test_update_cable_status_patches_attached_cable() -> None:
     client = _client()
-    client.get_all = AsyncMock(return_value=[{"name": "Ethernet1/1", "cable": {"id": "cable-1"}}])
-    client.get = AsyncMock(
-        side_effect=[
-            {"id": "cable-1", "status": {"name": "Connected"}},
-            {"results": []},
-        ]
-    )
+    client.graphql_query = AsyncMock(return_value=_snapshot([_interface()]))
+    client.get = AsyncMock(return_value={"results": []})
     client.patch = AsyncMock()
     client.post = AsyncMock()
 
     await client.update_cable_status(_update())
+    await client.update_cable_status(_update())
 
-    client.get_all.assert_awaited_once_with(
-        "dcim/interfaces/",
-        params={"device_id": ["device-1"], "name": ["Ethernet1/1"]},
+    client.graphql_query.assert_awaited_once_with(
+        _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
     )
+    assert all(call.args[0] == "extras/notes/" for call in client.get.await_args_list)
     client.patch.assert_awaited_once_with(
         "dcim/cables/cable-1/",
         {"status": "Invalid"},
@@ -79,33 +91,36 @@ async def test_update_cable_status_patches_attached_cable() -> None:
             "note": "Cable validation workflow cable-validation-1 set status to Invalid.",
         },
     )
+    # Returning to the original status must use the result of our first write,
+    # rather than incorrectly treating the prefetched status as still current.
+    await client.update_cable_status(_update(CableStatus.CONNECTED))
+    assert client.patch.await_count == 2
+    client.patch.assert_awaited_with("dcim/cables/cable-1/", {"status": "Connected"})
+    client.graphql_query.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", list(CableStatus))
 async def test_unchanged_cable_status_skips_notes(status: CableStatus) -> None:
     client = _client()
-    client.get_all = AsyncMock(return_value=[{"name": "Ethernet1/1", "cable": {"id": "cable-1"}}])
-    client.get = AsyncMock(
-        side_effect=[
-            {"id": "cable-1", "status": {"name": status.value}},
-        ]
-    )
+    client.graphql_query = AsyncMock(return_value=_snapshot([_interface(status=status.value)]))
+    client.get = AsyncMock()
     client.patch = AsyncMock()
     client.post = AsyncMock()
 
     await client.update_cable_status(_update(status))
 
     client.patch.assert_not_awaited()
-    client.get.assert_any_await("dcim/cables/cable-1/", params={"depth": 1})
-    assert client.get.await_count == 1
+    client.get.assert_not_awaited()
     client.post.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_update_cable_status_rejects_interface_without_cable() -> None:
     client = _client()
-    client.get_all = AsyncMock(return_value=[{"name": "Ethernet1/1", "cable": None}])
+    client.graphql_query = AsyncMock(
+        return_value=_snapshot([{"name": "Ethernet1/1", "cable": None}])
+    )
 
     with pytest.raises(DCIMNotFoundError, match="has no cable"):
         await client.update_cable_status(_update())
@@ -122,16 +137,15 @@ async def test_concurrent_updates_share_interface_lookup_and_close_clears_it() -
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def lookup(*args: object, **kwargs: object) -> list[dict[str, object]]:
+    async def lookup(*args: object, **kwargs: object) -> dict[str, Any]:
         entered.set()
         await release.wait()
-        return [
-            {"name": f"Ethernet1/{index}", "cable": {"id": f"cable-{index}"}}
-            for index in range(1, 21)
-        ]
+        return _snapshot(
+            [_interface(f"Ethernet1/{index}", f"cable-{index}") for index in range(1, 21)]
+        )
 
-    client.get_all = AsyncMock(side_effect=lookup)
-    client.get = AsyncMock(return_value={"status": {"name": "Connected"}})
+    client.graphql_query = AsyncMock(side_effect=lookup)
+    client.get = AsyncMock()
     async with client:
         preparation = asyncio.create_task(
             client._prepare_cable_status_updates(
@@ -154,30 +168,28 @@ async def test_concurrent_updates_share_interface_lookup_and_close_clears_it() -
         ]
         release.set()
         await asyncio.gather(preparation, *tasks)
-    client.get_all.assert_awaited_once()
+    client.graphql_query.assert_awaited_once()
+    client.get.assert_not_awaited()
 
     async with client:
         await client.update_cable_status(_update(CableStatus.CONNECTED))
-    assert client.get_all.await_count == 2
+    assert client.graphql_query.await_count == 2
 
 
 @pytest.mark.asyncio
 async def test_failed_lookup_is_shared_until_the_next_client_context() -> None:
     client = _client()
-    client.get_all = AsyncMock(
-        side_effect=[TimeoutError(), [{"name": "Ethernet1/1", "cable": {"id": "cable-1"}}]]
-    )
-    client.get = AsyncMock(return_value={"status": {"name": "Connected"}})
+    client.graphql_query = AsyncMock(side_effect=[TimeoutError(), _snapshot([_interface()])])
     async with client:
         errors = await asyncio.gather(
             *(client.update_cable_status(_update(CableStatus.CONNECTED)) for _ in range(20)),
             return_exceptions=True,
         )
         assert all(isinstance(error, TimeoutError) for error in errors)
-        assert client.get_all.await_count == 1
+        assert client.graphql_query.await_count == 1
     async with client:
         await client.update_cable_status(_update(CableStatus.CONNECTED))
-    assert client.get_all.await_count == 2
+    assert client.graphql_query.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -186,13 +198,12 @@ async def test_canceling_one_update_does_not_cancel_the_shared_lookup() -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    async def lookup(*args: object, **kwargs: object) -> list[dict[str, object]]:
+    async def lookup(*args: object, **kwargs: object) -> dict[str, Any]:
         entered.set()
         await release.wait()
-        return [{"name": "Ethernet1/1", "cable": {"id": "cable-1"}}]
+        return _snapshot([_interface()])
 
-    client.get_all = AsyncMock(side_effect=lookup)
-    client.get = AsyncMock(return_value={"status": {"name": "Connected"}})
+    client.graphql_query = AsyncMock(side_effect=lookup)
     async with client:
         first = asyncio.create_task(client.update_cable_status(_update(CableStatus.CONNECTED)))
         second = asyncio.create_task(client.update_cable_status(_update(CableStatus.CONNECTED)))
@@ -202,7 +213,7 @@ async def test_canceling_one_update_does_not_cancel_the_shared_lookup() -> None:
             await first
         release.set()
         await second
-    client.get_all.assert_awaited_once()
+    client.graphql_query.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -211,15 +222,15 @@ async def test_close_cancels_an_incomplete_interface_lookup() -> None:
     entered = asyncio.Event()
     canceled = asyncio.Event()
 
-    async def lookup(*args: object, **kwargs: object) -> list[dict[str, object]]:
+    async def lookup(*args: object, **kwargs: object) -> dict[str, Any]:
         entered.set()
         try:
             await asyncio.Event().wait()
         finally:
             canceled.set()
-        return []
+        return _snapshot([])
 
-    client.get_all = AsyncMock(side_effect=lookup)
+    client.graphql_query = AsyncMock(side_effect=lookup)
     update = asyncio.create_task(client.update_cable_status(_update()))
     await entered.wait()
     await client.close()
@@ -229,25 +240,12 @@ async def test_close_cancels_an_incomplete_interface_lookup() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cable_interface_lookup_reads_all_pages_once() -> None:
+async def test_cable_snapshot_is_shared_across_different_interface_updates() -> None:
     client = _client()
-    offsets: list[object] = []
-
-    async def get(
-        path: str, params: dict[str, object], timeout: int | None = None
-    ) -> dict[str, object]:
-        if path == "dcim/interfaces/":
-            offsets.append(params["offset"])
-            if params["offset"] == 0:
-                return {
-                    "results": [{"name": "Ethernet1/1", "cable": {"id": "cable-1"}}],
-                    "next": "page-2",
-                }
-            return {"results": [{"name": "Ethernet1/2", "cable": {"id": "cable-2"}}], "next": None}
-        return {"status": {"name": "Connected"}}
-
-    client.get = AsyncMock(side_effect=get)
-    await client._prepare_cable_status_updates("device-1", ["Ethernet1/1", "Ethernet1/2"])
+    client.graphql_query = AsyncMock(
+        return_value=_snapshot([_interface(), _interface("Ethernet1/2", "cable-2")])
+    )
+    client.get = AsyncMock()
     await client.update_cable_status(
         CableStatusUpdate(
             device_id="device-1",
@@ -257,12 +255,10 @@ async def test_cable_interface_lookup_reads_all_pages_once() -> None:
         )
     )
     await client.update_cable_status(_update(CableStatus.CONNECTED))
-    lookups = [call for call in client.get.await_args_list if call.args[0] == "dcim/interfaces/"]
-    assert len(lookups) == 2
-    assert all(
-        lookup.kwargs["params"]["name"] == ["Ethernet1/1", "Ethernet1/2"] for lookup in lookups
+    client.graphql_query.assert_awaited_once_with(
+        _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
     )
-    assert offsets == [0, 1]
+    client.get.assert_not_awaited()
     await client.close()
 
 
@@ -273,13 +269,18 @@ async def test_cable_interface_lookup_reads_all_pages_once() -> None:
         ([], DCIMNotFoundError, "No interface named"),
         ([{"name": "Ethernet1/1"}] * 2, DCIMConflictError, "Multiple interfaces named"),
         ([{"id": "no-name"}], DCIMInvalidDataError, "invalid interface lookup"),
+        (
+            [{"name": "Ethernet1/1", "cable": {"id": "cable-1", "status": None}}],
+            DCIMInvalidDataError,
+            "invalid cable status",
+        ),
     ],
 )
 async def test_interface_lookup_preserves_validation_errors(
     interfaces: list[dict[str, object]], error: type[Exception], message: str
 ) -> None:
     client = _client()
-    client.get_all = AsyncMock(return_value=interfaces)
+    client.graphql_query = AsyncMock(return_value=_snapshot(interfaces))
     with pytest.raises(error, match=message):
         await client.update_cable_status(_update())
 
@@ -287,46 +288,81 @@ async def test_interface_lookup_preserves_validation_errors(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("page", [None, [], {}, {"results": None}, {"results": {}}])
 @pytest.mark.parametrize("later_page", [False, True])
-async def test_cable_lookup_rejects_malformed_pagination_pages(
-    page: object, later_page: bool
-) -> None:
+async def test_get_all_rejects_malformed_pagination_pages(page: object, later_page: bool) -> None:
     client = _client()
     pages = [{"results": [{"name": "unrelated"}], "next": "page-2"}] if later_page else []
     client.get = AsyncMock(side_effect=[*pages, page])
     async with client:
         with pytest.raises(DCIMInvalidDataError, match="invalid pagination data"):
+            await client.get_all("dcim/interfaces/")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", [_snapshot([]), {"data": {"devices": [], "interfaces": []}}])
+async def test_cable_snapshot_preserves_not_found_for_missing_interfaces_or_device(
+    response: dict[str, Any],
+) -> None:
+    client = _client()
+    client.graphql_query = AsyncMock(return_value=response)
+    async with client:
+        with pytest.raises(DCIMNotFoundError, match="found"):
             await client.update_cable_status(_update())
 
 
 @pytest.mark.asyncio
-async def test_cable_lookup_preserves_not_found_for_valid_empty_page() -> None:
+@pytest.mark.parametrize(
+    "response",
+    [
+        None,
+        [],
+        {},
+        {"data": None},
+        {"data": {}},
+        {"data": {"devices": None, "interfaces": []}},
+        _snapshot([], device_id="wrong-device"),
+        _snapshot(None),
+        _snapshot({}),
+    ],
+)
+async def test_cable_snapshot_rejects_invalid_graphql_data(response: object) -> None:
     client = _client()
-    client.get = AsyncMock(return_value={"results": [], "next": None})
+    client.graphql_query = AsyncMock(return_value=response)
+    client.patch = AsyncMock()
     async with client:
-        with pytest.raises(DCIMNotFoundError, match="No interface named"):
+        with pytest.raises(DCIMInvalidDataError, match="invalid interface lookup.*device-1"):
             await client.update_cable_status(_update())
+    client.patch.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("during_lookup", [False, True])
 @pytest.mark.parametrize(
     ("status", "error_type"),
-    [(400, DCIMInvalidDataError), (404, DCIMNotFoundError), (409, DCIMConflictError)],
+    [
+        (400, DCIMInvalidDataError),
+        (404, DCIMNotFoundError),
+        (409, DCIMConflictError),
+        (None, NautobotReadCancelledError),
+    ],
 )
 async def test_batch_lookup_and_write_errors_retain_dcim_type_and_target_context(
-    monkeypatch: pytest.MonkeyPatch, during_lookup: bool, status: int, error_type: type[Exception]
+    monkeypatch: pytest.MonkeyPatch,
+    during_lookup: bool,
+    status: int | None,
+    error_type: type[Exception],
 ) -> None:
     client = _client()
-    backend_error = NautobotException("request rejected", status_code=status)
-    client.get_all = AsyncMock(
-        side_effect=backend_error if during_lookup else None,
-        return_value=[
-            {"name": "Ethernet1/1", "cable": {"id": "cable-1"}},
-            {"name": "Ethernet1/2", "cable": {"id": "cable-2"}},
-        ],
+    backend_error = (
+        NautobotReadCancelledError("read canceled")
+        if status is None
+        else NautobotException("request rejected", status_code=status)
     )
-    client.get = AsyncMock(side_effect=backend_error)
-    client.patch = AsyncMock()
+    client.graphql_query = AsyncMock(
+        side_effect=backend_error if during_lookup else None,
+        return_value=_snapshot([_interface(), _interface("Ethernet1/2", "cable-2")]),
+    )
+    client.get = AsyncMock()
+    client.patch = AsyncMock(side_effect=backend_error)
     monkeypatch.setattr(
         "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
         lambda: client,
@@ -348,13 +384,14 @@ async def test_batch_lookup_and_write_errors_retain_dcim_type_and_target_context
         assert "Ethernet1/2" in str(raised.value)
         client.get.assert_not_awaited()
     assert raised.value.__cause__ is backend_error
-    client.patch.assert_not_awaited()
+    if during_lookup:
+        client.patch.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_cached_invalid_interface_raises_a_fresh_exception_each_time() -> None:
     client = _client()
-    client.get_all = AsyncMock(return_value=[{"id": "missing-name"}])
+    client.graphql_query = AsyncMock(return_value=_snapshot([{"id": "missing-name"}]))
     errors: list[DCIMInvalidDataError] = []
     async with client:
         await client._prepare_cable_status_updates("device-1", ["Ethernet1/1"])
@@ -364,38 +401,24 @@ async def test_cached_invalid_interface_raises_a_fresh_exception_each_time() -> 
             errors.append(raised.value)
     assert len({id(error) for error in errors}) == 3
     assert all(str(error) == str(errors[0]) for error in errors)
-    client.get_all.assert_awaited_once()
+    client.graphql_query.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_large_inventory_lookup_reads_only_requested_batch_names(
+async def test_large_inventory_uses_one_snapshot_and_only_writes_requested_interfaces(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     inventory = {
-        f"Ethernet1/{index}": {"name": f"Ethernet1/{index}", "cable": {"id": f"cable-{index}"}}
+        f"Ethernet1/{index}": _interface(f"Ethernet1/{index}", f"cable-{index}")
         for index in range(2000)
     }
     requested = list(inventory)[:500]
-    lookups: list[list[str]] = []
     clients: list[NautobotDCIMClient] = []
-
-    async def get(
-        path: str, params: dict[str, Any] | None = None, timeout: int | None = None
-    ) -> dict[str, Any]:
-        if path == "dcim/interfaces/":
-            assert params is not None
-            assert params["device_id"] == ["device-1"]
-            names = params["name"]
-            assert 0 < len(names) <= 25
-            lookups.append(names)
-            return {"results": [inventory[name] for name in names], "next": None}
-        if path == "extras/notes/":
-            return {"results": []}
-        return {"status": {"name": "Connected"}}
 
     def create_client() -> NautobotDCIMClient:
         client = _client()
-        client.get = AsyncMock(side_effect=get)
+        client.graphql_query = AsyncMock(return_value=_snapshot(list(inventory.values())))
+        client.get = AsyncMock(return_value={"results": []})
         client.patch = AsyncMock()
         client.post = AsyncMock()
         clients.append(client)
@@ -413,11 +436,15 @@ async def test_large_inventory_lookup_reads_only_requested_batch_names(
         )
     )
 
-    assert len(lookups) == 20
-    assert sum(map(len, lookups)) == 500
-    assert {name for names in lookups for name in names} == set(requested)
     assert sum(client.patch.await_count for client in clients) == 500
     assert len(clients) == 1
+    clients[0].graphql_query.assert_awaited_once_with(
+        _CABLE_STATUS_INTERFACES_QUERY, {"device_id": ["device-1"]}
+    )
+    assert {call.args[0] for call in clients[0].patch.await_args_list} == {
+        f"dcim/cables/cable-{index}/" for index in range(500)
+    }
+    assert all(call.args[0] == "extras/notes/" for call in clients[0].get.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -448,30 +475,25 @@ async def test_nautobot_bulk_writes_bound_concurrency_in_the_plugin() -> None:
     )
     assert maximum_active == 2
     assert client.update_cable_status.await_count == 51
-    assert [
-        len(invocation.args[1])
-        for invocation in client._prepare_cable_status_updates.await_args_list
-    ] == [25, 25, 1]
+    client._prepare_cable_status_updates.assert_awaited_once_with(
+        "device-1", [f"Ethernet1/{index}" for index in range(51)]
+    )
 
 
 @pytest.mark.asyncio
-async def test_invalid_interface_does_not_prevent_later_nautobot_batches() -> None:
+@pytest.mark.parametrize("invalid_status", [False, True])
+async def test_invalid_interface_does_not_prevent_later_nautobot_batches(
+    invalid_status: bool,
+) -> None:
     client = _client()
-
-    async def lookup(path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-        return [
-            {"id": "malformed"}
-            if name == "Ethernet1/0"
-            else {"name": name, "cable": {"id": name.replace("/", "-")}}
-            for name in params["name"]
-        ]
-
-    client.get_all = AsyncMock(side_effect=lookup)
-    client.get = AsyncMock(
-        side_effect=lambda path, **kwargs: (
-            {"results": []} if path == "extras/notes/" else {"status": {"name": "Connected"}}
-        )
+    interfaces = [_interface(f"Ethernet1/{index}", f"Ethernet1-{index}") for index in range(51)]
+    interfaces[0] = (
+        {"name": "Ethernet1/0", "cable": {"id": "Ethernet1-0", "status": None}}
+        if invalid_status
+        else {"id": "malformed"}
     )
+    client.graphql_query = AsyncMock(return_value=_snapshot(interfaces))
+    client.get = AsyncMock(return_value={"results": []})
     client.patch = AsyncMock()
     client.post = AsyncMock()
     async with client:
@@ -489,6 +511,7 @@ async def test_invalid_interface_does_not_prevent_later_nautobot_batches() -> No
             )
     assert client.patch.await_count == 50
     client.patch.assert_any_await("dcim/cables/Ethernet1-50/", {"status": "Invalid"})
+    client.graphql_query.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -498,21 +521,13 @@ async def test_malformed_record_does_not_block_other_interface_writes(
 ) -> None:
     client = _client()
     interfaces = [
-        {"name": "Ethernet1/1", "cable": {"id": "cable-1"}},
+        _interface(),
         {"id": "malformed-interface"},
-        {"name": "Ethernet1/2", "cable": {"id": "cable-2"}},
+        _interface("Ethernet1/2", "cable-2"),
     ]
 
-    async def get(
-        path: str, params: dict[str, Any] | None = None, timeout: int | None = None
-    ) -> dict[str, Any]:
-        if path == "dcim/interfaces/":
-            return {"results": interfaces, "next": None}
-        if path == "extras/notes/":
-            return {"results": []}
-        return {"status": {"name": "Connected"}}
-
-    client.get = AsyncMock(side_effect=get)
+    client.graphql_query = AsyncMock(return_value=_snapshot(interfaces))
+    client.get = AsyncMock(return_value={"results": []})
     client.patch = AsyncMock()
     client.post = AsyncMock()
     monkeypatch.setattr(

@@ -20,6 +20,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from itertools import batched
 from typing import Any, Self, TypedDict
 from uuid import UUID
@@ -126,6 +127,9 @@ _DEVICE_SERIAL_QUERY = load_graphql_query("provider/devices.graphql", "GetDevice
 _DEVICE_CONTEXTS_QUERY = load_graphql_query("provider/devices.graphql", "ListDeviceContexts")
 _RENDER_DATA_QUERY = load_graphql_query("query_config_data_by_device_id_v2.graphql")
 _LOCATION_DATA_QUERY = load_graphql_query("query_location_data.graphql")
+_CABLE_STATUS_INTERFACES_QUERY = load_graphql_query(
+    "provider/cable_status.graphql", "GetCableStatusInterfaces"
+)
 
 _NAUTOBOT_CONNECTION_KEYS = ("server", "token", "public_url", "verify", "timeout")
 _INTENDED_CONFIGURATION_PATH = "plugins/nv-config-manager/intendedconfig/"
@@ -284,11 +288,16 @@ def _cable_status_error_context(message: str) -> Iterator[None]:
             raise DCIMConflictError(message) from exc
         if exc.status_code == 400:
             raise DCIMInvalidDataError(message) from exc
-        raise
+        raise type(exc)(f"{message}: {exc}", status_code=exc.status_code) from exc
 
 
-# Cache invalid-data messages rather than exception instances with mutable tracebacks.
-type _CableInterfaceIndex = dict[str, list[Mapping[str, Any]] | str]
+@dataclass
+class _CableInterfaceIndex:
+    """A device snapshot that retains malformed-record information for missing targets."""
+
+    by_name: dict[str, list[Mapping[str, Any]]]
+    has_malformed_records: bool
+
 
 _CABLE_STATUS_BATCH_SIZE = 25
 _CABLE_STATUS_CONCURRENCY = 2
@@ -318,10 +327,8 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             },
         )
         self._public_url = (public_url or nautobot_url).rstrip("/")
-        self._cable_interfaces: dict[
-            tuple[str, tuple[str, ...]], asyncio.Task[_CableInterfaceIndex]
-        ] = {}
-        self._cable_update_names: dict[str, tuple[str, ...]] = {}
+        self._cable_interfaces: dict[str, asyncio.Task[_CableInterfaceIndex]] = {}
+        self._cable_statuses: dict[str, str] = {}
 
     async def close(self) -> None:
         """Release the session and device lookups scoped to this client."""
@@ -330,7 +337,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 lookup.cancel()
         await asyncio.gather(*self._cable_interfaces.values(), return_exceptions=True)
         self._cable_interfaces.clear()
-        self._cable_update_names.clear()
+        self._cable_statuses.clear()
         await super().close()
 
     @classmethod
@@ -911,15 +918,15 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 await self.update_cable_status(update)
 
         for device_id, device_updates in sorted(devices.items()):
+            try:
+                await self._prepare_cable_status_updates(
+                    device_id, [update.interface_name for update in device_updates]
+                )
+            except Exception as error:
+                # A failed device snapshot affects every batch, so load it only once.
+                errors.append(error)
+                continue
             for batch in batched(device_updates, _CABLE_STATUS_BATCH_SIZE, strict=False):
-                try:
-                    await self._prepare_cable_status_updates(
-                        device_id, [update.interface_name for update in batch]
-                    )
-                except Exception as error:
-                    # A failed request affects the device lookup; do not repeat it per batch.
-                    errors.append(error)
-                    break
                 results = await asyncio.gather(
                     *(update_one(update) for update in batch), return_exceptions=True
                 )
@@ -934,58 +941,69 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
     async def _prepare_cable_status_updates(
         self, device_id: str, interface_names: Sequence[str]
     ) -> None:
-        """Share a filtered lookup for the current Nautobot write batch."""
+        """Load the device's interface and cable-status snapshot before write batches."""
         names = tuple(sorted(set(interface_names)))
-        self._cable_update_names[device_id] = names
         message = (
             f"Unable to look up interfaces {list(names)!r} on device '{device_id}' "
             "for cable status updates"
         )
         with _cable_status_error_context(message):
-            await self._cable_interface_index(device_id, names)
+            await self._cable_interface_index(device_id)
 
-    async def _cable_interface_index(
-        self, device_id: str, interface_names: tuple[str, ...]
-    ) -> _CableInterfaceIndex:
-        """Share a paginated lookup for exactly the requested device and names."""
-        key = (device_id, interface_names)
-        if key not in self._cable_interfaces:
+    async def _cable_interface_index(self, device_id: str) -> _CableInterfaceIndex:
+        """Share one GraphQL snapshot per device for this client context."""
+        if device_id not in self._cable_interfaces:
             # Share failures too, so an unavailable endpoint is not retried once
             # per interface. The next activity gets a fresh client and lookup.
-            self._cable_interfaces[key] = asyncio.create_task(
-                self._load_cable_interface_index(device_id, interface_names)
+            self._cable_interfaces[device_id] = asyncio.create_task(
+                self._load_cable_interface_index(device_id)
             )
-        return await asyncio.shield(self._cable_interfaces[key])
+        return await asyncio.shield(self._cable_interfaces[device_id])
 
-    async def _load_cable_interface_index(
-        self, device_id: str, interface_names: tuple[str, ...]
-    ) -> _CableInterfaceIndex:
-        index: _CableInterfaceIndex = {name: [] for name in interface_names}
-        for names in batched(interface_names, _CABLE_STATUS_BATCH_SIZE, strict=False):
-            interfaces = await self.get_all(
-                "dcim/interfaces/", params={"device_id": [device_id], "name": list(names)}
-            )
-            malformed = False
-            for interface in interfaces:
-                if not isinstance(interface, Mapping) or not isinstance(
-                    name := interface.get("name"), str
-                ):
-                    malformed = True
-                    continue
-                if name in names and isinstance(records := index[name], list):
-                    records.append(interface)
-            if malformed:
-                logger.warning(
-                    "Nautobot returned malformed interface records for device %s", device_id
-                )
-                for name in names:
-                    # Do not discard valid matches because another record is malformed.
-                    # Unresolved targets must still surface an invalid-data error.
-                    if not index[name]:
-                        index[name] = (
-                            f"Nautobot returned invalid interface lookup data for '{name}' "
-                            f"on device '{device_id}'"
-                        )
+    async def _load_cable_interface_index(self, device_id: str) -> _CableInterfaceIndex:
+        response = await self.graphql_query(
+            _CABLE_STATUS_INTERFACES_QUERY, {"device_id": [device_id]}
+        )
+        data = response.get("data") if isinstance(response, Mapping) else None
+        invalid_data_message = (
+            f"Nautobot returned invalid interface lookup data for device '{device_id}'"
+        )
+        if (
+            not isinstance(data, Mapping)
+            or not isinstance(devices := data.get("devices"), list)
+            or not isinstance(interfaces := data.get("interfaces"), list)
+        ):
+            raise DCIMInvalidDataError(invalid_data_message)
+        if not devices:
+            raise DCIMNotFoundError(f"No device '{device_id}' found for cable status updates")
+        if (
+            len(devices) != 1
+            or not isinstance(devices[0], Mapping)
+            or devices[0].get("id") != device_id
+        ):
+            raise DCIMInvalidDataError(invalid_data_message)
+
+        index = _CableInterfaceIndex(by_name={}, has_malformed_records=False)
+        for interface in interfaces:
+            if (
+                not isinstance(interface, Mapping)
+                or not isinstance(name := interface.get("name"), str)
+                or not name
+            ):
+                index.has_malformed_records = True
+                continue
+            index.by_name.setdefault(name, []).append(interface)
+            cable = interface.get("cable")
+            status = cable.get("status") if isinstance(cable, Mapping) else None
+            if (
+                isinstance(cable, Mapping)
+                and cable.get("id")
+                and isinstance(status, Mapping)
+                and isinstance(status.get("name"), str)
+            ):
+                self._cable_statuses[str(cable["id"])] = status["name"]
+        if index.has_malformed_records:
+            logger.warning("Nautobot returned malformed interface records for device %s", device_id)
         return index
 
     async def update_cable_status(self, update: CableStatusUpdate) -> None:
@@ -995,14 +1013,14 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             f"on device '{update.device_id}'"
         )
         with _cable_status_error_context(message):
-            names = self._cable_update_names.get(update.device_id, ())
-            if update.interface_name not in names:
-                names = (update.interface_name,)
-            index = await self._cable_interface_index(update.device_id, names)
-            interfaces = index.get(update.interface_name, [])
-            if isinstance(interfaces, str):
-                raise DCIMInvalidDataError(interfaces)
+            index = await self._cable_interface_index(update.device_id)
+            interfaces = index.by_name.get(update.interface_name, [])
             if not interfaces:
+                if index.has_malformed_records:
+                    raise DCIMInvalidDataError(
+                        f"Nautobot returned invalid interface lookup data for "
+                        f"'{update.interface_name}' on device '{update.device_id}'"
+                    )
                 raise DCIMNotFoundError(
                     f"No interface named '{update.interface_name}' found on device "
                     f"'{update.device_id}'"
@@ -1022,15 +1040,15 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 )
 
             cable_id = str(cable_reference["id"])
-            cable = await self.get(f"dcim/cables/{cable_id}/", params={"depth": 1})
-            if not isinstance(cable, Mapping):
-                raise DCIMInvalidDataError("Nautobot returned invalid cable data")
-            current_status = cable.get("status")
-            current_status_name = (
-                current_status.get("name")
-                if isinstance(current_status, Mapping)
-                else current_status
-            )
+            current_status = cable_reference.get("status")
+            if not isinstance(current_status, Mapping) or not isinstance(
+                current_status_name := current_status.get("name"), str
+            ):
+                raise DCIMInvalidDataError(
+                    f"Nautobot returned invalid cable status for interface "
+                    f"'{update.interface_name}' on device '{update.device_id}'"
+                )
+            current_status_name = self._cable_statuses.get(cable_id, current_status_name)
             if current_status_name == update.status.value:
                 return
 
@@ -1038,6 +1056,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 f"dcim/cables/{cable_id}/",
                 {"status": update.status.value},
             )
+            self._cable_statuses[cable_id] = update.status.value
 
             note = (
                 f"Cable validation workflow {update.workflow_id} "

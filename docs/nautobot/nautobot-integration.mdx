@@ -121,12 +121,14 @@ curl -X POST https://nautobot.config-manager.example.com/api/graphql/ \
 ## Cable-Status Persistence
 
 The Nautobot DCIM plugin saves cable-validation changes in batches of up to
-25 interfaces, with at most two concurrent updates. Each batch shares a paginated
-lookup filtered to its interface names. Valid interface matches are saved even
-when another record is malformed; unresolved targets report an invalid-data error.
+25 interfaces, with at most two concurrent updates. Before batching, one GraphQL
+query per device loads its interfaces, attached cable IDs, and cable statuses.
+Valid interface matches are saved even when another record is malformed;
+unresolved targets report an invalid-data error.
 
-The plugin reads a cable's current status before writing and skips matching
-statuses. Status changes include a note identifying the validation workflow.
+The plugin skips statuses that match the device snapshot and keeps that snapshot
+current with its own writes. Status changes include a note identifying the
+validation workflow. Each activity retry loads a fresh snapshot.
 REST GET requests retry transient connection failures, timeouts, and HTTP
 502/503/504 once with jittered backoff. TLS verification failures and REST writes
 are not automatically retried by the HTTP client.
