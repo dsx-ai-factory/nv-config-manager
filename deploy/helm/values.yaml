@@ -1321,7 +1321,7 @@ renderService:
     # Deployments and waits for them, see templatePreview.backend.env.KIWI_RENDER_ROLLOUT_TIMEOUT_SECONDS.)
     # Name of a pre-existing Secret (key "token") holding the bearer token
     # Template Preview's /internal/artifacts endpoint expects (see
-    # kiwi-render-ui's KIWI_RENDER_INTERNAL_ARTIFACT_TOKEN). Empty means
+    # nvcm-template-preview's KIWI_RENDER_INTERNAL_ARTIFACT_TOKEN). Empty means
     # no token is sent -- fine for a local dev loop where Template Preview
     # also has no token configured, not for anything beyond that.
     templatePreviewArtifactTokenSecret: ""
@@ -3426,7 +3426,7 @@ alloy:
 
 # =============================================================================
 # Template Preview (SRD FR-250-261, SADD §6) -- bundled as an optional
-# subchart (see the kiwi-render-ui dependency, aliased "templatePreview", in
+# subchart (see the nvcm-template-preview dependency, aliased "templatePreview", in
 # Chart.yaml). Off by default, matching every other top-level component here.
 # =============================================================================
 templatePreview:
@@ -3459,10 +3459,10 @@ templatePreview:
       host: cluster-template-preview-rw
       name: template_preview
 
-  # Container images (published by the kiwi-render-ui pipeline). Pin digests in production.
+  # Container images (published by the nvcm-template-preview pipeline). Pin digests in production.
   backend:
     image:
-      repository: kiwi-render-backend
+      repository: nvcm-template-preview-backend
       tag: latest
       digest: ""
     # Bearer token NVCM's render pods present when fetching plugin artifacts. Name an existing Secret
@@ -3483,7 +3483,7 @@ templatePreview:
       KIWI_RENDER_ROLLOUT_TIMEOUT_SECONDS: "300"
   frontend:
     image:
-      repository: kiwi-render-frontend
+      repository: nvcm-template-preview-frontend
       tag: latest
       digest: ""
 

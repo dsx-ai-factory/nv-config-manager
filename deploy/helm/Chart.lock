@@ -14,8 +14,8 @@ dependencies:
 - name: tempo
   repository: https://grafana.github.io/helm-charts
   version: 1.24.4
-- name: kiwi-render-ui
+- name: nvcm-template-preview
   repository: file://../../../kiwi_repos/nvcm-template-preview/deploy/helm
   version: 0.7.0
-digest: sha256:45cf566465b3dd74b2f7425054f471c0cfc4aa896b201a49e1e47b01c0415022
-generated: "2026-10-06T17:18:21.229927-05:00"
+digest: sha256:a056944aa105edb53bb7d5b4d476c35b791ed95d6d32407f86a5c8acb098a9d8
+generated: "2026-11-18T12:36:33.897667-06:00"

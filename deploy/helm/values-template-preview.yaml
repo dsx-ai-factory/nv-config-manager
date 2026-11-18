@@ -3,8 +3,8 @@
 #   helm upgrade nv-config-manager deploy/helm -n nv-config-manager --reuse-values \
 #     -f deploy/helm/values-template-preview.yaml
 #
-# It expects the two images to be loaded into kind first: kiwi-render-backend:dev and
-# kiwi-render-frontend:dev (built from the kiwi-render-ui repository; see the implementation doc).
+# It expects the two images to be loaded into kind first: nvcm-template-preview-backend:dev and
+# nvcm-template-preview-frontend:dev (built from the nvcm-template-preview repository; see the implementation doc).
 # With no token Secret configured (below), artifact fetches are unauthenticated: local development only.
 templatePreview:
   enabled: true
@@ -14,7 +14,7 @@ templatePreview:
     acknowledgeArbitraryCodeExecution: true
   backend:
     image:
-      repository: kiwi-render-backend
+      repository: nvcm-template-preview-backend
       tag: dev
     # Optional shared bearer token for artifact fetches. Create the Secret, then uncomment:
     #   kubectl create secret generic template-preview-artifact-token -n nv-config-manager \
@@ -23,7 +23,7 @@ templatePreview:
     #   existingSecret: template-preview-artifact-token
   frontend:
     image:
-      repository: kiwi-render-frontend
+      repository: nvcm-template-preview-frontend
       tag: dev
   # Optional: saved Nautobot instances for the UI's instance picker. Create a Secret whose key
   # "instances.json" holds [{"name": "...", "url": "...", "token": "..."}] and uncomment:

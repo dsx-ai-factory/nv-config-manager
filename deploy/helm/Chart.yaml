@@ -72,13 +72,13 @@ dependencies:
   #
   # repository is a local relative path, not a chart repository URL --
   # there is no published chart repository for this yet (that's real,
-  # tracked follow-up work: kiwi-render-ui's CI needs a `helm package` +
+  # tracked follow-up work: nvcm-template-preview's CI needs a `helm package` +
   # push step, same as it already does for its images via kaniko). This
   # only resolves on a machine with both repos checked out as siblings
   # under the same parent directory, which is a real limitation, not just
   # a style choice -- it won't work in CI or on a machine with a different
   # checkout layout until that follow-up ships.
-  - name: kiwi-render-ui
+  - name: nvcm-template-preview
     version: "0.7.0"
     repository: "file://../../../kiwi_repos/nvcm-template-preview/deploy/helm"
     alias: templatePreview
