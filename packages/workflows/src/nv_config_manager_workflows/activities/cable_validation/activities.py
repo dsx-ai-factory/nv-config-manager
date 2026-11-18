@@ -29,6 +29,7 @@ from nv_config_manager_dcim import (
 from nv_config_manager_logging import LogCategory, get_logger
 from py_markdown_table.markdown_table import markdown_table
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from nv_config_manager_workflows.activities.cable_validation import helpers as _cable_helpers
 from nv_config_manager_workflows.activities.cable_validation.helpers import (
@@ -144,28 +145,34 @@ async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> Non
         for interface_name, status in activity_input.cable_statuses.items()
     ]
     errors: list[Exception] = []
-    async with _cable_status_heartbeats(activity_input), client:
-        if isinstance(client, DCIMCableStatusBulkClient):
-            await client.update_cable_statuses(updates)
-        else:
-            # Preserve the existing single-update API's concurrency. Bulk providers
-            # receive the complete collection above and control their own limits.
-            semaphore = asyncio.Semaphore(_SINGLE_UPDATE_COMPAT_CONCURRENCY)
+    try:
+        async with _cable_status_heartbeats(activity_input), client:
+            if isinstance(client, DCIMCableStatusBulkClient):
+                await client.update_cable_statuses(updates)
+            else:
+                # Preserve the existing single-update API's concurrency. Bulk providers
+                # receive the complete collection above and control their own limits.
+                semaphore = asyncio.Semaphore(_SINGLE_UPDATE_COMPAT_CONCURRENCY)
 
-            async def update_one(update: CableStatusUpdate) -> None:
-                async with semaphore:
-                    await client.update_cable_status(update)
+                async def update_one(update: CableStatusUpdate) -> None:
+                    async with semaphore:
+                        await client.update_cable_status(update)
 
-            results = await asyncio.gather(
-                *(update_one(update) for update in updates), return_exceptions=True
-            )
-            for result in results:
-                if isinstance(result, asyncio.CancelledError):
-                    raise result
-                if isinstance(result, Exception):
-                    errors.append(result)
-    if errors:
-        raise errors[0]
+                results = await asyncio.gather(
+                    *(update_one(update) for update in updates), return_exceptions=True
+                )
+                for result in results:
+                    if isinstance(result, asyncio.CancelledError):
+                        raise result
+                    if isinstance(result, Exception):
+                        errors.append(result)
+        if errors:
+            raise errors[0]
+    except ApplicationError as error:
+        if not error.non_retryable:
+            raise
+        # Use bounded save retries, then allow manual stage Retry after DCIM repairs.
+        raise ApplicationError(error.message, *error.details, type=error.type) from error
 
 
 @activity.defn
