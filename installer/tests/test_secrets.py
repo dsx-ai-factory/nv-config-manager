@@ -74,7 +74,8 @@ class TestGenerateSecrets:
 
         assert "nautobot_token" in state
         assert len(state["nautobot_token"]) == 40
-        assert "nautobot_read_only_token" not in state
+        assert len(state["nautobot_read_only_token"]) == 40
+        assert state["nautobot_read_only_token"] != state["nautobot_token"]
         assert "redis_password" in state
         assert "nats_password" in state
         assert "django_secret_key" in state
@@ -152,6 +153,16 @@ class TestGenerateSecrets:
 
         with pytest.raises(ValueError, match=r"natsPassword must match"):
             generate_secrets(config)
+
+    def test_external_nautobot_does_not_generate_an_unregistered_read_only_token(self):
+        config = NVConfigManagerInstallConfig(
+            services=ServicesConfig(
+                nautobot=False, external_nautobot_url="https://nautobot.example"
+            ),
+            secrets=SecretsConfig(method=SecretsMethod.KUBERNETES),
+        )
+
+        assert "nautobot_read_only_token" not in generate_secrets(config)
 
     def test_kubernetes_nautobot_read_only_token_passes_through(self):
         config = NVConfigManagerInstallConfig(

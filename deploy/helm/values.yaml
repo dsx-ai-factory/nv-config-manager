@@ -248,7 +248,8 @@ localDev:
     # Mock preferred username (X-Auth-Request-Preferred-Username)
     preferredUsername: "dev"
   # Enable mock network device connections (returns stub data, no real SSH/API calls)
-  # Set to true in local Kind environments where worker pods can't reach real devices
+  # Set to true where worker pods can't reach real devices, such as local Kind
+  # environments. Honored by every secrets.method (eso, vault-agent, kubernetes).
   mockDevices: false
   # Register long-running test workflows used by local workflow-list latency seeding.
   enableLocalTestWorkflows: false
@@ -488,7 +489,7 @@ secrets:
         keys:
           clientSecret: "client_secret"
           cookieSecret: "cookie_secret"
-      # CNPG backup S3 credentials (optional - only when cnpg backup is enabled)
+      # CNPG backup S3 credentials (optional - used when any cnpg.<cluster>.backup.enabled is true)
       # Creates the cnpg-backup-credentials secret via ESO instead of manually
       cnpgBackup:
         path: "" # e.g., "my-org/nv-config-manager/dev/cnpg-backup"
@@ -1976,6 +1977,11 @@ temporal:
     nameSuffix: nv-config-manager-worker
     nameOverride: ""
     replicas: 3
+    # Written to the [temporal.worker] INI section. Each cached workflow keeps
+    # its sandbox in memory, so size the cache to the memory limit below. While
+    # the cache is enabled, the task slot count must be at least 2.
+    maxCachedWorkflows: 200
+    maxConcurrentWorkflowTasks: 10
     resources:
       requests:
         cpu: 1
@@ -2084,11 +2090,12 @@ temporal:
 
   # Dynamic configuration for Temporal server
   # See: https://docs.temporal.io/references/dynamic-configuration
-  dynamicConfig: []
-  # Example:
-  # - key: system.enableActivityEagerExecution
-  #   value: true
-  #   constraints: []
+  # Native Temporal configuration, rendered directly: each key maps to a list of values.
+  # Constraints use Temporal namespace names, not Kubernetes namespaces.
+  dynamicConfig:
+    # Per Temporal namespace, per frontend pod.
+    frontend.namespaceRPS.visibility:
+      - value: 50
   # Redfish / BMC workflows
   # Enable only if Redfish provisioning workflows are in use.
   # When disabled, redfish-creds secret is not required.
@@ -2592,15 +2599,17 @@ cnpg:
   # See: https://cloudnative-pg.io/documentation/current/backup/
   # ---------------------------------------------------------------------------
   backup:
-    # Destination type: s3, azure, or gcs
+    # Destination type. Only "s3" is implemented; an empty or any other value
+    # fails `helm template` when a cluster has backups enabled.
     destinationType: s3
-    # S3 configuration
+    # S3 configuration. bucket and path are REQUIRED when any cluster has
+    # backup.enabled=true (helm fails otherwise).
     s3:
       endpoint: "" # e.g., "https://s3.us-west-2.amazonaws.com"
       bucket: "" # e.g., "nv-config-manager-cnpg-backups"
-      path: "" # optional path prefix within bucket
+      path: "" # path prefix within bucket, e.g., "nv-config-manager/dev"
       region: "" # e.g., "us-west-2"
-    # Secret containing credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+    # Secret containing credentials (ACCESS_KEY_ID, ACCESS_SECRET_KEY)
     credentialsSecret: cnpg-backup-credentials
     # WAL compression (gzip, bzip2, snappy, lz4, zstd)
     walCompression: gzip
@@ -2630,7 +2639,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2661,7 +2674,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2692,7 +2709,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2723,7 +2744,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false
@@ -2755,7 +2780,11 @@ cnpg:
     affinity:
       # nodeSelector:  # Uncomment for production node placement
       # nv-config-manager.nvidia.com/node-type: database
-      # enablePodAntiAffinity: true  # Uncomment for production
+      # Set to false to disable; null omits it and CNPG enables anti-affinity.
+      enablePodAntiAffinity: true
+      # preferred spreads instances across topologyKey when possible;
+      # required leaves instances Pending rather than co-locating them.
+      podAntiAffinityType: preferred
       topologyKey: kubernetes.io/hostname
     backup:
       enabled: false

@@ -10,6 +10,19 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- Cable validation now allows five minutes per ARP collection attempt, up from
+  two, to accommodate switches with large interface inventories and slow NVUE
+  responses. New site validations allow thirty minutes per device, up from ten,
+  so the ARP retries and remaining validation stages fit within the child
+  workflow deadline. Already-started child workflows keep their existing deadline.
+- A render consumer whose NATS fetches keep failing now exits, and Kubernetes
+  restarts the pod, once no round trip to NATS has completed for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
+  on a connection that was not coming back while the pod stayed `Running`.
+  Expect a container restart where a consumer used to stall. The render
+  consumers also export progress metrics for stalls the exit cannot catch,
+  such as a handler that never returns. See
+  [Render service](docs/render/render-service.mdx).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
@@ -22,6 +35,61 @@ version before the selected release candidate is promoted.
   `temporal_request_latency_milliseconds_*`) also see the `_milliseconds` part
   of those metric names disappear. See
   [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
+- CNPG clusters now accept `cnpg.<cluster>.affinity.podAntiAffinityType`
+  (`preferred` or `required`). The chart defaults now set
+  `enablePodAntiAffinity: true` and `podAntiAffinityType: preferred`, which
+  match the scheduling CloudNativePG already applied when they were unset.
+- The Config Manager Temporal worker's sticky workflow cache now defaults to 200
+  entries (the Temporal SDK default is 1,000) and the worker runs at most 10
+  workflow tasks at once (the SDK default is 100), so bursts of new workflows
+  queue instead of all exceeding the workflow task timeout, and the memory held
+  by cached runs is bounded. Both limits are set in the new
+  `[temporal.worker]` INI section (`max_cached_workflows`,
+  `max_concurrent_workflow_tasks`), which the Helm chart renders from
+  `temporal.configManagerWorker.maxCachedWorkflows` and
+  `maxConcurrentWorkflowTasks`. Invalid values fail worker startup.
+- `nv_config_manager_nautobot_change_message_end_to_end_time` gains buckets at
+  900, 1200, 1800, 2700, 3600, and 7200 seconds. Its time includes queue wait,
+  which can pass ten minutes when one change fans out to many devices, and the
+  old 600-second top bucket left everything beyond that in `+Inf`. Existing
+  bucket boundaries are unchanged, so queries on them keep working.
+- `nv_config_manager_workflows.workflows` now imports each exported name from
+  its defining module when the name is accessed. Importing one workflow module no longer
+  imports all of them, so each workflow run's sandbox re-imports only the
+  modules that run uses instead of all 29 workflow modules. The package's
+  public names are unchanged.
+
+### Fixed
+
+- `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
+  anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
+  and CloudNativePG then enabled preferred anti-affinity by default.
+  Deployments that set `false`, including the `values-local-small.yaml` and
+  `values-local-medium.yaml` profiles, will see their database pods' scheduling
+  rules change on upgrade
+  ([#406](https://github.com/dsx-ai-factory/nv-config-manager/issues/406)).
+- `localDev.mockDevices` now takes effect with `secrets.method: eso` and
+  `secrets.method: vault-agent`. Before, only `secrets.method: kubernetes`
+  rendered `mock = true` in the `[device]` section, so the other methods
+  silently kept real device connections.
+- With `secrets.method: vault-agent`, pods now carry a `checksum/vault-agent-ini`
+  annotation, so a change to the rendered `nv-config-manager.ini` template rolls
+  them. Before, the injector kept serving the old template until pods restarted.
+- The Temporal worker no longer re-imports pydantic and the shared workflow
+  libraries in the sandbox for every workflow run. This cuts the per-run startup
+  CPU and per-run memory that contributed to workflow task timeouts, deadlock
+  errors, and OOMKills during large fan-outs such as site cable validation.
+  Every built-in workflow module now imports everything except the standard
+  library and `temporalio` inside its
+  `workflow.unsafe.imports_passed_through()` block, a test enforces this, and
+  the workflows package README documents the pattern for plugin workflows. The
+  worker also passes through `annotated_types`, which Pydantic imports lazily
+  after those blocks have closed.
+- `workflow-cli` now sends the default of a list option as a list when the
+  option is omitted. Before, it sent the default's text split on commas, for
+  example `["['Active'", "'Provisioned']"]` for `--status`, so commands such as
+  `site-cable-validation` failed at their first stage unless every list option
+  was passed explicitly.
 
 ## 1.4.2
 

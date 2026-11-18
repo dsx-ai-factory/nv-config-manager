@@ -70,8 +70,13 @@ spec:
     nodeSelector:
       {{- toYaml $config.affinity.nodeSelector | nindent 6 }}
     {{- end }}
-    {{- if $config.affinity.enablePodAntiAffinity }}
+    {{- /* CNPG enables anti-affinity unless this is explicitly false, so
+         render false instead of dropping it. */}}
+    {{- if not (kindIs "invalid" $config.affinity.enablePodAntiAffinity) }}
     enablePodAntiAffinity: {{ $config.affinity.enablePodAntiAffinity }}
+    {{- end }}
+    {{- if $config.affinity.podAntiAffinityType }}
+    podAntiAffinityType: {{ $config.affinity.podAntiAffinityType }}
     {{- end }}
     {{- if $config.affinity.topologyKey }}
     topologyKey: {{ $config.affinity.topologyKey }}
@@ -187,8 +192,11 @@ spec:
     nodeSelector:
       {{- toYaml $nautobotConfig.affinity.nodeSelector | nindent 6 }}
     {{- end }}
-    {{- if $nautobotConfig.affinity.enablePodAntiAffinity }}
+    {{- if not (kindIs "invalid" $nautobotConfig.affinity.enablePodAntiAffinity) }}
     enablePodAntiAffinity: {{ $nautobotConfig.affinity.enablePodAntiAffinity }}
+    {{- end }}
+    {{- if $nautobotConfig.affinity.podAntiAffinityType }}
+    podAntiAffinityType: {{ $nautobotConfig.affinity.podAntiAffinityType }}
     {{- end }}
     {{- if $nautobotConfig.affinity.topologyKey }}
     topologyKey: {{ $nautobotConfig.affinity.topologyKey }}

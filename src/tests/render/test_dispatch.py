@@ -20,7 +20,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from nv_config_manager.dcim import DCIMChangeEvent, RenderEventRequest
-from nv_config_manager.render.dispatch import EventDispatcher
+from nv_config_manager.render.dispatch import (
+    END_TO_END_HISTOGRAM_BUCKETS,
+    HISTOGRAM_BUCKETS,
+    EventDispatcher,
+)
 from nv_config_manager.render.exceptions import RenderScopeMismatch
 
 
@@ -135,6 +139,13 @@ async def test_nautobot_change_dispatch(mock_render):
     await dispatcher.nautobot_change_dispatch(message)
 
     mock_render.assert_called_once_with("device-1", "test commit message", "test")
+
+
+def test_end_to_end_buckets_extend_past_processing_buckets():
+    """Queue wait beyond ten minutes lands in a finite bucket."""
+    assert END_TO_END_HISTOGRAM_BUCKETS[: len(HISTOGRAM_BUCKETS) - 1] == HISTOGRAM_BUCKETS[:-1]
+    assert {1800.0, 3600.0} <= set(END_TO_END_HISTOGRAM_BUCKETS)
+    assert END_TO_END_HISTOGRAM_BUCKETS == sorted(END_TO_END_HISTOGRAM_BUCKETS)
 
 
 @patch("nv_config_manager.render.dispatch.execute_render", new_callable=AsyncMock)
