@@ -2,6 +2,9 @@
 
 Thank you for your interest in contributing to NVIDIA Config Manager! This document provides guidelines and instructions for contributing.
 
+All contributors are expected to follow our [Code of Conduct](CODE_OF_CONDUCT.md).
+It describes community expectations and how to report unacceptable behavior.
+
 ## Table of Contents
 
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
