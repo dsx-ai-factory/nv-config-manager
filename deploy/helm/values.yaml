@@ -248,7 +248,8 @@ localDev:
     # Mock preferred username (X-Auth-Request-Preferred-Username)
     preferredUsername: "dev"
   # Enable mock network device connections (returns stub data, no real SSH/API calls)
-  # Set to true in local Kind environments where worker pods can't reach real devices
+  # Set to true where worker pods can't reach real devices, such as local Kind
+  # environments. Honored by every secrets.method (eso, vault-agent, kubernetes).
   mockDevices: false
   # Register long-running test workflows used by local workflow-list latency seeding.
   enableLocalTestWorkflows: false
@@ -2092,11 +2093,12 @@ temporal:
 
   # Dynamic configuration for Temporal server
   # See: https://docs.temporal.io/references/dynamic-configuration
-  dynamicConfig: []
-  # Example:
-  # - key: system.enableActivityEagerExecution
-  #   value: true
-  #   constraints: []
+  # Native Temporal configuration, rendered directly: each key maps to a list of values.
+  # Constraints use Temporal namespace names, not Kubernetes namespaces.
+  dynamicConfig:
+    # Per Temporal namespace, per frontend pod.
+    frontend.namespaceRPS.visibility:
+      - value: 50
   # Redfish / BMC workflows
   # Enable only if Redfish provisioning workflows are in use.
   # When disabled, redfish-creds secret is not required.

@@ -388,7 +388,8 @@ metadata:
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
-    "helm.sh/hook-weight": "0"
+    # Config-store migrations run at weight 5; rendering requires the new schema.
+    "helm.sh/hook-weight": "10"
 spec:
   ttlSecondsAfterFinished: {{ .Values.renderService.templateUpdater.ttlSecondsAfterFinished }}
   backoffLimit: {{ .Values.renderService.templateUpdater.backoffLimit }}

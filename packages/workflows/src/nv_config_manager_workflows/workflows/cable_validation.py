@@ -426,7 +426,7 @@ class SiteCableValidationWorkflow(WorkflowMetadataMixin, CableStatusPersistenceM
                 retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 search_attributes=search_attrs,
                 execution_timeout=(
-                    timedelta(minutes=10)
+                    timedelta(minutes=30)
                     if workflow.patched(CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID)
                     else None
                 ),
@@ -845,7 +845,7 @@ class DeviceCableValidationWorkflow(
         arp_table = await workflow.execute_activity(
             get_device_arp_table,
             stage_input.device,
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )
         mac_entries = list(result.by_mac.values())
