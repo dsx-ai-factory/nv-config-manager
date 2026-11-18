@@ -51,3 +51,14 @@ configured through `content.jobs` in `nv-config-manager-install.yaml`.
 The image includes the Nautobot dependencies required by NVIDIA Config Manager, including the bundled `nautobot-app-overlays` app, the NVIDIA Config Manager Nautobot plugin, and the NATS broker plugin.
 
 `nautobot-app-overlays/` and `nautobot-nv-config-manager/` are kept as standalone Python projects so they can be extracted back into their own repositories later. The Nautobot image consumes both through local path sources declared in `pyproject.toml`.
+
+## MCP Token Upgrades
+
+The migration runner registers `NAUTOBOT_READ_ONLY_API_TOKEN` on the dedicated
+`nvcm-mcp-read-only` account with inventory view permissions. On upgrade, an
+existing token with writes disabled moves to that account without changing its
+key, so existing MCP clients continue using the same credential.
+
+The read-only token must differ from `NAUTOBOT_SUPERUSER_API_TOKEN`. A token owned
+by another account with writes enabled is rejected; configure a separate token
+for MCP instead. Read-only tokens must contain 40 lowercase hexadecimal characters.
