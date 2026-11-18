@@ -80,7 +80,7 @@ data:
     cookie_secure = true
     cookie_httponly = true
     cookie_samesite = "lax"
-    cookie_refresh = "1h"
+    cookie_refresh = {{ $.Values.oidc.proxy.cookieRefresh | default "1h" | quote }}
     cookie_expire = "8h"
     session_store_type = "redis"
     redis_connection_url = {{ printf "%s://%s:%v/%v" $redisScheme $redisHost $redisPort ($.Values.externalServices.redis.db | default 0) | quote }}
