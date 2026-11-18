@@ -25,7 +25,7 @@ from typing import Any, Self, cast
 
 import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
-from aiohttp_retry import ExponentialRetry, RetryClient
+from aiohttp_retry import ExponentialRetry, JitterRetry, RetryClient
 from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
 from nv_config_manager_dcim.errors import DCIMError, DCIMReadCancelledError
 
@@ -104,6 +104,32 @@ _GRAPHQL_RETRY_OPTIONS = ExponentialRetry(
     exceptions={TimeoutError},
     retry_all_server_errors=False,
     evaluate_response_callback=_graphql_response_is_final,
+)
+
+
+async def _rest_get_response_is_final(response: aiohttp.ClientResponse) -> bool:
+    """Release transient responses and include successful body reads in retries."""
+    if response.status in _RETRYABLE_GATEWAY_STATUSES:
+        response.release()
+        return False
+    if response.ok:
+        try:
+            # Cache the body while RetryClient can still retry a read timeout.
+            await response.read()
+        except BaseException:
+            response.close()
+            raise
+    return True
+
+
+_REST_GET_RETRY_OPTIONS = JitterRetry(
+    attempts=2,
+    start_timeout=1.0,
+    max_timeout=5.0,
+    random_interval_size=1.0,
+    exceptions={TimeoutError, aiohttp.ClientConnectionError},
+    retry_all_server_errors=False,
+    evaluate_response_callback=_rest_get_response_is_final,
 )
 
 
@@ -210,9 +236,7 @@ class NautobotClient:
         exc_tb: types.TracebackType | None,
     ) -> None:
         """Async context manager exit."""
-        if self._session:
-            await self._session.close()
-            self._session = None
+        await self.close()
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         """Ensure session exists, creating it lazily if needed."""
@@ -364,7 +388,7 @@ class NautobotClient:
     async def get(
         self, path: str, params: dict[str, Any] | None = None, timeout: int | None = None
     ) -> Any:
-        """Send an HTTP GET request.
+        """Send an HTTP GET request with one bounded retry for transient failures.
 
         Args:
             path: API path (relative to /api/)
@@ -377,7 +401,11 @@ class NautobotClient:
         request_url = self._rest_url(path)
         session = await self._ensure_session()
         request_timeout = aiohttp.ClientTimeout(total=timeout or self._timeout)
-        async with session.get(
+        # Keep the shared session open; only the client context owns its lifetime.
+        requester = RetryClient(
+            client_session=session, retry_options=_REST_GET_RETRY_OPTIONS, logger=logger
+        )
+        async with requester.get(
             request_url,
             params=params,
             timeout=request_timeout,

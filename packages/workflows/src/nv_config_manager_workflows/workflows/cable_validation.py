@@ -110,6 +110,7 @@ with workflow.unsafe.imports_passed_through():
     )
 
 __all__ = [
+    "CABLE_STATUS_RETRY_PATCH_ID",
     "CABLE_STATUS_UPDATE_PATCH_ID",
     "CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID",
     "DCIM_PERSISTENCE_PENDING_MESSAGE",
@@ -146,6 +147,7 @@ DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION = (
     "Preloaded data for the target network device, if available."
 )
 CABLE_STATUS_UPDATE_PATCH_ID = "cable-validation-dcim-status-v1"
+CABLE_STATUS_RETRY_PATCH_ID = "cable-validation-dcim-status-retry-v1"
 CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID = "cable-validation-child-timeout-v1"
 DCIM_PERSISTENCE_PENDING_MESSAGE = (
     "\n\n> **The report is ready. DCIM cable status persistence is still running.**"
@@ -702,7 +704,8 @@ class DeviceCableValidationWorkflow(
             name="validate_connections",
             description="Validate the intended vs actual connections",
             requires_approval=False,
-            retryable=False,
+            # Legacy histories keep terminal report-stage failures during replay.
+            retryable=workflow.patched(CABLE_STATUS_RETRY_PATCH_ID),
             depends_on=[
                 "get_device_intended_neighbors",
                 "get_device_actual_neighbors",

@@ -10,6 +10,12 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- Cable-status persistence now limits each device activity to two concurrent
+  updates and shares a paginated Nautobot interface lookup across the updates.
+  REST GETs retry transient connection failures, timeouts, and HTTP 502/503/504
+  once with jittered backoff. New device cable validations allow a manual retry
+  of transient validation-stage failures without collecting device tables again;
+  existing histories retain their previous failure behavior.
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,

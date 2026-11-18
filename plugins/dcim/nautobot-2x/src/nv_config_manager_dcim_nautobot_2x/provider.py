@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Mapping
 from typing import Any, Self, TypedDict
@@ -293,6 +294,16 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             },
         )
         self._public_url = (public_url or nautobot_url).rstrip("/")
+        self._cable_interfaces: dict[str, asyncio.Task[dict[str, list[Mapping[str, Any]]]]] = {}
+
+    async def close(self) -> None:
+        """Release the session and device lookups scoped to this client."""
+        for lookup in self._cable_interfaces.values():
+            if not lookup.done():
+                lookup.cancel()
+        await asyncio.gather(*self._cable_interfaces.values(), return_exceptions=True)
+        self._cable_interfaces.clear()
+        await super().close()
 
     @classmethod
     def from_settings(cls, settings: ProviderSettings) -> Self:
@@ -859,16 +870,32 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             {"template_version": template_version},
         )
 
+    async def _cable_interface_index(self, device_id: str) -> dict[str, list[Mapping[str, Any]]]:
+        """Share one paginated lookup across a client's concurrent cable updates."""
+        if device_id not in self._cable_interfaces:
+            # Share failures too, so an unavailable endpoint is not retried once
+            # per interface. The next activity gets a fresh client and lookup.
+            self._cable_interfaces[device_id] = asyncio.create_task(
+                self._load_cable_interface_index(device_id)
+            )
+        return await asyncio.shield(self._cable_interfaces[device_id])
+
+    async def _load_cable_interface_index(
+        self, device_id: str
+    ) -> dict[str, list[Mapping[str, Any]]]:
+        interfaces = await self.get_all("dcim/interfaces/", params={"device_id": [device_id]})
+        index: dict[str, list[Mapping[str, Any]]] = {}
+        for interface in interfaces:
+            if not isinstance(interface, Mapping) or not isinstance(interface.get("name"), str):
+                raise DCIMInvalidDataError("Nautobot returned invalid interface lookup data")
+            index.setdefault(interface["name"], []).append(interface)
+        return index
+
     async def update_cable_status(self, update: CableStatusUpdate) -> None:
         """Update the cable attached to a Nautobot device interface."""
         try:
-            response = await self.get(
-                "dcim/interfaces/",
-                params={"device_id": [update.device_id], "name": update.interface_name},
-            )
-            interfaces = response.get("results") if isinstance(response, Mapping) else None
-            if not isinstance(interfaces, list):
-                raise DCIMInvalidDataError("Nautobot returned invalid interface lookup data")
+            index = await self._cable_interface_index(update.device_id)
+            interfaces = index.get(update.interface_name, [])
             if not interfaces:
                 raise DCIMNotFoundError(
                     f"No interface named '{update.interface_name}' found on device "
