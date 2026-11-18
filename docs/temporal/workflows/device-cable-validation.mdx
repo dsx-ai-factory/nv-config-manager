@@ -31,7 +31,9 @@ Users interact with a simple two-step form:
 Cable-status persistence runs at most two interface updates concurrently per
 device activity. New workflow runs save at most 25 interfaces per activity, with
 a 15-minute deadline and activity retries scoped to each batch. The Nautobot
-provider shares one paginated interface lookup across a batch's updates.
+provider shares one paginated lookup filtered to the batch's interface names.
+Malformed records do not block updates for valid interface matches; unresolved
+targets still report invalid data rather than being silently skipped.
 REST reads retry transient connection failures, timeouts,
 and HTTP 502/503/504 once with jittered backoff; writes are not automatically
 repeated by the HTTP client. TLS certificate and fingerprint failures are not retried.

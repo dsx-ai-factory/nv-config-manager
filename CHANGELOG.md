@@ -11,8 +11,9 @@ version before the selected release candidate is promoted.
 ### Changed
 
 - Cable-status persistence now limits each device activity to two concurrent
-  updates and shares a validated paginated Nautobot interface lookup across
-  each batch of up to 25 updates, keeping activity retries within that batch.
+  updates and shares a validated paginated Nautobot interface lookup filtered
+  to each batch's up to 25 interface names, keeping activity retries within that
+  batch. Malformed records do not prevent valid interface matches from being saved.
   REST GETs retry transient connection failures, timeouts, and HTTP 502/503/504
   once with jittered backoff, excluding TLS verification failures. New standalone
   device cable validations allow a manual retry of transient persistence failures

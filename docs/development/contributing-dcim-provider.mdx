@@ -305,6 +305,14 @@ provenance in the native DCIM. Updates must be idempotent because a Temporal
 activity can be retried. Providers without a cable object omit this optional
 capability; cable validation treats its absence as a no-op.
 
+Providers can additionally implement
+`DCIMCableStatusBatchClient.prepare_cable_status_updates(device_id, interface_names)`.
+The activity calls it once before writing the batch, allowing a shared lookup
+filtered to those names. This capability is optional; providers implementing
+only `update_cable_status()` retain their existing behavior. Malformed lookup
+records should report errors for unresolved targets without preventing valid
+interface matches from being saved.
+
 ## Optional Nautobot MCP capability
 
 The remote MCP server has common Config Manager tools for every provider. Its

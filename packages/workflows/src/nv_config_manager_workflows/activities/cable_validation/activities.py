@@ -19,7 +19,11 @@ import asyncio
 import copy
 import logging
 
-from nv_config_manager_dcim import CableStatusUpdate, DCIMCableStatusClient
+from nv_config_manager_dcim import (
+    CableStatusUpdate,
+    DCIMCableStatusBatchClient,
+    DCIMCableStatusClient,
+)
 from nv_config_manager_logging import LogCategory, get_logger
 from py_markdown_table.markdown_table import markdown_table
 from temporalio import activity
@@ -113,6 +117,10 @@ async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> Non
             )
 
     async with client:
+        if isinstance(client, DCIMCableStatusBatchClient):
+            await client.prepare_cable_status_updates(
+                activity_input.device_id, list(activity_input.cable_statuses)
+            )
         results = await asyncio.gather(
             *(
                 update_one(interface_name, status)

@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from nv_config_manager_dcim.models import (
@@ -264,6 +264,17 @@ class DCIMCableStatusClient(Protocol):
         Providers without a dedicated cable object omit this capability; callers
         treat its absence as a no-op.
         """
+        ...
+
+
+@runtime_checkable
+class DCIMCableStatusBatchClient(Protocol):
+    """Optional preparation of interface lookups shared by a batch of cable updates."""
+
+    async def prepare_cable_status_updates(
+        self, device_id: str, interface_names: Sequence[str]
+    ) -> None:
+        """Prepare lookups for the current batch without writing cable statuses."""
         ...
 
 

@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from itertools import batched
 from typing import Any, Self, TypedDict
 from uuid import UUID
 
@@ -270,6 +271,9 @@ def _metadata_from_nautobot_graphql(data: dict[str, Any]) -> DeviceMetadata:
     )
 
 
+type _CableInterfaceIndex = dict[str, list[Mapping[str, Any]] | DCIMInvalidDataError]
+
+
 class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
     """One broad Nautobot implementation of the SDK's DCIM client contract."""
 
@@ -294,7 +298,10 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             },
         )
         self._public_url = (public_url or nautobot_url).rstrip("/")
-        self._cable_interfaces: dict[str, asyncio.Task[dict[str, list[Mapping[str, Any]]]]] = {}
+        self._cable_interfaces: dict[
+            tuple[str, tuple[str, ...]], asyncio.Task[_CableInterfaceIndex]
+        ] = {}
+        self._cable_update_names: dict[str, tuple[str, ...]] = {}
 
     async def close(self) -> None:
         """Release the session and device lookups scoped to this client."""
@@ -303,6 +310,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
                 lookup.cancel()
         await asyncio.gather(*self._cable_interfaces.values(), return_exceptions=True)
         self._cable_interfaces.clear()
+        self._cable_update_names.clear()
         await super().close()
 
     @classmethod
@@ -870,32 +878,69 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             {"template_version": template_version},
         )
 
-    async def _cable_interface_index(self, device_id: str) -> dict[str, list[Mapping[str, Any]]]:
-        """Share one paginated lookup across a client's concurrent cable updates."""
-        if device_id not in self._cable_interfaces:
+    async def prepare_cable_status_updates(
+        self, device_id: str, interface_names: Sequence[str]
+    ) -> None:
+        """Share a filtered lookup for the current activity's requested interfaces."""
+        names = tuple(sorted(set(interface_names)))
+        self._cable_update_names[device_id] = names
+        await self._cable_interface_index(device_id, names)
+
+    async def _cable_interface_index(
+        self, device_id: str, interface_names: tuple[str, ...]
+    ) -> _CableInterfaceIndex:
+        """Share a paginated lookup for exactly the requested device and names."""
+        key = (device_id, interface_names)
+        if key not in self._cable_interfaces:
             # Share failures too, so an unavailable endpoint is not retried once
             # per interface. The next activity gets a fresh client and lookup.
-            self._cable_interfaces[device_id] = asyncio.create_task(
-                self._load_cable_interface_index(device_id)
+            self._cable_interfaces[key] = asyncio.create_task(
+                self._load_cable_interface_index(device_id, interface_names)
             )
-        return await asyncio.shield(self._cable_interfaces[device_id])
+        return await asyncio.shield(self._cable_interfaces[key])
 
     async def _load_cable_interface_index(
-        self, device_id: str
-    ) -> dict[str, list[Mapping[str, Any]]]:
-        interfaces = await self.get_all("dcim/interfaces/", params={"device_id": [device_id]})
-        index: dict[str, list[Mapping[str, Any]]] = {}
-        for interface in interfaces:
-            if not isinstance(interface, Mapping) or not isinstance(interface.get("name"), str):
-                raise DCIMInvalidDataError("Nautobot returned invalid interface lookup data")
-            index.setdefault(interface["name"], []).append(interface)
+        self, device_id: str, interface_names: tuple[str, ...]
+    ) -> _CableInterfaceIndex:
+        index: _CableInterfaceIndex = {name: [] for name in interface_names}
+        # Older workflow histories can still send an entire device in one activity.
+        # Bound their filter URLs too, without changing recorded activity boundaries.
+        for names in batched(interface_names, 25, strict=False):
+            interfaces = await self.get_all(
+                "dcim/interfaces/", params={"device_id": [device_id], "name": list(names)}
+            )
+            malformed = False
+            for interface in interfaces:
+                if not isinstance(interface, Mapping) or not isinstance(
+                    name := interface.get("name"), str
+                ):
+                    malformed = True
+                    continue
+                if name in names and isinstance(records := index[name], list):
+                    records.append(interface)
+            if malformed:
+                logger.warning(
+                    "Nautobot returned malformed interface records for device %s", device_id
+                )
+                for name in names:
+                    # Do not discard valid matches because another record is malformed.
+                    # Unresolved targets must still surface an invalid-data error.
+                    if not index[name]:
+                        index[name] = DCIMInvalidDataError(
+                            f"Nautobot returned invalid interface lookup data for '{name}'"
+                        )
         return index
 
     async def update_cable_status(self, update: CableStatusUpdate) -> None:
         """Update the cable attached to a Nautobot device interface."""
         try:
-            index = await self._cable_interface_index(update.device_id)
+            names = self._cable_update_names.get(update.device_id, ())
+            if update.interface_name not in names:
+                names = (update.interface_name,)
+            index = await self._cable_interface_index(update.device_id, names)
             interfaces = index.get(update.interface_name, [])
+            if isinstance(interfaces, DCIMInvalidDataError):
+                raise interfaces
             if not interfaces:
                 raise DCIMNotFoundError(
                     f"No interface named '{update.interface_name}' found on device "

@@ -15,12 +15,23 @@
 """Tests for Nautobot cable-status persistence."""
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from nv_config_manager_dcim import CableStatus, CableStatusUpdate, DCIMCableStatusClient
+from nv_config_manager_dcim import (
+    CableStatus,
+    CableStatusUpdate,
+    DCIMCableStatusBatchClient,
+    DCIMCableStatusClient,
+)
 from nv_config_manager_dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient
+
+from nv_config_manager_workflows.activities.cable_validation import (
+    UpdateCableStatusesInput,
+    update_cable_statuses,
+)
 
 
 def _client() -> NautobotDCIMClient:
@@ -53,7 +64,7 @@ async def test_update_cable_status_patches_attached_cable() -> None:
 
     client.get_all.assert_awaited_once_with(
         "dcim/interfaces/",
-        params={"device_id": ["device-1"]},
+        params={"device_id": ["device-1"], "name": ["Ethernet1/1"]},
     )
     client.patch.assert_awaited_once_with(
         "dcim/cables/cable-1/",
@@ -101,6 +112,7 @@ async def test_update_cable_status_rejects_interface_without_cable() -> None:
 
 def test_nautobot_exposes_cable_status_capability() -> None:
     assert isinstance(_client(), DCIMCableStatusClient)
+    assert isinstance(_client(), DCIMCableStatusBatchClient)
 
 
 @pytest.mark.asyncio
@@ -120,6 +132,12 @@ async def test_concurrent_updates_share_interface_lookup_and_close_clears_it() -
     client.get_all = AsyncMock(side_effect=lookup)
     client.get = AsyncMock(return_value={"status": {"name": "Connected"}})
     async with client:
+        preparation = asyncio.create_task(
+            client.prepare_cable_status_updates(
+                "device-1", [f"Ethernet1/{index}" for index in range(1, 21)]
+            )
+        )
+        await entered.wait()
         tasks = [
             asyncio.create_task(
                 client.update_cable_status(
@@ -133,9 +151,8 @@ async def test_concurrent_updates_share_interface_lookup_and_close_clears_it() -
             )
             for index in range(1, 21)
         ]
-        await entered.wait()
         release.set()
-        await asyncio.gather(*tasks)
+        await asyncio.gather(preparation, *tasks)
     client.get_all.assert_awaited_once()
 
     async with client:
@@ -229,6 +246,7 @@ async def test_cable_interface_lookup_reads_all_pages_once() -> None:
         return {"status": {"name": "Connected"}}
 
     client.get = AsyncMock(side_effect=get)
+    await client.prepare_cable_status_updates("device-1", ["Ethernet1/1", "Ethernet1/2"])
     await client.update_cable_status(
         CableStatusUpdate(
             device_id="device-1",
@@ -240,6 +258,9 @@ async def test_cable_interface_lookup_reads_all_pages_once() -> None:
     await client.update_cable_status(_update(CableStatus.CONNECTED))
     lookups = [call for call in client.get.await_args_list if call.args[0] == "dcim/interfaces/"]
     assert len(lookups) == 2
+    assert all(
+        lookup.kwargs["params"]["name"] == ["Ethernet1/1", "Ethernet1/2"] for lookup in lookups
+    )
     assert offsets == [0, 1]
     await client.close()
 
@@ -283,3 +304,106 @@ async def test_cable_lookup_preserves_not_found_for_valid_empty_page() -> None:
     async with client:
         with pytest.raises(DCIMNotFoundError, match="No interface named"):
             await client.update_cable_status(_update())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_activity", [False, True])
+async def test_large_inventory_lookup_reads_only_requested_batch_names(
+    monkeypatch: pytest.MonkeyPatch, legacy_activity: bool
+) -> None:
+    inventory = {
+        f"Ethernet1/{index}": {"name": f"Ethernet1/{index}", "cable": {"id": f"cable-{index}"}}
+        for index in range(2000)
+    }
+    requested = list(inventory)[:500]
+    lookups: list[list[str]] = []
+    clients: list[NautobotDCIMClient] = []
+
+    async def get(
+        path: str, params: dict[str, Any] | None = None, timeout: int | None = None
+    ) -> dict[str, Any]:
+        if path == "dcim/interfaces/":
+            assert params is not None
+            assert params["device_id"] == ["device-1"]
+            names = params["name"]
+            assert 0 < len(names) <= 25
+            lookups.append(names)
+            return {"results": [inventory[name] for name in names], "next": None}
+        if path == "extras/notes/":
+            return {"results": []}
+        return {"status": {"name": "Connected"}}
+
+    def create_client() -> NautobotDCIMClient:
+        client = _client()
+        client.get = AsyncMock(side_effect=get)
+        client.patch = AsyncMock()
+        client.post = AsyncMock()
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(
+        "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
+        create_client,
+    )
+    batch_size = 500 if legacy_activity else 25
+    for start in range(0, len(requested), batch_size):
+        await update_cable_statuses(
+            UpdateCableStatusesInput(
+                device_id="device-1",
+                cable_statuses=dict.fromkeys(
+                    requested[start : start + batch_size], CableStatus.INVALID
+                ),
+                workflow_id="validation-1",
+            )
+        )
+
+    assert len(lookups) == 20
+    assert sum(map(len, lookups)) == 500
+    assert {name for names in lookups for name in names} == set(requested)
+    assert sum(client.patch.await_count for client in clients) == 500
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unresolved_target", [False, True])
+async def test_malformed_record_does_not_block_other_interface_writes(
+    monkeypatch: pytest.MonkeyPatch, unresolved_target: bool
+) -> None:
+    client = _client()
+    interfaces = [
+        {"name": "Ethernet1/1", "cable": {"id": "cable-1"}},
+        {"id": "malformed-interface"},
+        {"name": "Ethernet1/2", "cable": {"id": "cable-2"}},
+    ]
+
+    async def get(
+        path: str, params: dict[str, Any] | None = None, timeout: int | None = None
+    ) -> dict[str, Any]:
+        if path == "dcim/interfaces/":
+            return {"results": interfaces, "next": None}
+        if path == "extras/notes/":
+            return {"results": []}
+        return {"status": {"name": "Connected"}}
+
+    client.get = AsyncMock(side_effect=get)
+    client.patch = AsyncMock()
+    client.post = AsyncMock()
+    monkeypatch.setattr(
+        "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
+        lambda: client,
+    )
+    statuses = {"Ethernet1/1": CableStatus.INVALID, "Ethernet1/2": CableStatus.INVALID}
+    if unresolved_target:
+        statuses["Ethernet1/3"] = CableStatus.INVALID
+    activity_input = UpdateCableStatusesInput(
+        device_id="device-1", cable_statuses=statuses, workflow_id="validation-1"
+    )
+    if unresolved_target:
+        with pytest.raises(DCIMInvalidDataError, match="Ethernet1/3"):
+            await update_cable_statuses(activity_input)
+    else:
+        await update_cable_statuses(activity_input)
+
+    assert {invocation.args[0] for invocation in client.patch.await_args_list} == {
+        "dcim/cables/cable-1/",
+        "dcim/cables/cable-2/",
+    }

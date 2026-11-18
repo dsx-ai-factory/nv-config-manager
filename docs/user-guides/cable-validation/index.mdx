@@ -84,9 +84,9 @@ When the provider supports cable status persistence, validation records these re
 
 The configured DCIM integration reads the current value before writing. If the status is already correct, the workflow makes no change. This avoids unnecessary DCIM writes and events on repeated site validations. Deployments without cable-status persistence support treat the update as a no-op.
 
-For a site validation, the `format_result` stage displays the Markdown report and Excel link, then remains **In Progress** while it applies the collected cable statuses. For a standalone device validation, `validate_connections` behaves the same way. Status writes run concurrently within each device and have a fifteen-minute activity timeout per device. The stage becomes **Complete** only after persistence succeeds.
+For a site validation, the `format_result` stage displays the Markdown report and Excel link, then remains **In Progress** while it applies the collected cable statuses. For a standalone device validation, `validate_connections` behaves the same way. New workflow runs save batches of up to 25 interfaces, with two concurrent writes and a fifteen-minute activity timeout per batch. Nautobot lookups are filtered to the batch's interface names. The stage becomes **Complete** only after persistence succeeds. Existing histories keep their original activity schedule.
 
-If persistence fails, the stage is marked **Failed**, but its output retains the report and replaces the progress message with a warning that cable statuses may be partially updated. Resolve the reported DCIM error and rerun validation; unchanged statuses will be skipped on the next run.
+If persistence fails, the stage is marked **Failed**, but its output retains the report and replaces the progress message with a warning that cable statuses may be partially updated. Resolve the reported DCIM error and use **Retry** on the stage if available; otherwise rerun validation. A stage retry reuses collected device tables, and unchanged statuses are skipped when persistence runs again.
 
 ## Validation tags
 
@@ -225,7 +225,7 @@ The device workflow runs six stages. The three data-collection stages (`get_devi
 
 1. **`validate_connections` — Compare intended vs actual and produce the report.**
 
-   Joins the three data sources and applies the decision order in [How each connection is evaluated](#how-each-connection-is-evaluated). It validates the required intended-neighbor fields before checking link state. After that prerequisite passes, an up interface marked link-state-only passes immediately; otherwise an LLDP device/interface, far-end MAC, or LLDP port-description match must identify the intended connection. The stage then classifies every mismatch (link down, wrong neighbor, no neighbor found, unexpected connection), decorates findings with the stable `ID` hash used across runs, and formats the per-device Markdown report. For a standalone device run, the report appears while this stage persists cable statuses; a site-launched child returns its pending updates to the parent instead. This stage is not retryable — if validation logic or DCIM persistence raises, the run fails outright rather than masking a real error behind a retry.
+   Joins the three data sources and applies the decision order in [How each connection is evaluated](#how-each-connection-is-evaluated). It validates the required intended-neighbor fields before checking link state. After that prerequisite passes, an up interface marked link-state-only passes immediately; otherwise an LLDP device/interface, far-end MAC, or LLDP port-description match must identify the intended connection. The stage then classifies every mismatch (link down, wrong neighbor, no neighbor found, unexpected connection), decorates findings with the stable `ID` hash used across runs, and formats the per-device Markdown report. For a standalone device run, the report appears while this stage persists cable statuses; a site-launched child returns its pending updates to the parent instead. Report-generation failures fail the run promptly. In new standalone runs, transient persistence failures allow manual **Retry** without recollecting device tables; existing histories retain their previous failure behavior.
 
 The workflow's final output is a `DeviceCableValidationResult` whose `interfaces` field maps each invalid interface name to its findings.
 
@@ -317,7 +317,7 @@ The device is unreachable, the management credentials are wrong, or the device i
 
 **The report is visible, but its stage says DCIM cable status persistence failed.**
 
-The validation itself completed, but one or more cable status writes failed. The report remains valid for the observations collected during the run. Some cable statuses may have been updated before the failure. Resolve the DCIM connectivity, permissions, missing-cable, or bootstrap-data error shown by the workflow and rerun validation. The rerun skips statuses that already match.
+The validation itself completed, but one or more cable status writes failed. The report remains valid for the observations collected during the run. Some cable statuses may have been updated before the failure. Resolve the DCIM connectivity, permissions, missing-cable, or bootstrap-data error shown by the workflow. Use **Retry** on the failed stage if available, which reuses the collected device tables; otherwise rerun validation. Persistence skips statuses that already match.
 
 **The report shows duplicate findings for the same link.**
 
