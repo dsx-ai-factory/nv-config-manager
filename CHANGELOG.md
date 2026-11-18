@@ -79,8 +79,15 @@ version before the selected release candidate is promoted.
 
 - Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
   NVLink firmware upgrade, and reprovisioning now await the backup child's result
-  so failures and timeouts reach stage failure handling. Histories that already
-  used the old child-completion check retain that path for replay compatibility.
+  so failures and timeouts reach stage failure handling. Previously a failed or
+  timed-out backup was reported as backed up and the workflow continued. These
+  workflows now stop at the backup stage even when the configuration change was
+  already applied: retry the stage to start a new backup, or the workflow closes
+  as **Failed** after the failed-stage retry window. A backup child keeps its own
+  stage retry until its 10-minute run timeout, so the parent stage can report a
+  timeout; the backup workflow's page shows the underlying error. Histories that
+  already used the old child-completion check retain that path for replay
+  compatibility.
 
 - Workflow API approve, reject, and retry requests for a workflow that closed
   before the signal arrived now return `409 Conflict` with the workflow status
