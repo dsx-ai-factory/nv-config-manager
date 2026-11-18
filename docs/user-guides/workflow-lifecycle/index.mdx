@@ -68,17 +68,19 @@ them retroactively.
 
 On workflows that back up a single device (for example Configuration Deploy and
 Switch OS Upgrade), the backup stage fails when its backup child workflow fails
-or times out; retry the stage to start a new backup. This applies only to runs
-started on a version with backup failure propagation. Older runs report the
-backup stage as complete even when the child failed, so check the backup
-workflow named in the stage output and start a new run if the backup failed. Batch Deploy and Site Backup
+or times out; retry the stage to start a new backup. Backup stages that were
+already running when you upgraded keep the earlier behavior and may report the
+stage as complete even when the child failed. For those runs, check the backup
+workflow named in the stage output and, if the backup failed, run
+[Configuration Backup](../configuration-backup/index.mdx) against the device;
+do not start a new run of the original workflow. Batch Deploy and Site Backup
 record each device's backup result in the stage output instead of failing the
 stage.
 
 Retry is not appropriate when:
 
 - The stage failed because of a non-retryable error class (for example `ConfigSyntaxException`, `DiffChangedException`, `FirmwareUpgradeException`). These are deliberate fail-closed conditions — fix the underlying cause and run a new workflow.
-- The stage isn't marked retryable (the Retry button will be disabled).
+- The stage isn't marked retryable (the Retry button is not shown).
 - The whole workflow already terminated. Retry signals only land on stages of a still-running workflow; for a terminated or failed-out workflow, start a new run. The UI hides Retry once the workflow is no longer running, and the API returns `409 Conflict` if the workflow closed before the retry arrived.
 
 ## Terminate

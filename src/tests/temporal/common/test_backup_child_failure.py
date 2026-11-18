@@ -16,7 +16,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator, Callable, Generator
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, NoReturn
 from unittest.mock import AsyncMock
@@ -165,6 +165,7 @@ class _ProbeRun:
         ]
 
 
+@asynccontextmanager
 async def _run_probe(
     env: WorkflowEnvironment,
 ) -> AsyncIterator[_ProbeRun]:
@@ -186,7 +187,7 @@ async def test_failed_backup_child_fails_the_stage_and_retry_starts_a_new_backup
 ) -> None:
     """A failed backup child leaves the stage FAILED and retryable; Retry backs up again."""
     async with time_skipping_env() as env:
-        async for probe in _run_probe(env):
+        async with _run_probe(env) as probe:
             await probe.wait_for_failed_backup_stage()
             events = await probe.event_types()
             assert EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED in events
@@ -207,7 +208,7 @@ async def test_failed_backup_child_closes_the_workflow_when_not_retried(
 ) -> None:
     """Without a retry, the backup stage's window expires and the workflow fails."""
     async with time_skipping_env() as env:
-        async for probe in _run_probe(env):
+        async with _run_probe(env) as probe:
             await probe.wait_for_failed_backup_stage()
 
             with pytest.raises(WorkflowFailureError) as caught:
