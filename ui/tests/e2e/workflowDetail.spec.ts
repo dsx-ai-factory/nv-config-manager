@@ -362,11 +362,17 @@ test.describe("Workflow Detail Page", () => {
   }) => {
     const workflowId = "closed-before-retry";
     let status = "RUNNING";
-    let conflictAt = 0;
-    const fetchedAt: number[] = [];
+    let retryCalled = false;
+    let fetches = 0;
+
+    // Freeze page timers so SWR's periodic refresh never runs; any later fetch must
+    // come from the 409 handler.
+    const frozenAt = new Date("2026-01-01T00:00:00Z");
+    await page.clock.install({ time: frozenAt });
+    await page.clock.pauseAt(frozenAt);
 
     await page.route(`**/v1/workflow/${workflowId}`, async (route) => {
-      fetchedAt.push(Date.now());
+      fetches += 1;
       await route.fulfill({
         status: 200,
         json: createWorkflowWithStage({
@@ -381,7 +387,7 @@ test.describe("Workflow Detail Page", () => {
     await page.route(
       `**/v1/workflow/${workflowId}/retry/apply_config`,
       async (route) => {
-        conflictAt = Date.now();
+        retryCalled = true;
         // The retry window expired after the page loaded.
         status = "FAILED";
         await route.fulfill({
@@ -395,15 +401,13 @@ test.describe("Workflow Detail Page", () => {
     );
 
     await page.goto(`/workflows/${workflowId}`);
-    await page.getByRole("button", { name: "Retry" }).click();
+    const retry = page.getByRole("button", { name: "Retry" });
+    await expect(retry).toBeVisible();
+    const fetchesBeforeRetry = fetches;
+    await retry.click();
 
-    await expect.poll(() => conflictAt).toBeGreaterThan(0);
-    await expect
-      .poll(() => fetchedAt.some((time) => time > conflictAt), { timeout: 1000 })
-      .toBe(true);
-    const previousFetch = Math.max(...fetchedAt.filter((time) => time <= conflictAt));
-    const refetch = fetchedAt.find((time) => time > conflictAt)!;
-    expect(refetch - previousFetch).toBeLessThan(4000);
+    await expect.poll(() => retryCalled).toBe(true);
+    await expect.poll(() => fetches).toBeGreaterThan(fetchesBeforeRetry);
     await expect(
       page.getByText("Retry: Unavailable", { exact: true })
     ).toBeVisible();

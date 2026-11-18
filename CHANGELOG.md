@@ -86,8 +86,9 @@ version before the selected release candidate is promoted.
   workflows now stop at the backup stage even when the configuration change was
   already applied: retry the stage to start a new backup, or the workflow closes
   as **Failed** after the failed-stage retry window. A backup child keeps its own
-  stage retry until its 10-minute run timeout, so the parent stage can report a
-  timeout; the backup workflow's page shows the underlying error. Histories that
+  stage retry until the earlier of the failed-stage retry window or its 10-minute
+  run timeout, so the parent stage then reports a failure or timeout; the backup
+  workflow's page shows the underlying error. Histories that
   already used the old child-completion check retain that path for replay
   compatibility.
 
