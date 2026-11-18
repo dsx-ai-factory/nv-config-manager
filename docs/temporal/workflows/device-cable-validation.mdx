@@ -31,6 +31,8 @@ Users interact with a simple two-step form:
 The report remains visible while the configured DCIM provider saves cable statuses.
 The workflow passes each device's full set of changes to one persistence activity,
 with a one-hour timeout per attempt and up to three attempts in total.
+The activity sends worker-liveness heartbeats; two minutes without a heartbeat
+times out the attempt so Temporal can retry it on an available worker.
 The provider chooses its write strategy; see
 [Nautobot cable-status persistence](../../nautobot/nautobot-integration.mdx#cable-status-persistence)
 for the bundled plugin's limits.

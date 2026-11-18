@@ -15,8 +15,11 @@
 # pylint: disable=too-many-locals.too-many-nested-blocks,too-many-branches
 """Provider-neutral cable-validation activities and public exports."""
 
+import asyncio
 import copy
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager, suppress
 
 from nv_config_manager_dcim import (
     CableStatusUpdate,
@@ -46,6 +49,37 @@ from nv_config_manager_workflows.runtime import get_dcim_client
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 logger.setLevel(logging.INFO)
+
+_CABLE_STATUS_HEARTBEAT_INTERVAL_SECONDS = 20
+_SINGLE_UPDATE_COMPAT_CONCURRENCY = 10
+
+
+@asynccontextmanager
+async def _cable_status_heartbeats(
+    activity_input: UpdateCableStatusesInput,
+) -> AsyncGenerator[None]:
+    """Keep worker liveness visible while the provider controls persistence."""
+    if not activity.in_activity():
+        yield
+        return
+    details = {
+        "device_id": activity_input.device_id,
+        "interface_count": len(activity_input.cable_statuses),
+    }
+    activity.heartbeat(details)
+
+    async def heartbeat() -> None:
+        while True:
+            await asyncio.sleep(_CABLE_STATUS_HEARTBEAT_INTERVAL_SECONDS)
+            activity.heartbeat(details)
+
+    task = asyncio.create_task(heartbeat())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 @activity.defn
@@ -110,16 +144,26 @@ async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> Non
         for interface_name, status in activity_input.cable_statuses.items()
     ]
     errors: list[Exception] = []
-    async with client:
+    async with _cable_status_heartbeats(activity_input), client:
         if isinstance(client, DCIMCableStatusBulkClient):
             await client.update_cable_statuses(updates)
         else:
-            # Keep the single-update capability available without imposing a batch policy.
-            for update in updates:
-                try:
+            # Preserve the existing single-update API's concurrency. Bulk providers
+            # receive the complete collection above and control their own limits.
+            semaphore = asyncio.Semaphore(_SINGLE_UPDATE_COMPAT_CONCURRENCY)
+
+            async def update_one(update: CableStatusUpdate) -> None:
+                async with semaphore:
                     await client.update_cable_status(update)
-                except Exception as error:
-                    errors.append(error)
+
+            results = await asyncio.gather(
+                *(update_one(update) for update in updates), return_exceptions=True
+            )
+            for result in results:
+                if isinstance(result, asyncio.CancelledError):
+                    raise result
+                if isinstance(result, Exception):
+                    errors.append(result)
     if errors:
         raise errors[0]
 

@@ -307,7 +307,7 @@ collection in a single request; batching is not required by the SDK. Updates
 must be idempotent because the persistence activity can be retried.
 
 The single-update capability `DCIMCableStatusClient.update_cable_status()` is
-also supported; those providers receive individual updates serially. Providers
+also supported; those providers receive up to ten concurrent individual updates. Providers
 without either capability treat cable-status persistence as a no-op.
 
 ## Optional Nautobot MCP capability

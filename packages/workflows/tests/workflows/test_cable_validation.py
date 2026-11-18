@@ -204,6 +204,7 @@ async def test_persistence_passes_a_large_device_to_one_provider_activity() -> N
         update_cable_statuses,
         update,
         start_to_close_timeout=timedelta(hours=1),
+        heartbeat_timeout=timedelta(minutes=2),
         retry_policy=ANY,
     )
 

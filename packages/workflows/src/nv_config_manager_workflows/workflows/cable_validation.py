@@ -265,6 +265,7 @@ class CableStatusPersistenceMixin(StageMixin):
                     start_to_close_timeout=(
                         timedelta(hours=1) if provider_persistence else timedelta(minutes=15)
                     ),
+                    heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 )
 

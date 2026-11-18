@@ -17,6 +17,9 @@ version before the selected release candidate is promoted.
   batches from being saved. The full-device activity timeout increases from
   fifteen minutes to one hour per attempt, with up to three attempts in total;
   single-update providers remain supported.
+  Persistence sends background heartbeats with a two-minute heartbeat timeout
+  to detect lost workers promptly. Single-update providers keep ten concurrent
+  writes; bulk-capable providers control their own concurrency.
   REST GETs retry transient connection failures, timeouts, and HTTP 502/503/504
   once with jittered backoff, excluding TLS verification failures. New standalone
   device cable validations allow a manual retry of transient persistence failures
