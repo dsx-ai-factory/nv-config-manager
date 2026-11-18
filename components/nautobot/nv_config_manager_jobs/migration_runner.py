@@ -84,8 +84,6 @@ def create_api_token() -> None:
         return
 
     api_token = api_token_env.strip()[:40]
-    # Reject overlapping credentials before update_or_create can change ownership.
-    read_only_api_token()
     user = user_model.objects.filter(username=username).first()
     if user:
         _, created = token_model.objects.update_or_create(
@@ -96,24 +94,14 @@ def create_api_token() -> None:
         print(f"User '{username}' not found for token creation.", flush=True)
 
 
-def read_only_api_token() -> str:
-    """Validate the MCP credential before either token's ownership can change."""
-    api_token = os.environ.get("NAUTOBOT_READ_ONLY_API_TOKEN", "").strip()
-    if not api_token:
-        return ""
-    if len(api_token) != 40 or any(char not in "0123456789abcdef" for char in api_token):
-        raise ValueError("NAUTOBOT_READ_ONLY_API_TOKEN must contain 40 lowercase hexadecimal characters")
-    if api_token == os.environ.get("NAUTOBOT_SUPERUSER_API_TOKEN", "").strip()[:40]:
-        raise ValueError("NAUTOBOT_READ_ONLY_API_TOKEN and NAUTOBOT_SUPERUSER_API_TOKEN must use different values")
-    return api_token
-
-
 def create_read_only_api_token() -> None:
     """Register the MCP token with view-only access to inventory, never user credentials."""
-    api_token = read_only_api_token()
+    api_token = os.environ.get("NAUTOBOT_READ_ONLY_API_TOKEN", "").strip()
     if not api_token:
         print("No NAUTOBOT_READ_ONLY_API_TOKEN set, skipping read-only token creation.", flush=True)
         return
+    if len(api_token) != 40 or any(char not in "0123456789abcdef" for char in api_token):
+        raise ValueError("NAUTOBOT_READ_ONLY_API_TOKEN must contain 40 lowercase hexadecimal characters")
 
     # Resolve models after django.setup(), avoiding imports before the app registry is ready.
     token_model = apps.get_model("users", "Token")
@@ -146,19 +134,12 @@ def create_read_only_api_token() -> None:
         # Reconcile this dedicated account to just its managed view permission.
         user.object_permissions.set([permission])
 
-        token, _ = token_model.objects.select_for_update().get_or_create(
+        token, _ = token_model.objects.get_or_create(
             key=api_token,
             defaults={"user": user, "description": "Config Manager MCP inventory", "write_enabled": False},
         )
         if token.user_id != user.pk:
-            if token.write_enabled:
-                raise ValueError(
-                    "The configured read-only token belongs to another Nautobot user and allows writes; "
-                    "configure a separate read-only token"
-                )
-            # Earlier MCP deployments used a token on an existing account. Move
-            # only read-only tokens, preserving the key used by existing clients.
-            token.user = user
+            raise ValueError("The configured read-only token already belongs to another Nautobot user")
         token.write_enabled = False
         token.expires = None
         token.save()

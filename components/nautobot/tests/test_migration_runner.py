@@ -40,23 +40,19 @@ def runner(monkeypatch):
     registry.get_model.side_effect = lambda app, name: models[name]
     user = MagicMock(is_superuser=False, is_staff=False)
     auth.get_user_model.return_value.objects.get_or_create.return_value = (user, True)
-    token = MagicMock(user_id=user.pk, write_enabled=False, key="a" * 40)
-    models["Token"].objects.select_for_update.return_value = models["Token"].objects
+    token = MagicMock(user_id=user.pk)
     models["Token"].objects.get_or_create.return_value = (token, True)
     permission = MagicMock()
     models["ObjectPermission"].objects.update_or_create.return_value = (permission, True)
     models["ContentType"].objects.filter.side_effect = lambda **kw: [kw]
     monkeypatch.setenv("NAUTOBOT_READ_ONLY_API_TOKEN", "a" * 40)
-    monkeypatch.delenv("NAUTOBOT_SUPERUSER_API_TOKEN", raising=False)
     monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "nautobot.core.settings")
     module = runpy.run_path(str(RUNNER))
     return module["create_read_only_api_token"], user, token, permission, models
 
 
-@pytest.mark.parametrize("write_enabled", [False, True])
-def test_read_only_token_has_only_inventory_view_access_and_reconciles(runner, write_enabled):
+def test_read_only_token_has_only_inventory_view_access_and_reconciles(runner):
     create, user, token, permission, models = runner
-    token.write_enabled = write_enabled
     create()
     create()
     user.set_unusable_password.assert_called()
@@ -108,58 +104,10 @@ def test_privileged_account_is_rejected(runner, flag):
     models["Token"].objects.get_or_create.assert_not_called()
 
 
-def test_existing_read_only_token_moves_to_inventory_account(runner):
-    create, user, token, permission, models = runner
-    token.user_id = "legacy-owner"
-    original_key = token.key
-    create()
-    assert token.user is user
-    assert token.key == original_key
-    assert token.write_enabled is False
-    assert token.expires is None
-    token.save.assert_called_once()
-    models["Token"].objects.select_for_update.assert_called_once()
-    user.object_permissions.set.assert_called_once_with([permission])
-
-    # A subsequent rollout reconciles the already-migrated token normally.
-    token.user_id = user.pk
-    create()
-    assert token.save.call_count == 2
-
-
-def test_writable_token_owned_by_another_user_is_not_reassigned(runner):
+def test_token_owned_by_another_user_is_not_reassigned(runner):
     create, user, token, permission, models = runner
     token.user_id = "another-user"
-    token.write_enabled = True
-    original_owner = token.user
-    with pytest.raises(ValueError, match="belongs to another Nautobot user and allows writes"):
+    with pytest.raises(ValueError, match="already belongs to another"):
         create()
-    assert token.user is original_owner
     token.save.assert_not_called()
     models["Token"].objects.filter.assert_not_called()
-
-
-@pytest.mark.parametrize("function", ["create_api_token", "create_read_only_api_token"])
-@pytest.mark.parametrize("admin_value", ["a" * 40, "  " + "a" * 40 + "  ", "a" * 40 + "suffix"])
-def test_shared_admin_token_is_rejected_before_mutation(runner, monkeypatch, function, admin_value):
-    create, user, token, permission, models = runner
-    monkeypatch.setenv("NAUTOBOT_SUPERUSER_API_TOKEN", admin_value)
-    with pytest.raises(ValueError, match="must use different values") as error:
-        runpy.run_path(str(RUNNER))[function]()
-    assert "a" * 40 not in str(error.value)
-    user.save.assert_not_called()
-    models["Token"].objects.get_or_create.assert_not_called()
-    models["Token"].objects.update_or_create.assert_not_called()
-    token.save.assert_not_called()
-
-
-@pytest.mark.parametrize("read_only_configured", [False, True])
-def test_separate_admin_token_is_registered(runner, monkeypatch, read_only_configured):
-    create, user, token, permission, models = runner
-    monkeypatch.setenv("NAUTOBOT_SUPERUSER_API_TOKEN", "b" * 40)
-    if not read_only_configured:
-        monkeypatch.delenv("NAUTOBOT_READ_ONLY_API_TOKEN")
-    models["Token"].objects.update_or_create.return_value = (token, False)
-    runpy.run_path(str(RUNNER))["create_api_token"]()
-    assert models["Token"].objects.update_or_create.call_args.kwargs["key"] == "b" * 40
-    models["Token"].objects.get_or_create.assert_not_called()
