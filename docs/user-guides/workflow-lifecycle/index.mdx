@@ -14,7 +14,7 @@ For per-workflow specifics, follow the link in each workflow's guide; this page 
 | :------ | :---- | :------------------ | :----------- |
 | **Approve** | One stage | The stage is in `PENDING_APPROVAL`. | Continues the workflow past the approval gate. |
 | **Reject** | One stage | The stage is in `PENDING_APPROVAL`. | Marks downstream stages UNREACHABLE and exits the workflow without touching the device. |
-| **Retry** | One stage | The stage is in `FAILED` **and** the stage is marked retryable. | Resets the stage to `IN_PROGRESS` and re-runs it from the start of that stage. |
+| **Retry** | One stage | The stage is in `FAILED`, the stage is marked retryable, **and** the workflow status is `RUNNING`. | Resets the stage to `IN_PROGRESS` and re-runs it from the start of that stage. |
 | **Terminate** | Whole workflow | The workflow status is `RUNNING`. | Stops the workflow immediately at the Temporal layer. In-flight activities are canceled; no graceful cleanup runs. |
 
 The Approve / Reject / Retry buttons live on the **stage details** panel for the selected stage. The Terminate button lives at the top of the **workflow details** panel, next to the workflow status badge.
@@ -41,7 +41,7 @@ After fixing the upstream cause, start a new workflow — there is no way to "un
 
 ## Retry
 
-Use when a single stage failed in a way you believe is transient (network blip, momentary device unreachability) and you want to re-run just that stage rather than starting the whole workflow over. The stage's state must be `FAILED`, and the stage itself must be marked retryable.
+Use when a single stage failed in a way you believe is transient (network blip, momentary device unreachability) and you want to re-run just that stage rather than starting the whole workflow over. The stage's state must be `FAILED`, the stage itself must be marked retryable, and the workflow must still be `RUNNING`.
 
 After an activity or child workflow exhausts its automatic retries and the stage
 enters `FAILED`, you have **three hours by default** to send a manual Retry. If no retry arrives,
@@ -55,23 +55,23 @@ before the deadline resumes the stage; a subsequent failure starts a new retry
 window. Non-retryable failures and workflows configured to terminate on failure
 still fail immediately. Existing shorter workflow deadlines also continue to apply.
 
-The window is configurable through
+The window is configurable through the installer's
+`temporal.failed_stage_retry_timeout_seconds` or the Helm value
 [`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`](../../temporal/temporal-deployment.mdx#failed-stage-retry-window).
 Changes apply to new workflow starts and newly created schedules. Running workflows
 and existing schedules keep the window they started with; already-running timers
 are not shortened or extended by a Helm update.
 
-The new wait is versioned for Temporal history compatibility. Workflows already
-parked on the previous indefinite failure-wait path retain that behavior; deploying
-this change does not retroactively add a deadline to them. Backup stages taking the
-new child-result path now surface child failures and timeouts rather than treating
-a completed child handle as proof of a successful backup.
+The bounded wait is versioned for Temporal history compatibility. Workflows already
+parked on the earlier indefinite failure wait keep it; the deadline is not added to
+them retroactively. A backup stage fails when its backup child workflow fails or
+times out; retry the stage to start a new backup.
 
 Retry is not appropriate when:
 
 - The stage failed because of a non-retryable error class (for example `ConfigSyntaxException`, `DiffChangedException`, `FirmwareUpgradeException`). These are deliberate fail-closed conditions — fix the underlying cause and run a new workflow.
 - The stage isn't marked retryable (the Retry button will be disabled).
-- The whole workflow already terminated. Retry signals only land on stages of a still-running workflow; for a terminated or failed-out workflow, start a new run.
+- The whole workflow already terminated. Retry signals only land on stages of a still-running workflow; for a terminated or failed-out workflow, start a new run. The UI hides Retry once the workflow is no longer running, and the API returns `409 Conflict` if the workflow closed before the retry arrived.
 
 ## Terminate
 

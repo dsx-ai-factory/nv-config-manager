@@ -23,6 +23,7 @@ import pytest
 from temporalio import workflow
 from temporalio.exceptions import ChildWorkflowError, RetryState
 
+from nv_config_manager_workflows.workflows.backup import BACKUP_CHILD_RESULT_PATCH_ID
 from nv_config_manager_workflows.workflows.deploy import DeployWorkflow, TenantDeployWorkflow
 from nv_config_manager_workflows.workflows.device_password_rotation import (
     DevicePasswordRotationWorkflow,
@@ -74,9 +75,7 @@ async def test_backup_stage_propagates_child_failure(
             return self.result().__await__()
 
     monkeypatch.setattr(workflow, "time", lambda: 0.0)
-    monkeypatch.setattr(
-        workflow, "patched", lambda patch: patch == "backup-child-result-propagation-v1"
-    )
+    monkeypatch.setattr(workflow, "patched", lambda patch: patch == BACKUP_CHILD_RESULT_PATCH_ID)
     monkeypatch.setattr(workflow, "info", lambda: SimpleNamespace(workflow_id="parent-workflow"))
     monkeypatch.setattr(workflow, "start_child_workflow", AsyncMock(return_value=FailedHandle()))
     monkeypatch.setattr(workflow, "execute_activity", AsyncMock(return_value="https://example.com"))

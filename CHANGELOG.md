@@ -23,6 +23,13 @@ version before the selected release candidate is promoted.
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. See
   [Render service](docs/render/render-service.mdx).
+- Retryable failed workflow stages now wait for a manual retry for a configurable
+  window (three hours by default) after automatic activity or child retries are
+  exhausted, instead of indefinitely. An unanswered retry wait closes the
+  workflow as Failed with a non-retryable `StageRetryTimeout` cause. The durable
+  timer survives worker restarts and does not limit healthy work or approval
+  waits. Existing histories that already took the indefinite failure-wait path
+  retain it for replay compatibility.
 - Helm `temporal.configManagerWorker.failedStageRetryTimeoutSeconds` configures
   the failed-stage manual retry window in positive integer seconds (default
   10800, maximum 31536000, or 365 days). It is rendered for every secrets
@@ -33,14 +40,6 @@ version before the selected release candidate is promoted.
   deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
   `nv-config-manager-install.yaml`. See
   [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
-
-- Retryable failed workflow stages now wait at most three hours for a manual
-  retry by default after automatic activity or child retries are exhausted. An
-  unanswered retry wait closes the workflow as Failed with a non-retryable
-  `StageRetryTimeout` cause. The durable timer survives worker restarts and does
-  not limit healthy work or approval waits. Existing histories that already took
-  the indefinite failure-wait path retain it for replay compatibility.
-
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
@@ -88,15 +87,13 @@ version before the selected release candidate is promoted.
   as **Failed** after the failed-stage retry window. A backup child keeps its own
   stage retry until the earlier of the failed-stage retry window or its 10-minute
   run timeout, so the parent stage then reports a failure or timeout; the backup
-  workflow's page shows the underlying error. Histories that
-  already used the old child-completion check retain that path for replay
-  compatibility.
-
+  workflow's page shows the underlying error. Histories that already used the old
+  child-completion check retain that path for replay compatibility.
 - Workflow API approve, reject, and retry requests for a workflow that closed
   before the signal arrived now return `409 Conflict` with the workflow status
   instead of `500`, and return `404` if the workflow no longer exists. The UI
-  reports that the workflow is no longer running and refreshes it.
-
+  no longer offers Retry for a failed stage once its workflow has closed, and on
+  a `409` it reports that the workflow is no longer running and refreshes it.
 - `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
   anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
   and CloudNativePG then enabled preferred anti-affinity by default.

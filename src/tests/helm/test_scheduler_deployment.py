@@ -25,6 +25,8 @@ from typing import Any
 import pytest
 from ruamel.yaml import YAML
 
+from nv_config_manager_workflows.retry_timeout import DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
+
 _CHART_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
 _TEMPORAL_TEMPLATE = "templates/temporal.yaml"
 _RENDER_TEMPLATE = "templates/render-service.yaml"
@@ -303,7 +305,19 @@ def test_missing_retry_window_renders_the_default(secret_method: str, template: 
         templates=(template, _TEMPORAL_TEMPLATE),
     )
 
-    assert "failed_stage_retry_timeout_seconds = 10800\n" in rendered
+    assert (
+        f"failed_stage_retry_timeout_seconds = {DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS}\n"
+        in rendered
+    )
+
+
+def test_values_default_retry_window_matches_the_services() -> None:
+    """values.yaml, the helper fallback above, and the services share one default."""
+    yaml = YAML(typ="safe", pure=True)
+    values = yaml.load((_CHART_DIR / "values.yaml").read_text())
+    worker = values["temporal"]["configManagerWorker"]
+
+    assert worker["failedStageRetryTimeoutSeconds"] == DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
 
 
 def _retry_window_values_file(tmp_path: Path, value: str) -> str:

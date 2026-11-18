@@ -74,6 +74,7 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.workflow_urls import build_workflow_url
     from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
     from nv_config_manager_workflows.workflows.backup import (
+        BACKUP_CHILD_RESULT_PATCH_ID,
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
@@ -357,7 +358,7 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        if workflow.patched("backup-child-result-propagation-v1"):
+        if workflow.patched(BACKUP_CHILD_RESULT_PATCH_ID):
             await backup_handle
         else:
             await workflow.wait_condition(backup_handle.done)
@@ -838,7 +839,7 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        if workflow.patched("backup-child-result-propagation-v1"):
+        if workflow.patched(BACKUP_CHILD_RESULT_PATCH_ID):
             await backup_handle
         else:
             await workflow.wait_condition(backup_handle.done)

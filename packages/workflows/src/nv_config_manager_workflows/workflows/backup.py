@@ -68,6 +68,7 @@ with workflow.unsafe.imports_passed_through():
 DEFAULT_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 UNATTENDED_TERMINATE_ON_FAILURE_PATCH_ID = "backup-unattended-terminate-on-failure-v1"
 BACKUP_WITHOUT_RENDER_PATCH_ID = "backup-skip-drift-check-without-render-v1"
+BACKUP_CHILD_RESULT_PATCH_ID = "backup-child-result-propagation-v1"
 
 __all__ = [
     "DEFAULT_ACTIVITY_RETRY_POLICY",
