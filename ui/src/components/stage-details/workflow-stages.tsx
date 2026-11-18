@@ -347,7 +347,7 @@ export const WorkflowClientComponent: React.FC<
         </div>
       );
     } else if (state == "FAILED") {
-      if (!stage!.retryable) {
+      if (!stage!.retryable || workflow.status !== "RUNNING") {
         return (
           <span className="text-sm text-muted-foreground">
             This failed stage cannot be retried.

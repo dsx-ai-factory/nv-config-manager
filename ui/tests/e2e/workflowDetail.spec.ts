@@ -324,29 +324,38 @@ test.describe("Workflow Detail Page", () => {
     await expect(page.getByText("initial stage output")).toHaveCount(0);
   });
 
-  test("does not show retry as an action for non-retryable failed stages", async ({
-    page,
-  }) => {
-    const workflowId = "non-retryable-failed-workflow";
-    const workflow = createWorkflowWithStage({
-      id: workflowId,
-      retryable: false,
-      stageName: "apply_config",
-      stageState: "FAILED",
-      status: "FAILED",
+  for (const { retryable, status } of [
+    { retryable: false, status: "RUNNING" },
+    { retryable: false, status: "FAILED" },
+    { retryable: true, status: "FAILED" },
+    { retryable: true, status: "TERMINATED" },
+    { retryable: true, status: "CANCELED" },
+    { retryable: true, status: "TIMED_OUT" },
+  ]) {
+    test(`does not show retry for a failed stage with retryable=${retryable} and workflow status=${status}`, async ({
+      page,
+    }) => {
+      const workflowId = `failed-stage-${retryable}-${status}`;
+      const workflow = createWorkflowWithStage({
+        id: workflowId,
+        retryable,
+        stageName: "apply_config",
+        stageState: "FAILED",
+        status,
+      });
+
+      await page.route(`**/v1/workflow/${workflowId}`, async (route) => {
+        await route.fulfill({ status: 200, json: workflow });
+      });
+
+      await page.goto(`/workflows/${workflowId}`);
+
+      await expect(
+        page.getByText("This failed stage cannot be retried.")
+      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
     });
-
-    await page.route(`**/v1/workflow/${workflowId}`, async (route) => {
-      await route.fulfill({ status: 200, json: workflow });
-    });
-
-    await page.goto(`/workflows/${workflowId}`);
-
-    await expect(
-      page.getByText("This failed stage cannot be retried.")
-    ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
-  });
+  }
 
   test("renders chained traceback errors with their frames and full messages", async ({
     page,
