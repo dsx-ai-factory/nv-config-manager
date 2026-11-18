@@ -15,9 +15,17 @@
 """REST reads recover transient failures without repeating mutations."""
 
 import asyncio
+import ssl
+from types import SimpleNamespace
 
 import pytest
-from aiohttp import ClientConnectionError, ClientResponse
+from aiohttp import (
+    ClientConnectionError,
+    ClientConnectorCertificateError,
+    ClientConnectorSSLError,
+    ClientResponse,
+    ServerFingerprintMismatch,
+)
 from aioresponses import aioresponses
 from nv_config_manager_dcim_nautobot_2x.client import NautobotClient, NautobotException
 
@@ -31,7 +39,7 @@ def retry_delays(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     async def sleep(seconds: float) -> None:
         delays.append(seconds)
 
-    monkeypatch.setattr("aiohttp_retry.client.asyncio.sleep", sleep)
+    monkeypatch.setattr("nv_config_manager_dcim_nautobot_2x.client.asyncio.sleep", sleep)
     return delays
 
 
@@ -140,4 +148,26 @@ async def test_get_cancellation_is_not_retried(retry_delays: list[float]) -> Non
         async with NautobotClient("https://nautobot.example", "token") as client:
             with pytest.raises(asyncio.CancelledError):
                 await client.get("dcim/cables/cable-1/")
+    assert retry_delays == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["certificate", "tls", "fingerprint"])
+async def test_get_does_not_retry_tls_verification_errors(
+    kind: str, retry_delays: list[float]
+) -> None:
+    key = SimpleNamespace(host="nautobot.example", port=443, is_ssl=True, ssl=True)
+    error: Exception
+    if kind == "certificate":
+        error = ClientConnectorCertificateError(key, ssl.CertificateError("invalid certificate"))
+    elif kind == "tls":
+        error = ClientConnectorSSLError(key, ssl.SSLError("handshake failed"))
+    else:
+        error = ServerFingerprintMismatch(b"expected", b"actual", "nautobot.example", 443)
+    with aioresponses() as mocked:
+        mocked.get(URL, exception=error)
+        async with NautobotClient("https://nautobot.example", "token") as client:
+            with pytest.raises(type(error)) as raised:
+                await client.get("dcim/cables/cable-1/")
+    assert raised.value is error
     assert retry_delays == []

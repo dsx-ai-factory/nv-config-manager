@@ -29,16 +29,19 @@ Users interact with a simple two-step form:
 ### Cable-status persistence
 
 Cable-status persistence runs at most two interface updates concurrently per
-device activity. The Nautobot provider shares one paginated interface lookup
-across those updates. REST reads retry transient connection failures, timeouts,
+device activity. New workflow runs save at most 25 interfaces per activity, with
+a 15-minute deadline and activity retries scoped to each batch. The Nautobot
+provider shares one paginated interface lookup across a batch's updates.
+REST reads retry transient connection failures, timeouts,
 and HTTP 502/503/504 once with jittered backoff; writes are not automatically
-repeated by the HTTP client.
+repeated by the HTTP client. TLS certificate and fingerprint failures are not retried.
 
-For new workflow runs, a transient persistence failure leaves the validation
+For new standalone device runs, a transient persistence failure leaves the validation
 stage available for manual Retry. Retrying that stage reuses the collected
 ARP, MAC, and LLDP data and regenerates the report before retrying persistence.
 The report remains visible while cable statuses are saved. Existing histories
-keep their previous failure behavior for replay compatibility; closed failed
+keep their previous activity schedule and failure behavior for replay compatibility.
+Report-generation failures, including in site child workflows, fail promptly; closed failed
 workflows require a new run.
 
 ## Report

@@ -16,18 +16,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import re
 import ssl
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Self, cast
 
 import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
-from aiohttp_retry import ExponentialRetry, JitterRetry, RetryClient
+from aiohttp_retry import ExponentialRetry, RetryClient
 from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
-from nv_config_manager_dcim.errors import DCIMError, DCIMReadCancelledError
+from nv_config_manager_dcim.errors import DCIMError, DCIMInvalidDataError, DCIMReadCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -104,32 +106,6 @@ _GRAPHQL_RETRY_OPTIONS = ExponentialRetry(
     exceptions={TimeoutError},
     retry_all_server_errors=False,
     evaluate_response_callback=_graphql_response_is_final,
-)
-
-
-async def _rest_get_response_is_final(response: aiohttp.ClientResponse) -> bool:
-    """Release transient responses and include successful body reads in retries."""
-    if response.status in _RETRYABLE_GATEWAY_STATUSES:
-        response.release()
-        return False
-    if response.ok:
-        try:
-            # Cache the body while RetryClient can still retry a read timeout.
-            await response.read()
-        except BaseException:
-            response.close()
-            raise
-    return True
-
-
-_REST_GET_RETRY_OPTIONS = JitterRetry(
-    attempts=2,
-    start_timeout=1.0,
-    max_timeout=5.0,
-    random_interval_size=1.0,
-    exceptions={TimeoutError, aiohttp.ClientConnectionError},
-    retry_all_server_errors=False,
-    evaluate_response_callback=_rest_get_response_is_final,
 )
 
 
@@ -401,19 +377,26 @@ class NautobotClient:
         request_url = self._rest_url(path)
         session = await self._ensure_session()
         request_timeout = aiohttp.ClientTimeout(total=timeout or self._timeout)
-        # Keep the shared session open; only the client context owns its lifetime.
-        requester = RetryClient(
-            client_session=session, retry_options=_REST_GET_RETRY_OPTIONS, logger=logger
-        )
-        async with requester.get(
-            request_url,
-            params=params,
-            timeout=request_timeout,
-            headers=self._resolve_headers(),
-        ) as rsp:
-            if not rsp.ok:
-                await self._handle_error_response(rsp, "GET", path)
-            return await rsp.json()
+        for attempt in range(2):
+            try:
+                async with session.get(
+                    request_url,
+                    params=params,
+                    timeout=request_timeout,
+                    headers=self._resolve_headers(),
+                ) as rsp:
+                    if attempt == 1 or rsp.status not in _RETRYABLE_GATEWAY_STATUSES:
+                        if not rsp.ok:
+                            await self._handle_error_response(rsp, "GET", path)
+                        return await rsp.json()
+            except (aiohttp.ClientSSLError, aiohttp.ServerFingerprintMismatch, ssl.SSLError):
+                # These are connection errors too, but retrying cannot fix TLS verification.
+                raise
+            except (TimeoutError, aiohttp.ClientConnectionError):
+                if attempt == 1:
+                    raise
+            # Leave the response context before waiting, including on body-read errors.
+            await asyncio.sleep(random.uniform(2.0, 3.0))
 
     async def get_all(
         self,
@@ -430,7 +413,9 @@ class NautobotClient:
         while True:
             query["offset"] = offset
             page = await self.get(path, params=query, timeout=timeout)
-            results = page.get("results", [])
+            if not isinstance(page, Mapping) or not isinstance(page.get("results"), list):
+                raise DCIMInvalidDataError(f"Nautobot returned invalid pagination data for {path}")
+            results = page["results"]
             collected.extend(results)
             if not results or not page.get("next"):
                 break

@@ -50,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
         DecorateResultActivityOutput,
         InterfaceNeighborData,
         UpdateCableStatusesInput,
+        ValidateDeviceNeighborsInput,
         ValidateDeviceNeighborsResult,
         decorate_result,
         format_device_validation_result,
@@ -86,15 +87,10 @@ with workflow.unsafe.imports_passed_through():
     from .conftest import mock_publish_nats
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_report_stage_retryability_preserves_legacy_histories(enabled: bool) -> None:
-    with (
-        patch("temporalio.workflow.patched", return_value=enabled) as patched,
-        patch("temporalio.workflow.time", return_value=0.0),
-    ):
+def test_report_stage_initially_fails_fast() -> None:
+    with patch("temporalio.workflow.time", return_value=0.0):
         instance = DeviceCableValidationWorkflow()
-    assert instance.get_stage_by_name("validate_connections").retryable is enabled
-    patched.assert_called_once_with(CABLE_STATUS_RETRY_PATCH_ID)
+    assert instance.get_stage_by_name("validate_connections").retryable is False
 
 
 @pytest.mark.asyncio
@@ -154,12 +150,68 @@ async def test_device_report_stage_waits_for_persistence(patch_enabled: Any, def
     ):
         await DeviceCableValidationWorkflow.validate_connections(instance, stage_input)
 
-    patched.assert_called_once_with(CABLE_STATUS_UPDATE_PATCH_ID)
+    assert patched.call_args_list == [call(CABLE_STATUS_UPDATE_PATCH_ID)] + (
+        [call(CABLE_STATUS_RETRY_PATCH_ID)] if patch_enabled and not defer else []
+    )
+    assert instance.get_stage_by_name("validate_connections").retryable is (
+        patch_enabled and not defer
+    )
     assert instance.persist_cable_statuses_after_report.await_count == int(
         patch_enabled and not defer
     )
     assert instance.set_stage_state.call_args == call("validate_connections", "COMPLETE")
     assert update_cable_statuses not in calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("defer", [False, True])
+async def test_report_generation_failure_does_not_wait_for_manual_retry(defer: bool) -> None:
+    instance = MagicMock(spec=DeviceCableValidationWorkflow)
+    instance.terminate_on_failure = False
+    # A previous persistence retry must not make report generation retryable.
+    instance.get_stage_by_name.return_value.retryable = True
+    stage_input = DeviceCableValidationWorkflow.ValidateConnectionsStageInput(
+        device=NetworkDeviceData.model_construct(id="device-1", name="leaf-1"),
+        intended=DeviceNeighborData(),
+        actual=DeviceNeighborData(),
+        mac_table=DeviceMacTable(),
+        arp_table=DeviceArpTable(),
+        defer_cable_status_updates=defer,
+    )
+    with patch(
+        "temporalio.workflow.execute_activity", side_effect=ApplicationError("report failed")
+    ):
+        with pytest.raises(StageRuntimeFailure, match="report failed"):
+            await DeviceCableValidationWorkflow.validate_connections(instance, stage_input)
+    instance.persist_cable_statuses_after_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_persistence_batches_large_devices_and_preserves_legacy_schedule(
+    legacy: bool,
+) -> None:
+    update = UpdateCableStatusesInput(
+        device_id="device-1",
+        cable_statuses={f"Ethernet1/{index}": CableStatus.CONNECTED for index in range(500)},
+        workflow_id="workflow-1",
+    )
+    with (
+        patch("temporalio.workflow.patched", return_value=not legacy),
+        patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as execute,
+    ):
+        await SiteCableValidationWorkflow.persist_cable_statuses(MagicMock(), [update])
+
+    batches = [invocation.args[1] for invocation in execute.await_args_list]
+    assert len(batches) == (1 if legacy else 20)
+    assert {
+        name: status for batch in batches for name, status in batch.cable_statuses.items()
+    } == update.cable_statuses
+    for batch, invocation in zip(batches, execute.await_args_list, strict=True):
+        assert batch.device_id == update.device_id
+        assert batch.workflow_id == update.workflow_id
+        assert len(batch.cable_statuses) <= (500 if legacy else 25)
+        assert invocation.kwargs["start_to_close_timeout"] == timedelta(minutes=15)
 
 
 @pytest.mark.asyncio
@@ -326,6 +378,8 @@ async def test_dcim_persistence_failure_preserves_report_and_propagates_error() 
     assert output.display.startswith(markdown)
     assert "persistence failed" in output.display
     assert "partially updated" in output.display
+    assert "use Retry on this stage if available" in output.display
+    assert "otherwise rerun cable validation" in output.display
     assert "still running" not in output.display
     assert report.display == markdown
 
@@ -2091,6 +2145,7 @@ async def test_persistence_retry_and_history_replay(
 ) -> None:
     arp_calls = 0
     persistence_calls = 0
+    persistence_failures = 0
     original_patched = workflow.patched
 
     def patched(patch_id: str) -> bool:
@@ -2108,11 +2163,24 @@ async def test_persistence_retry_and_history_replay(
         return cast(DeviceArpTable, await mock_get_device_arp_table(device))
 
     @activity.defn(name="update_cable_statuses")
-    async def persist_statuses(_input: UpdateCableStatusesInput) -> None:
-        nonlocal persistence_calls
+    async def persist_statuses(activity_input: UpdateCableStatusesInput) -> None:
+        nonlocal persistence_calls, persistence_failures
         persistence_calls += 1
-        if persistence_calls <= 3:
-            raise ApplicationError("temporary DCIM request timeout", type="TimeoutError")
+        # Fail the second batch, leaving the first batch successfully persisted.
+        if legacy or "Ethernet1/025" in activity_input.cable_statuses:
+            persistence_failures += 1
+            if persistence_failures <= 3:
+                raise ApplicationError("temporary DCIM request timeout", type="TimeoutError")
+
+    @activity.defn(name="validate_device_neighbors")
+    async def validate_many_statuses(
+        activity_input: ValidateDeviceNeighborsInput,
+    ) -> ValidateDeviceNeighborsResult:
+        result = await validate_device_neighbors(activity_input)
+        result.cable_statuses = {
+            f"Ethernet1/{index:03d}": CableStatus.CONNECTED for index in range(51)
+        }
+        return result
 
     task_queue = str(uuid.uuid4())
     async with Worker(
@@ -2122,7 +2190,7 @@ async def test_persistence_retry_and_history_replay(
         activities=[
             mock_get_device_actual_neighbors_valid,
             mock_get_device_intended_neighbors_valid,
-            validate_device_neighbors,
+            validate_many_statuses,
             persist_statuses,
             decorate_result,
             mock_get_device_mac_table,
@@ -2151,11 +2219,11 @@ async def test_persistence_retry_and_history_replay(
             async with asyncio.timeout(15):
                 while not await handle.query("failed_stage"):
                     await asyncio.sleep(0.05)
-            assert persistence_calls == 3
+            assert persistence_calls == 4
             await handle.signal("retry", "validate_connections")
             await handle.result()
 
-            assert persistence_calls == 4
+            assert persistence_calls == 7
             stages = {stage["name"]: stage for stage in await handle.query("stages")}
             assert stages["validate_connections"]["state"] == "COMPLETE"
             assert stages["validate_connections"]["retry_count"] == 1

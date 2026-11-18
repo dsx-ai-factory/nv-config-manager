@@ -148,6 +148,7 @@ DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION = (
 )
 CABLE_STATUS_UPDATE_PATCH_ID = "cable-validation-dcim-status-v1"
 CABLE_STATUS_RETRY_PATCH_ID = "cable-validation-dcim-status-retry-v1"
+CABLE_STATUS_UPDATE_BATCH_SIZE = 25
 CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID = "cable-validation-child-timeout-v1"
 DCIM_PERSISTENCE_PENDING_MESSAGE = (
     "\n\n> **The report is ready. DCIM cable status persistence is still running.**"
@@ -239,18 +240,34 @@ class CableStatusPersistenceMixin(StageMixin):
     workflow_required_activities: Sequence[RequiredActivity] = (update_cable_statuses,)
 
     async def persist_cable_statuses(self, updates: list[UpdateCableStatusesInput]) -> None:
-        """Update devices sequentially; each activity writes cables concurrently."""
+        """Save bounded batches sequentially; each activity writes cables concurrently."""
+        # New activity boundaries change workflow commands; keep legacy schedules on replay.
+        batch_updates = workflow.patched(CABLE_STATUS_RETRY_PATCH_ID)
         # Child workflows can complete together; sort before scheduling commands
         # so set iteration order cannot affect replay.
         for update in sorted(updates, key=lambda item: item.device_id):
             if not update.cable_statuses:
                 continue
-            await workflow.execute_activity(
-                update_cable_statuses,
-                update,
-                start_to_close_timeout=timedelta(minutes=15),
-                retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
-            )
+            batches = [update]
+            if batch_updates:
+                statuses = sorted(update.cable_statuses.items())
+                batches = [
+                    update.model_copy(
+                        update={
+                            "cable_statuses": dict(
+                                statuses[start : start + CABLE_STATUS_UPDATE_BATCH_SIZE]
+                            )
+                        }
+                    )
+                    for start in range(0, len(statuses), CABLE_STATUS_UPDATE_BATCH_SIZE)
+                ]
+            for batch in batches:
+                await workflow.execute_activity(
+                    update_cable_statuses,
+                    batch,
+                    start_to_close_timeout=timedelta(minutes=15),
+                    retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
+                )
 
     async def persist_cable_statuses_after_report(
         self,
@@ -278,7 +295,8 @@ class CableStatusPersistenceMixin(StageMixin):
                         "display": report_output.display
                         + "\n\n> **DCIM cable status persistence failed. The validation report "
                         "is still available, but cable statuses may only be partially updated. "
-                        "Resolve the DCIM error and rerun cable validation.**"
+                        "Resolve the DCIM error and use Retry on this stage if available; "
+                        "otherwise rerun cable validation.**"
                     }
                 ),
             )
@@ -704,8 +722,7 @@ class DeviceCableValidationWorkflow(
             name="validate_connections",
             description="Validate the intended vs actual connections",
             requires_approval=False,
-            # Legacy histories keep terminal report-stage failures during replay.
-            retryable=workflow.patched(CABLE_STATUS_RETRY_PATCH_ID),
+            retryable=False,
             depends_on=[
                 "get_device_intended_neighbors",
                 "get_device_actual_neighbors",
@@ -878,6 +895,9 @@ class DeviceCableValidationWorkflow(
         self, stage_input: ValidateConnectionsStageInput
     ) -> ValidateConnectionsStageOutput:
         """Produce a list of mismatches between intended and actual cabling."""
+        # Report generation (including on a manual retry) must fail promptly.
+        stage = self.get_stage_by_name("validate_connections")
+        stage.retryable = False
         result = await workflow.execute_activity(
             validate_device_neighbors,
             ValidateDeviceNeighborsInput(
@@ -927,6 +947,9 @@ class DeviceCableValidationWorkflow(
             workflow.patched(CABLE_STATUS_UPDATE_PATCH_ID)
             and not stage_input.defer_cable_status_updates
         ):
+            # Site children defer saving to their parent and must not wait for Retry.
+            # Legacy histories retain terminal persistence failures during replay.
+            stage.retryable = workflow.patched(CABLE_STATUS_RETRY_PATCH_ID)
             await self.persist_cable_statuses_after_report(
                 "validate_connections",
                 output,

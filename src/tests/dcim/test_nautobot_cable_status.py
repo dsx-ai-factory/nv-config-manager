@@ -260,3 +260,26 @@ async def test_interface_lookup_preserves_validation_errors(
     client.get_all = AsyncMock(return_value=interfaces)
     with pytest.raises(error, match=message):
         await client.update_cable_status(_update())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page", [None, [], {}, {"results": None}, {"results": {}}])
+@pytest.mark.parametrize("later_page", [False, True])
+async def test_cable_lookup_rejects_malformed_pagination_pages(
+    page: object, later_page: bool
+) -> None:
+    client = _client()
+    pages = [{"results": [{"name": "unrelated"}], "next": "page-2"}] if later_page else []
+    client.get = AsyncMock(side_effect=[*pages, page])
+    async with client:
+        with pytest.raises(DCIMInvalidDataError, match="invalid pagination data"):
+            await client.update_cable_status(_update())
+
+
+@pytest.mark.asyncio
+async def test_cable_lookup_preserves_not_found_for_valid_empty_page() -> None:
+    client = _client()
+    client.get = AsyncMock(return_value={"results": [], "next": None})
+    async with client:
+        with pytest.raises(DCIMNotFoundError, match="No interface named"):
+            await client.update_cable_status(_update())
