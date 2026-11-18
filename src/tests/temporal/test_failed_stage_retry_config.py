@@ -14,6 +14,7 @@
 # limitations under the License.
 """The deployment retry window must be validated and pinned in workflow history."""
 
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,7 +58,9 @@ from nv_config_manager_workflows.workflows.site_password_rotation import (
     "raw,expected",
     [(None, 10800), ("", 10800), (" 7200 ", 7200), ("1", 1), ("31536000", 31536000)],
 )
-def test_ini_retry_window(custom_ini, raw, expected):
+def test_ini_retry_window(
+    custom_ini: Callable[[str], None], raw: str | None, expected: int
+) -> None:
     custom_ini(
         "" if raw is None else f"[temporal.worker]\nfailed_stage_retry_timeout_seconds={raw}\n"
     )
@@ -67,22 +70,22 @@ def test_ini_retry_window(custom_ini, raw, expected):
 @pytest.mark.parametrize(
     "raw", ["0", "-1", "1.5", "true", "forever", "31536001", "1000000000000000", "9" * 30]
 )
-def test_invalid_ini_retry_window_is_rejected(custom_ini, raw):
+def test_invalid_ini_retry_window_is_rejected(custom_ini: Callable[[str], None], raw: str) -> None:
     custom_ini(f"[temporal.worker]\nfailed_stage_retry_timeout_seconds={raw}\n")
     with pytest.raises(ValueError):
         failed_stage_retry_timeout_seconds()
 
 
 class _CaptureClientCalls(Interceptor):
-    def __init__(self):
+    def __init__(self) -> None:
         self.outbound = Mock(spec=OutboundInterceptor)
 
-    def intercept_client(self, next):
+    def intercept_client(self, next: OutboundInterceptor) -> OutboundInterceptor:
         return self.outbound
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
-async def test_sdk_starts_record_window_without_imposing_a_run_timeout(scheduled):
+async def test_sdk_starts_record_window_without_imposing_a_run_timeout(scheduled: bool) -> None:
     capture = _CaptureClientCalls()
     client = await Client.connect(
         "localhost:7233",
@@ -108,8 +111,8 @@ async def test_sdk_starts_record_window_without_imposing_a_run_timeout(scheduled
 
 @pytest.mark.parametrize("seconds", [None, 7200])
 async def test_children_and_continue_as_new_inherit_history_not_worker_configuration(
-    monkeypatch, seconds
-):
+    monkeypatch: pytest.MonkeyPatch, seconds: int | None
+) -> None:
     headers = {} if seconds is None else {FAILED_STAGE_RETRY_TIMEOUT_HEADER: Payload(data=b"7200")}
     monkeypatch.setattr(workflow, "info", lambda: SimpleNamespace(headers=headers))
     downstream = Mock(spec=WorkflowInboundInterceptor)
@@ -140,7 +143,9 @@ async def test_children_and_continue_as_new_inherit_history_not_worker_configura
         ("site_password_rotation.json", SitePasswordRotationWorkflow),
     ],
 )
-async def test_old_child_histories_replay_with_retry_window_interceptor(filename, workflow_class):
+async def test_old_child_histories_replay_with_retry_window_interceptor(
+    filename: str, workflow_class: type
+) -> None:
     fixture = (
         Path(__file__).parents[3] / "packages/workflows/tests/workflows/replay/fixtures" / filename
     )

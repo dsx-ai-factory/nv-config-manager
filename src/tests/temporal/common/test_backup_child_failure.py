@@ -14,7 +14,9 @@
 # limitations under the License.
 """Backup parents must observe failed child results before reporting success."""
 
+from collections.abc import Generator
 from types import SimpleNamespace
+from typing import Any, NoReturn
 from unittest.mock import AsyncMock
 
 import pytest
@@ -44,7 +46,9 @@ from nv_config_manager_workflows.workflows.reprovision import ReprovisionWorkflo
     ],
 )
 @pytest.mark.parametrize("retry_state", [RetryState.MAXIMUM_ATTEMPTS_REACHED, RetryState.TIMEOUT])
-async def test_backup_stage_propagates_child_failure(monkeypatch, parent, retry_state):
+async def test_backup_stage_propagates_child_failure(
+    monkeypatch: pytest.MonkeyPatch, parent: type[Any], retry_state: RetryState
+) -> None:
     """A done child that failed or timed out never becomes a successful backup."""
     error = ChildWorkflowError(
         "backup did not complete",
@@ -60,13 +64,13 @@ async def test_backup_stage_propagates_child_failure(monkeypatch, parent, retry_
     class FailedHandle:
         id = "backup-child"
 
-        def done(self):
+        def done(self) -> bool:
             return True
 
-        async def result(self):
+        async def result(self) -> NoReturn:
             raise error
 
-        def __await__(self):
+        def __await__(self) -> Generator[Any, None, NoReturn]:
             return self.result().__await__()
 
     monkeypatch.setattr(workflow, "time", lambda: 0.0)
