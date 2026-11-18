@@ -251,8 +251,8 @@ class CableStatusPersistenceMixin(StageMixin):
                 continue
             activity_inputs = [update]
             if legacy_batches:
-                # Replay compatibility only: earlier QA histories contain these commands.
-                # Current write policies belong to the provider, not the workflow.
+                # Preserve recorded activity batches when replaying existing workflows.
+                # New runs delegate batching and concurrency to the provider.
                 statuses = sorted(update.cable_statuses.items())
                 activity_inputs = [
                     update.model_copy(update={"cable_statuses": dict(statuses[start : start + 25])})
