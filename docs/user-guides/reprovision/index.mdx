@@ -111,7 +111,7 @@ If the device is unreachable, the ZTP activity will continue heartbeating until 
 
 **ZTP completed but the post-provision backup child workflow failed.**
 
-The device is provisioned and in service, but no fresh backup was captured. The workflow waits at the failed `perform_backup` stage. The stage does not link to a failed backup run; to see the failure, open the Reprovision run in [Temporal Web](../../getting-started/interfaces.mdx#temporal-web), whose event history links to the backup child workflow. Resolve the underlying issue and retry the stage. If the stage is not retried within the [failed-stage retry window](../workflow-lifecycle/index.mdx#retry) (three hours by default), the workflow closes as **Failed** even though the device was provisioned. Do not reprovision the device again; run the [Configuration Backup](../configuration-backup/index.mdx) workflow against it instead.
+The device is provisioned and in service, but no fresh backup was captured. The workflow waits at the failed `perform_backup` stage. The stage does not link to a failed backup run; to see the failure, open the Reprovision run in [Temporal Web](../../getting-started/interfaces.mdx#temporal-web), whose event history links to the backup child workflow. Resolve the underlying issue and retry the stage. If the stage is not retried within the [failed-stage retry window](../workflow-lifecycle/index.mdx#retry) (three hours by default), the workflow closes as **Failed** even though the device was provisioned. If that happens, do not reprovision the device again; run the [Configuration Backup](../configuration-backup/index.mdx) workflow against it instead.
 
 **Reprovision is the wrong tool.**
 

@@ -112,7 +112,7 @@ temporal:
 
 Unlike the History sizing fields, this setting also applies when Temporal is
 external, because the workflow API, scheduler, and workers still run in this
-release. The installer maps it to the Helm value
+deployment. The installer maps it to the Helm value
 `temporal.configManagerWorker.failedStageRetryTimeoutSeconds`. The equivalent
 direct Helm override is:
 
@@ -122,14 +122,13 @@ temporal:
     failedStageRetryTimeoutSeconds: 7200
 ```
 
-The Helm value must be a positive integer in seconds, up to 31536000 (365 days);
-`0` is rejected rather than disabling the cap. In the installer, `0` means use the
-default.
-It is written to `[temporal.worker].failed_stage_retry_timeout_seconds` in the unified
-INI for Kubernetes Secrets, ESO, and Vault Agent deployments. Configuration errors
-are rejected rather than silently disabling the cap. If the key is unset or null,
-for example after `helm upgrade --reuse-values` from a release that predates it,
-the chart renders the three-hour default.
+The Helm value must be a positive integer in seconds, up to 31536000 (365 days).
+The chart rejects `0`, negative, non-integer, and oversized values instead of
+disabling the cap; only the installer treats `0` as "use the default". If the key
+is unset or null, for example after `helm upgrade --reuse-values` from a release
+that predates it, the chart renders the three-hour default. The value is written to
+`[temporal.worker].failed_stage_retry_timeout_seconds` in the unified INI for
+Kubernetes Secrets, ESO, and Vault Agent deployments.
 
 The workflow API and scheduler read the current INI each time they start a workflow
 or create a schedule, so a change applies to workflows and schedules created after

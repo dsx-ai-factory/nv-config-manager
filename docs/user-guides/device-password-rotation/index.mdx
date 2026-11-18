@@ -55,6 +55,8 @@ The workflow runs four stages. The diff stage flips from `requires_approval=True
 
    Starts the [Configuration Backup](../configuration-backup/index.mdx) workflow as a child workflow with `trigger=WORKFLOW` and a 10-minute run timeout. The backup is tagged with the just-applied commit SHA.
 
+   If the backup child fails or times out, the stage fails even though any password change is already applied. Resolve the underlying issue and retry the stage within the [failed-stage retry window](../workflow-lifecycle/index.mdx#retry) (three hours by default). If the workflow closes as **Failed** first, do not rotate the password again; run [Configuration Backup](../configuration-backup/index.mdx) against the device instead.
+
 ## Verifying outcomes
 
 After the workflow reports success, confirm:

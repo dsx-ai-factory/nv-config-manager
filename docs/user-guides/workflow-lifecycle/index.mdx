@@ -64,8 +64,16 @@ are not shortened or extended by a Helm update.
 
 The bounded wait is versioned for Temporal history compatibility. Workflows already
 parked on the earlier indefinite failure wait keep it; the deadline is not added to
-them retroactively. A backup stage fails when its backup child workflow fails or
-times out; retry the stage to start a new backup.
+them retroactively.
+
+On workflows that back up a single device (for example Configuration Deploy and
+Switch OS Upgrade), the backup stage fails when its backup child workflow fails
+or times out; retry the stage to start a new backup. This applies only to runs
+started on a version with backup failure propagation. Older runs report the
+backup stage as complete even when the child failed, so check the backup
+workflow named in the stage output and start a new run if the backup failed. Batch Deploy and Site Backup
+record each device's backup result in the stage output instead of failing the
+stage.
 
 Retry is not appropriate when:
 
