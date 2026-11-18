@@ -15,13 +15,12 @@
 # pylint: disable=too-many-locals.too-many-nested-blocks,too-many-branches
 """Provider-neutral cable-validation activities and public exports."""
 
-import asyncio
 import copy
 import logging
 
 from nv_config_manager_dcim import (
     CableStatusUpdate,
-    DCIMCableStatusBatchClient,
+    DCIMCableStatusBulkClient,
     DCIMCableStatusClient,
 )
 from nv_config_manager_logging import LogCategory, get_logger
@@ -33,10 +32,8 @@ from nv_config_manager_workflows.activities.cable_validation.helpers import (
     is_mac_address,
 )
 from nv_config_manager_workflows.activities.cable_validation.models import (
-    CABLE_STATUS_UPDATE_CONCURRENCY,
     CSV_EXCLUDE_COLUMNS,
     MARKDOWN_EXCLUDE_COLUMNS,
-    CableStatus,
     DecorateResultActivityInput,
     DecorateResultActivityOutput,
     FormatDeviceValidationResultInput,
@@ -98,42 +95,33 @@ async def validate_device_neighbors(
 async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> None:
     """Persist cable statuses when the selected provider exposes that capability."""
     client = get_dcim_client()
-    if not isinstance(client, DCIMCableStatusClient):
+    if not isinstance(client, DCIMCableStatusBulkClient | DCIMCableStatusClient):
         await client.close()
         logger.info("Selected DCIM provider does not support cable status updates")
         return
 
-    semaphore = asyncio.Semaphore(CABLE_STATUS_UPDATE_CONCURRENCY)
-
-    async def update_one(interface_name: str, status: CableStatus) -> None:
-        async with semaphore:
-            await client.update_cable_status(
-                CableStatusUpdate(
-                    device_id=activity_input.device_id,
-                    interface_name=interface_name,
-                    status=status,
-                    workflow_id=activity_input.workflow_id,
-                )
-            )
-
-    async with client:
-        if isinstance(client, DCIMCableStatusBatchClient):
-            await client.prepare_cable_status_updates(
-                activity_input.device_id, list(activity_input.cable_statuses)
-            )
-        results = await asyncio.gather(
-            *(
-                update_one(interface_name, status)
-                for interface_name, status in activity_input.cable_statuses.items()
-            ),
-            return_exceptions=True,
+    updates = [
+        CableStatusUpdate(
+            device_id=activity_input.device_id,
+            interface_name=interface_name,
+            status=status,
+            workflow_id=activity_input.workflow_id,
         )
-
-    for result in results:
-        if isinstance(result, asyncio.CancelledError):
-            raise result
-        if isinstance(result, Exception):
-            raise result
+        for interface_name, status in activity_input.cable_statuses.items()
+    ]
+    errors: list[Exception] = []
+    async with client:
+        if isinstance(client, DCIMCableStatusBulkClient):
+            await client.update_cable_statuses(updates)
+        else:
+            # Keep the single-update capability available without imposing a batch policy.
+            for update in updates:
+                try:
+                    await client.update_cable_status(update)
+                except Exception as error:
+                    errors.append(error)
+    if errors:
+        raise errors[0]
 
 
 @activity.defn

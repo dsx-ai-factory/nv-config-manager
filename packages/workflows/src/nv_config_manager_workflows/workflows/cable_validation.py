@@ -110,6 +110,7 @@ with workflow.unsafe.imports_passed_through():
     )
 
 __all__ = [
+    "CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID",
     "CABLE_STATUS_RETRY_PATCH_ID",
     "CABLE_STATUS_UPDATE_PATCH_ID",
     "CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID",
@@ -148,7 +149,7 @@ DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION = (
 )
 CABLE_STATUS_UPDATE_PATCH_ID = "cable-validation-dcim-status-v1"
 CABLE_STATUS_RETRY_PATCH_ID = "cable-validation-dcim-status-retry-v1"
-CABLE_STATUS_UPDATE_BATCH_SIZE = 25
+CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID = "cable-validation-provider-persistence-v1"
 CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID = "cable-validation-child-timeout-v1"
 DCIM_PERSISTENCE_PENDING_MESSAGE = (
     "\n\n> **The report is ready. DCIM cable status persistence is still running.**"
@@ -240,32 +241,30 @@ class CableStatusPersistenceMixin(StageMixin):
     workflow_required_activities: Sequence[RequiredActivity] = (update_cable_statuses,)
 
     async def persist_cable_statuses(self, updates: list[UpdateCableStatusesInput]) -> None:
-        """Save bounded batches sequentially; each activity writes cables concurrently."""
-        # New activity boundaries change workflow commands; keep legacy schedules on replay.
-        batch_updates = workflow.patched(CABLE_STATUS_RETRY_PATCH_ID)
+        """Pass each device's full change set to the provider in one activity."""
+        provider_persistence = workflow.patched(CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID)
+        legacy_batches = not provider_persistence and workflow.patched(CABLE_STATUS_RETRY_PATCH_ID)
         # Child workflows can complete together; sort before scheduling commands
         # so set iteration order cannot affect replay.
         for update in sorted(updates, key=lambda item: item.device_id):
             if not update.cable_statuses:
                 continue
-            batches = [update]
-            if batch_updates:
+            activity_inputs = [update]
+            if legacy_batches:
+                # Replay compatibility only: earlier QA histories contain these commands.
+                # Current write policies belong to the provider, not the workflow.
                 statuses = sorted(update.cable_statuses.items())
-                batches = [
-                    update.model_copy(
-                        update={
-                            "cable_statuses": dict(
-                                statuses[start : start + CABLE_STATUS_UPDATE_BATCH_SIZE]
-                            )
-                        }
-                    )
-                    for start in range(0, len(statuses), CABLE_STATUS_UPDATE_BATCH_SIZE)
+                activity_inputs = [
+                    update.model_copy(update={"cable_statuses": dict(statuses[start : start + 25])})
+                    for start in range(0, len(statuses), 25)
                 ]
-            for batch in batches:
+            for activity_input in activity_inputs:
                 await workflow.execute_activity(
                     update_cable_statuses,
-                    batch,
-                    start_to_close_timeout=timedelta(minutes=15),
+                    activity_input,
+                    start_to_close_timeout=(
+                        timedelta(hours=1) if provider_persistence else timedelta(minutes=15)
+                    ),
                     retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 )
 

@@ -268,13 +268,11 @@ class DCIMCableStatusClient(Protocol):
 
 
 @runtime_checkable
-class DCIMCableStatusBatchClient(Protocol):
-    """Optional preparation of interface lookups shared by a batch of cable updates."""
+class DCIMCableStatusBulkClient(Protocol):
+    """Optional persistence of a full collection using the provider's write strategy."""
 
-    async def prepare_cable_status_updates(
-        self, device_id: str, interface_names: Sequence[str]
-    ) -> None:
-        """Prepare lookups for the current batch without writing cable statuses."""
+    async def update_cable_statuses(self, updates: Sequence[CableStatusUpdate]) -> None:
+        """Persist all desired changes, choosing native bulk writes or internal batching."""
         ...
 
 

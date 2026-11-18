@@ -14,7 +14,6 @@
 # limitations under the License.
 """Package-owned cable validation activity contracts."""
 
-import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
@@ -25,7 +24,6 @@ from nv_config_manager_dcim.workflow_models import InterfaceData, Platform
 
 from nv_config_manager_workflows.activities import cable_validation
 from nv_config_manager_workflows.activities.cable_validation import (
-    CABLE_STATUS_UPDATE_CONCURRENCY,
     CABLE_VALIDATION_ACTIVITIES,
     CableValidationResultData,
     DecorateResultActivityInput,
@@ -369,13 +367,12 @@ async def test_update_cable_statuses_passes_workflow_provenance(
 
 
 @pytest.mark.asyncio
-async def test_update_cable_statuses_writes_concurrently(
+async def test_bulk_only_provider_receives_all_changes_in_one_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class SupportedClient:
         def __init__(self) -> None:
-            self.active = 0
-            self.maximum_active = 0
+            self.calls: list[Any] = []
 
         async def __aenter__(self) -> Any:
             return self
@@ -383,11 +380,8 @@ async def test_update_cable_statuses_writes_concurrently(
         async def __aexit__(self, *args: object) -> None:
             return None
 
-        async def update_cable_status(self, update: Any) -> None:
-            self.active += 1
-            self.maximum_active = max(self.maximum_active, self.active)
-            await asyncio.sleep(0)
-            self.active -= 1
+        async def update_cable_statuses(self, updates: Any) -> None:
+            self.calls.append(updates)
 
     client = SupportedClient()
     monkeypatch.setattr(cable_validation_activities, "get_dcim_client", lambda: client)
@@ -395,15 +389,22 @@ async def test_update_cable_statuses_writes_concurrently(
     await update_cable_statuses(
         UpdateCableStatusesInput(
             device_id="device-1",
-            cable_statuses={
-                f"Ethernet1/{index}": CableStatus.CONNECTED
-                for index in range(CABLE_STATUS_UPDATE_CONCURRENCY * 2)
-            },
+            cable_statuses={f"Ethernet1/{index}": CableStatus.CONNECTED for index in range(500)},
             workflow_id="workflow-1",
         )
     )
 
-    assert client.maximum_active == CABLE_STATUS_UPDATE_CONCURRENCY
+    assert len(client.calls) == 1
+    assert len(client.calls[0]) == 500
+    assert {update.interface_name for update in client.calls[0]} == {
+        f"Ethernet1/{index}" for index in range(500)
+    }
+    assert all(
+        update.device_id == "device-1"
+        and update.workflow_id == "workflow-1"
+        and update.status == CableStatus.CONNECTED
+        for update in client.calls[0]
+    )
 
 
 @pytest.mark.asyncio

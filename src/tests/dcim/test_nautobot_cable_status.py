@@ -22,7 +22,7 @@ import pytest
 from nv_config_manager_dcim import (
     CableStatus,
     CableStatusUpdate,
-    DCIMCableStatusBatchClient,
+    DCIMCableStatusBulkClient,
     DCIMCableStatusClient,
 )
 from nv_config_manager_dcim.errors import DCIMConflictError, DCIMInvalidDataError, DCIMNotFoundError
@@ -113,7 +113,7 @@ async def test_update_cable_status_rejects_interface_without_cable() -> None:
 
 def test_nautobot_exposes_cable_status_capability() -> None:
     assert isinstance(_client(), DCIMCableStatusClient)
-    assert isinstance(_client(), DCIMCableStatusBatchClient)
+    assert isinstance(_client(), DCIMCableStatusBulkClient)
 
 
 @pytest.mark.asyncio
@@ -134,7 +134,7 @@ async def test_concurrent_updates_share_interface_lookup_and_close_clears_it() -
     client.get = AsyncMock(return_value={"status": {"name": "Connected"}})
     async with client:
         preparation = asyncio.create_task(
-            client.prepare_cable_status_updates(
+            client._prepare_cable_status_updates(
                 "device-1", [f"Ethernet1/{index}" for index in range(1, 21)]
             )
         )
@@ -247,7 +247,7 @@ async def test_cable_interface_lookup_reads_all_pages_once() -> None:
         return {"status": {"name": "Connected"}}
 
     client.get = AsyncMock(side_effect=get)
-    await client.prepare_cable_status_updates("device-1", ["Ethernet1/1", "Ethernet1/2"])
+    await client._prepare_cable_status_updates("device-1", ["Ethernet1/1", "Ethernet1/2"])
     await client.update_cable_status(
         CableStatusUpdate(
             device_id="device-1",
@@ -357,7 +357,7 @@ async def test_cached_invalid_interface_raises_a_fresh_exception_each_time() -> 
     client.get_all = AsyncMock(return_value=[{"id": "missing-name"}])
     errors: list[DCIMInvalidDataError] = []
     async with client:
-        await client.prepare_cable_status_updates("device-1", ["Ethernet1/1"])
+        await client._prepare_cable_status_updates("device-1", ["Ethernet1/1"])
         for _ in range(3):
             with pytest.raises(DCIMInvalidDataError, match="invalid interface lookup") as raised:
                 await client.update_cable_status(_update())
@@ -368,9 +368,8 @@ async def test_cached_invalid_interface_raises_a_fresh_exception_each_time() -> 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("legacy_activity", [False, True])
 async def test_large_inventory_lookup_reads_only_requested_batch_names(
-    monkeypatch: pytest.MonkeyPatch, legacy_activity: bool
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     inventory = {
         f"Ethernet1/{index}": {"name": f"Ethernet1/{index}", "cable": {"id": f"cable-{index}"}}
@@ -406,22 +405,90 @@ async def test_large_inventory_lookup_reads_only_requested_batch_names(
         "nv_config_manager_workflows.activities.cable_validation.activities.get_dcim_client",
         create_client,
     )
-    batch_size = 500 if legacy_activity else 25
-    for start in range(0, len(requested), batch_size):
-        await update_cable_statuses(
-            UpdateCableStatusesInput(
-                device_id="device-1",
-                cable_statuses=dict.fromkeys(
-                    requested[start : start + batch_size], CableStatus.INVALID
-                ),
-                workflow_id="validation-1",
-            )
+    await update_cable_statuses(
+        UpdateCableStatusesInput(
+            device_id="device-1",
+            cable_statuses=dict.fromkeys(requested, CableStatus.INVALID),
+            workflow_id="validation-1",
         )
+    )
 
     assert len(lookups) == 20
     assert sum(map(len, lookups)) == 500
     assert {name for names in lookups for name in names} == set(requested)
     assert sum(client.patch.await_count for client in clients) == 500
+    assert len(clients) == 1
+
+
+@pytest.mark.asyncio
+async def test_nautobot_bulk_writes_bound_concurrency_in_the_plugin() -> None:
+    client = _client()
+    client._prepare_cable_status_updates = AsyncMock()
+    active = 0
+    maximum_active = 0
+
+    async def update_one(update: CableStatusUpdate) -> None:
+        nonlocal active, maximum_active
+        active += 1
+        maximum_active = max(maximum_active, active)
+        await asyncio.sleep(0)
+        active -= 1
+
+    client.update_cable_status = AsyncMock(side_effect=update_one)
+    await client.update_cable_statuses(
+        [
+            CableStatusUpdate(
+                device_id="device-1",
+                interface_name=f"Ethernet1/{index}",
+                status=CableStatus.CONNECTED,
+                workflow_id="validation-1",
+            )
+            for index in range(51)
+        ]
+    )
+    assert maximum_active == 2
+    assert client.update_cable_status.await_count == 51
+    assert [
+        len(invocation.args[1])
+        for invocation in client._prepare_cable_status_updates.await_args_list
+    ] == [25, 25, 1]
+
+
+@pytest.mark.asyncio
+async def test_invalid_interface_does_not_prevent_later_nautobot_batches() -> None:
+    client = _client()
+
+    async def lookup(path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"id": "malformed"}
+            if name == "Ethernet1/0"
+            else {"name": name, "cable": {"id": name.replace("/", "-")}}
+            for name in params["name"]
+        ]
+
+    client.get_all = AsyncMock(side_effect=lookup)
+    client.get = AsyncMock(
+        side_effect=lambda path, **kwargs: (
+            {"results": []} if path == "extras/notes/" else {"status": {"name": "Connected"}}
+        )
+    )
+    client.patch = AsyncMock()
+    client.post = AsyncMock()
+    async with client:
+        with pytest.raises(DCIMInvalidDataError, match="Ethernet1/0"):
+            await client.update_cable_statuses(
+                [
+                    CableStatusUpdate(
+                        device_id="device-1",
+                        interface_name=f"Ethernet1/{index}",
+                        status=CableStatus.INVALID,
+                        workflow_id="validation-1",
+                    )
+                    for index in range(51)
+                ]
+            )
+    assert client.patch.await_count == 50
+    client.patch.assert_any_await("dcim/cables/Ethernet1-50/", {"status": "Invalid"})
 
 
 @pytest.mark.asyncio

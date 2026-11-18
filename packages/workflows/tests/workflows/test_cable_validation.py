@@ -72,6 +72,7 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
     from nv_config_manager_workflows.stage import StageRuntimeFailure
     from nv_config_manager_workflows.workflows.cable_validation import (
+        CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID,
         CABLE_STATUS_RETRY_PATCH_ID,
         CABLE_STATUS_UPDATE_PATCH_ID,
         CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
@@ -187,31 +188,24 @@ async def test_report_generation_failure_does_not_wait_for_manual_retry(defer: b
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("legacy", [False, True])
-async def test_persistence_batches_large_devices_and_preserves_legacy_schedule(
-    legacy: bool,
-) -> None:
+async def test_persistence_passes_a_large_device_to_one_provider_activity() -> None:
     update = UpdateCableStatusesInput(
         device_id="device-1",
         cable_statuses={f"Ethernet1/{index}": CableStatus.CONNECTED for index in range(500)},
         workflow_id="workflow-1",
     )
     with (
-        patch("temporalio.workflow.patched", return_value=not legacy),
+        patch("temporalio.workflow.patched", return_value=True),
         patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as execute,
     ):
         await SiteCableValidationWorkflow.persist_cable_statuses(MagicMock(), [update])
 
-    batches = [invocation.args[1] for invocation in execute.await_args_list]
-    assert len(batches) == (1 if legacy else 20)
-    assert {
-        name: status for batch in batches for name, status in batch.cable_statuses.items()
-    } == update.cable_statuses
-    for batch, invocation in zip(batches, execute.await_args_list, strict=True):
-        assert batch.device_id == update.device_id
-        assert batch.workflow_id == update.workflow_id
-        assert len(batch.cable_statuses) <= (500 if legacy else 25)
-        assert invocation.kwargs["start_to_close_timeout"] == timedelta(minutes=15)
+    execute.assert_awaited_once_with(
+        update_cable_statuses,
+        update,
+        start_to_close_timeout=timedelta(hours=1),
+        retry_policy=ANY,
+    )
 
 
 @pytest.mark.asyncio
@@ -2139,9 +2133,9 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("history_version", ["released", "qa_batched", "current"])
 async def test_persistence_retry_and_history_replay(
-    env: Any, monkeypatch: pytest.MonkeyPatch, legacy: bool
+    env: Any, monkeypatch: pytest.MonkeyPatch, history_version: str
 ) -> None:
     arp_calls = 0
     persistence_calls = 0
@@ -2150,7 +2144,9 @@ async def test_persistence_retry_and_history_replay(
 
     def patched(patch_id: str) -> bool:
         # Simulate pre-change code without recording the new patch marker.
-        if legacy and patch_id == CABLE_STATUS_RETRY_PATCH_ID:
+        if history_version == "released" and patch_id == CABLE_STATUS_RETRY_PATCH_ID:
+            return False
+        if history_version != "current" and patch_id == CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID:
             return False
         return original_patched(patch_id)
 
@@ -2166,8 +2162,9 @@ async def test_persistence_retry_and_history_replay(
     async def persist_statuses(activity_input: UpdateCableStatusesInput) -> None:
         nonlocal persistence_calls, persistence_failures
         persistence_calls += 1
-        # Fail the second batch, leaving the first batch successfully persisted.
-        if legacy or "Ethernet1/025" in activity_input.cable_statuses:
+        if history_version != "qa_batched":
+            assert len(activity_input.cable_statuses) == 51
+        if history_version != "qa_batched" or "Ethernet1/025" in activity_input.cable_statuses:
             persistence_failures += 1
             if persistence_failures <= 3:
                 raise ApplicationError("temporary DCIM request timeout", type="TimeoutError")
@@ -2211,7 +2208,7 @@ async def test_persistence_retry_and_history_replay(
             task_queue=task_queue,
             run_timeout=timedelta(minutes=1),
         )
-        if legacy:
+        if history_version == "released":
             with pytest.raises(WorkflowFailureError):
                 await handle.result()
             assert persistence_calls == 3
@@ -2219,11 +2216,11 @@ async def test_persistence_retry_and_history_replay(
             async with asyncio.timeout(15):
                 while not await handle.query("failed_stage"):
                     await asyncio.sleep(0.05)
-            assert persistence_calls == 4
+            assert persistence_calls == (4 if history_version == "qa_batched" else 3)
             await handle.signal("retry", "validate_connections")
             await handle.result()
 
-            assert persistence_calls == 7
+            assert persistence_calls == (7 if history_version == "qa_batched" else 4)
             stages = {stage["name"]: stage for stage in await handle.query("stages")}
             assert stages["validate_connections"]["state"] == "COMPLETE"
             assert stages["validate_connections"]["retry_count"] == 1

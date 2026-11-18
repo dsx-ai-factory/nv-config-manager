@@ -28,23 +28,18 @@ Users interact with a simple two-step form:
 
 ### Cable-status persistence
 
-Cable-status persistence runs at most two interface updates concurrently per
-device activity. New workflow runs save at most 25 interfaces per activity, with
-a 15-minute deadline and activity retries scoped to each batch. The Nautobot
-provider shares one paginated lookup filtered to the batch's interface names.
-Malformed records do not block updates for valid interface matches; unresolved
-targets still report invalid data rather than being silently skipped.
-REST reads retry transient connection failures, timeouts,
-and HTTP 502/503/504 once with jittered backoff; writes are not automatically
-repeated by the HTTP client. TLS certificate and fingerprint failures are not retried.
+The report remains visible while the configured DCIM provider saves cable statuses.
+The workflow passes each device's full set of changes to one persistence activity,
+with a one-hour deadline. The provider chooses its write strategy; see
+[Nautobot cable-status persistence](../../nautobot/nautobot-integration.mdx#cable-status-persistence)
+for the bundled plugin's limits.
 
-For new standalone device runs, a transient persistence failure leaves the validation
-stage available for manual Retry. Retrying that stage reuses the collected
-ARP, MAC, and LLDP data and regenerates the report before retrying persistence.
-The report remains visible while cable statuses are saved. Existing histories
-keep their previous activity schedule and failure behavior for replay compatibility.
-Report-generation failures, including in site child workflows, fail promptly; closed failed
-workflows require a new run.
+A transient persistence failure in a standalone device run leaves the validation
+stage available for manual **Retry**. Retrying reuses the collected ARP, MAC, and
+LLDP data and regenerates the report before attempting persistence again.
+Report-generation failures fail the run promptly. Site child workflows return
+their pending changes to the parent, which persists them after generating the
+site report. Closed failed workflows require another run.
 
 ## Report
 

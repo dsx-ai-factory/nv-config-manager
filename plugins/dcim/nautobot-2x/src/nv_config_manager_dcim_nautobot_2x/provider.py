@@ -290,6 +290,9 @@ def _cable_status_error_context(message: str) -> Iterator[None]:
 # Cache invalid-data messages rather than exception instances with mutable tracebacks.
 type _CableInterfaceIndex = dict[str, list[Mapping[str, Any]] | str]
 
+_CABLE_STATUS_BATCH_SIZE = 25
+_CABLE_STATUS_CONCURRENCY = 2
+
 
 class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
     """One broad Nautobot implementation of the SDK's DCIM client contract."""
@@ -895,10 +898,43 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             {"template_version": template_version},
         )
 
-    async def prepare_cable_status_updates(
+    async def update_cable_statuses(self, updates: Sequence[CableStatusUpdate]) -> None:
+        """Persist the full change set with Nautobot-specific lookup and write limits."""
+        devices: dict[str, list[CableStatusUpdate]] = {}
+        for update in updates:
+            devices.setdefault(update.device_id, []).append(update)
+        semaphore = asyncio.Semaphore(_CABLE_STATUS_CONCURRENCY)
+        errors: list[Exception] = []
+
+        async def update_one(update: CableStatusUpdate) -> None:
+            async with semaphore:
+                await self.update_cable_status(update)
+
+        for device_id, device_updates in sorted(devices.items()):
+            for batch in batched(device_updates, _CABLE_STATUS_BATCH_SIZE, strict=False):
+                try:
+                    await self._prepare_cable_status_updates(
+                        device_id, [update.interface_name for update in batch]
+                    )
+                except Exception as error:
+                    # A failed request affects the device lookup; do not repeat it per batch.
+                    errors.append(error)
+                    break
+                results = await asyncio.gather(
+                    *(update_one(update) for update in batch), return_exceptions=True
+                )
+                for result in results:
+                    if isinstance(result, asyncio.CancelledError):
+                        raise result
+                    if isinstance(result, Exception):
+                        errors.append(result)
+        if errors:
+            raise errors[0]
+
+    async def _prepare_cable_status_updates(
         self, device_id: str, interface_names: Sequence[str]
     ) -> None:
-        """Share a filtered lookup for the current activity's requested interfaces."""
+        """Share a filtered lookup for the current Nautobot write batch."""
         names = tuple(sorted(set(interface_names)))
         self._cable_update_names[device_id] = names
         message = (
@@ -925,9 +961,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
         self, device_id: str, interface_names: tuple[str, ...]
     ) -> _CableInterfaceIndex:
         index: _CableInterfaceIndex = {name: [] for name in interface_names}
-        # Older workflow histories can still send an entire device in one activity.
-        # Bound their filter URLs too, without changing recorded activity boundaries.
-        for names in batched(interface_names, 25, strict=False):
+        for names in batched(interface_names, _CABLE_STATUS_BATCH_SIZE, strict=False):
             interfaces = await self.get_all(
                 "dcim/interfaces/", params={"device_id": [device_id], "name": list(names)}
             )
