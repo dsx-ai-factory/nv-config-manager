@@ -78,6 +78,25 @@ The installer pins Python 3.13 in its own `.python-version` because it is a sepa
 project from the repository root. The tool installation command explicitly selects
 the same version.
 
+### From an offline installer archive
+
+The standalone `nvcm-installer-<version>.tar.gz` distribution includes Python
+and dependency wheels for Linux and macOS on AMD64 and ARM64. It does not
+contain charts or container images. Stage those artifacts through your registry
+and deployment tooling separately.
+
+```bash
+sha256sum -c nvcm-installer-<version>.tar.gz.sha256
+tar -xzf nvcm-installer-<version>.tar.gz
+cd nvcm-installer-<version>
+./install.sh
+./nvcm-installer --help
+```
+
+No system Python, pip, or internet connection is required for the bootstrap.
+To build a distribution from the repository, run
+`bash deploy/airgapped/create-installer.sh <version> <output-directory>`.
+
 ---
 
 ## CLI Commands

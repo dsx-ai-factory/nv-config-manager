@@ -34,7 +34,9 @@ def _shell_function(name: str) -> str:
     return (
         name
         + "() {"
-        + _SCRIPT.read_text().split(name + "() {", 1)[1].split("\n}\n", 1)[0]
+        + (_SCRIPT.read_text() + _SCRIPT.with_name("installer-packaging.sh").read_text())
+        .split(name + "() {", 1)[1]
+        .split("\n}\n", 1)[0]
         + "\n}\n"
     )
 
