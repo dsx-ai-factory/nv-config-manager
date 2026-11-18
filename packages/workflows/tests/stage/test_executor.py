@@ -202,7 +202,9 @@ class TestRetry:
             raise TimeoutError
 
         monkeypatch.setattr(workflow, "wait_condition", expires)
-        with pytest.raises(StageRuntimeFailure, match="not retried within 10800 seconds") as failure:
+        with pytest.raises(
+            StageRuntimeFailure, match="not retried within 10800 seconds"
+        ) as failure:
             await state.render()
 
         assert failure.value.type == "StageRetryTimeout"
