@@ -38,6 +38,7 @@ from pydantic import (
 )
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_CPU_QUANTITY_RE = re.compile(r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
@@ -561,6 +562,54 @@ class ServicesConfig(BaseModel):
     config_store: bool = True
     nautobot: bool = True
     external_nautobot_url: str = ""
+
+
+class KeaMultiThreadingConfig(BaseModel):
+    """Kea DHCPv4 multi-threading settings.
+
+    With everything left at its default Kea auto-detects the worker count
+    (``thread-pool-size`` 0) and keeps a 64-packet queue. ``size_from_cpu_request``
+    sizes the pool from the DHCP container CPU request instead, rounding up to
+    at least one thread. It cannot be combined with an explicit
+    ``thread_pool_size``, which the chart also rejects. The queue defaults to
+    eight packets per worker unless ``packet_queue_size`` is set.
+    """
+
+    size_from_cpu_request: bool = False
+    thread_pool_size: StrictInt | None = Field(default=None, ge=0)
+    packet_queue_size: StrictInt | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_pool_sizing(self) -> KeaMultiThreadingConfig:
+        if self.size_from_cpu_request and self.thread_pool_size is not None:
+            raise ValueError(
+                "size_from_cpu_request and thread_pool_size are mutually exclusive; set only one"
+            )
+        return self
+
+
+class DHCPConfig(BaseModel):
+    """DHCP service tuning.
+
+    ``cpu_request`` overrides ``networkDhcp.resources.dhcp.requests.cpu``. Leave
+    it blank to keep the size profile, which requests 1 CPU, so sizing Kea
+    threads from that request yields one thread and an 8-packet queue.
+    """
+
+    kea_multi_threading: KeaMultiThreadingConfig = Field(default_factory=KeaMultiThreadingConfig)
+    cpu_request: str = ""
+
+    @field_validator("cpu_request")
+    @classmethod
+    def _validate_cpu_request(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        if _CPU_QUANTITY_RE.fullmatch(value) is None:
+            raise ValueError(
+                "cpu_request must be a Kubernetes CPU quantity such as 1, 500m, or 1.5"
+            )
+        return value
 
 
 class TemporalDeploymentConfig(BaseModel):
@@ -1118,6 +1167,7 @@ class NVConfigManagerInstallConfig(BaseModel):
     content: ContentConfig = Field(default_factory=ContentConfig)
     dcim: DCIMConfig = Field(default_factory=DCIMConfig)
     services: ServicesConfig = Field(default_factory=ServicesConfig)
+    dhcp: DHCPConfig = Field(default_factory=DHCPConfig)
     temporal: TemporalDeploymentConfig = Field(default_factory=TemporalDeploymentConfig)
     external_services: ExternalServicesConfig = Field(default_factory=ExternalServicesConfig)
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
