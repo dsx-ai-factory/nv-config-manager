@@ -84,7 +84,7 @@ services:
 # Template Preview (the render preview and plugin management app) installed alongside NVCM. Off by
 # default. dynamic_plugins lets people register, approve and activate plugins that run as code in
 # the render service, so it must be acknowledged. One block configures both Template Preview and
-# NVCM's activation endpoint. Needs the kiwi-render-backend and kiwi-render-frontend images.
+# NVCM's activation endpoint. Needs the nvcm-template-preview-backend and nvcm-template-preview-frontend images.
 # template_preview:
 #   enabled: true
 #   dynamic_plugins: true
