@@ -14,8 +14,12 @@ version before the selected release candidate is promoted.
   `nvcm-mcp-read-only` inventory account. Before upgrading, ensure
   `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
   belongs to another user, the `run-migrations` init container stops. Prefer a
-  fresh token in the configured Nautobot secret; wait for secret synchronization,
-  then rerun the migration init container and reload the MCP server configuration.
+  fresh token of exactly 40 lowercase hexadecimal characters in the
+  [configured Nautobot secret](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
+  Wait for secret synchronization, then rerun the migration init container.
+  Registration deletes other tokens owned by `nvcm-mcp-read-only`; MCP clients
+  using those Nautobot tokens lose access. Update every affected consumer to use
+  the configured token, then reload the MCP server configuration.
   Reassign an existing token only if it is dedicated to MCP, since initialization
   disables writes and restricts its access to inventory. Create `nvcm-mcp-read-only`
   if needed before reassigning.
