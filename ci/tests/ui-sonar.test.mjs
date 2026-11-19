@@ -30,21 +30,21 @@ const eslint = join(dirname(requireUi.resolve("eslint/package.json")), "bin/esli
 
 // Exercise the checked-in configuration with a real TypeScript project, without
 // application fixtures, a Sonar server, or dependencies on the developer's config.
-const lint = async (source) => {
+const lint = async (source, extension) => {
   const directory = await mkdtemp(join(tmpdir(), "nvcm-ui-sonar-"));
   try {
     await mkdir(join(directory, "src"));
     await symlink(join(uiRoot, "node_modules"), join(directory, "node_modules"), "dir");
     await copyFile(join(uiRoot, "eslint.sonar.config.mjs"), join(directory, "eslint.sonar.config.mjs"));
-    await copyFile(join(uiRoot, "eslint.config.mjs"), join(directory, "eslint.config.mjs"));
     await writeFile(join(directory, "tsconfig.json"), JSON.stringify({
-      compilerOptions: { strict: true, skipLibCheck: true, noEmit: true },
-      include: ["src/**/*.ts"],
+      compilerOptions: { strict: true, skipLibCheck: true, noEmit: true, jsx: "preserve" },
+      include: ["src/**/*.ts", "src/**/*.tsx"],
     }));
-    await writeFile(join(directory, "src/fixture.ts"), source);
+    const filename = `src/fixture.${extension}`;
+    await writeFile(join(directory, filename), source);
     const result = spawnSync(process.execPath, [
       eslint, "--no-config-lookup", "--config", "eslint.sonar.config.mjs",
-      "--format", "json", "src/fixture.ts",
+      "--format", "json", filename,
     ], { cwd: directory, encoding: "utf8", timeout: 30_000 });
     assert.ifError(result.error);
     assert.ok(result.status === 0 || result.status === 1, result.stderr);
@@ -55,46 +55,55 @@ const lint = async (source) => {
   }
 };
 
-test("SonarJS accepts valid code in a standalone TypeScript project", async () => {
-  const result = await lint(`
-    export const sorted = ["z", "a"].sort((a, b) => a.localeCompare(b));
-    export const double = (value: number): number => value * 2;
-  `);
-  assert.equal(result.status, 0, JSON.stringify(result.messages));
-  assert.deepEqual(result.messages, []);
-});
+for (const extension of ["ts", "tsx"]) {
+  test(`SonarJS accepts valid .${extension} without running normal lint rules`, async () => {
+    const result = await lint(`
+      export const sorted = ["z", "a"].sort((a, b) => a.localeCompare(b));
+      export const double = (value: number): number => value * 2;
+      const unused = 1;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const ignored = 2;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      export const unrelated = () => 42;
+      ${extension === "tsx" ? "export const View = () => <div>{sorted.join(',')}</div>;" : ""}
+    `, extension);
+    assert.equal(result.status, 0, JSON.stringify(result.messages));
+    assert.deepEqual(result.messages, []);
+  });
 
-test("SonarJS reports the configured complexity, nesting, sort, and void rules", async () => {
-  const result = await lint(`
-    export function complex(flags: boolean[]) {
-      let total = 0;
-      if (flags[0]) {
-        if (flags[1]) {
-          if (flags[2]) {
-            if (flags[3]) {
-              if (flags[4]) {
-                if (flags[5]) total += 1;
+  test(`SonarJS reports complexity, nesting, sort, and void rules in .${extension}`, async () => {
+    const result = await lint(`
+      export function complex(flags: boolean[]) {
+        let total = 0;
+        if (flags[0]) {
+          if (flags[1]) {
+            if (flags[2]) {
+              if (flags[3]) {
+                if (flags[4]) {
+                  if (flags[5]) total += 1;
+                }
               }
             }
           }
         }
+        return total;
       }
-      return total;
+      export const nested = () => () => () => () => () => 1;
+      const values: string[] = ["z", "a"];
+      values.sort();
+      const noop = (): void => {};
+      void noop();
+      ${extension === "tsx" ? "export const View = () => <div>Fixture</div>;" : ""}
+    `, extension);
+    assert.equal(result.status, 1);
+    const rules = new Set(result.messages.map((message) => message.ruleId));
+    for (const rule of [
+      "sonarjs/cognitive-complexity",
+      "sonarjs/no-nested-functions",
+      "sonarjs/no-alphabetical-sort",
+      "sonarjs/void-use",
+    ]) {
+      assert.ok(rules.has(rule), `Missing ${rule}: ${JSON.stringify(result.messages)}`);
     }
-    export const nested = () => () => () => () => () => 1;
-    const values: string[] = ["z", "a"];
-    values.sort();
-    const noop = (): void => {};
-    void noop();
-  `);
-  assert.equal(result.status, 1);
-  const rules = new Set(result.messages.map((message) => message.ruleId));
-  for (const rule of [
-    "sonarjs/cognitive-complexity",
-    "sonarjs/no-nested-functions",
-    "sonarjs/no-alphabetical-sort",
-    "sonarjs/void-use",
-  ]) {
-    assert.ok(rules.has(rule), `Missing ${rule}: ${JSON.stringify(result.messages)}`);
-  }
-});
+  });
+}

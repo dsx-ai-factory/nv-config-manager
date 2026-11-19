@@ -15,24 +15,33 @@
  * limitations under the License.
  */
 
+import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import parser from "@typescript-eslint/parser";
 import sonarjs from "eslint-plugin-sonarjs";
 
-import eslintConfig from "./eslint.config.mjs";
+const require = createRequire(import.meta.url);
+const requireNext = createRequire(require.resolve("eslint-config-next/package.json"));
 
 // An opt-in subset of SonarJS rules; no Sonar server or credentials are used.
-export default [...eslintConfig, {
+export default [{
   files: ["src/**/*.ts", "src/**/*.tsx"],
+  linterOptions: { reportUnusedDisableDirectives: "off" },
   languageOptions: {
-    parser,
+    // Resolve from Next so both lint commands use the same installed parser.
+    parser: requireNext("@typescript-eslint/parser"),
     parserOptions: {
       project: "./tsconfig.json",
       tsconfigRootDir: dirname(fileURLToPath(import.meta.url)),
     },
   },
-  plugins: { sonarjs },
+  plugins: {
+    sonarjs,
+    // Register these definitions for existing disable comments, without enabling
+    // their rules or running the normal Next/TypeScript lint configuration.
+    "@typescript-eslint": requireNext("@typescript-eslint/eslint-plugin"),
+    "react-hooks": requireNext("eslint-plugin-react-hooks"),
+  },
   rules: {
     "sonarjs/cognitive-complexity": ["error", 15],
     "sonarjs/no-nested-functions": ["error", { threshold: 4 }],

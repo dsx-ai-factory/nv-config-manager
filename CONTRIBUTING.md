@@ -169,8 +169,10 @@ live in `.gitlab/ci/images.yml`; GitLab project/group variables override those
 defaults and must be refreshed to matching versions and digests too.
 
 Build, container, and CI tooling tests belong in `ci/tests/`. Run them with
-`make test-ci`; GitHub and GitLab CI run this suite separately from the
-application tests and their coverage collection. Service tests belong in `src/tests/`.
+`make test-ci` after installing Python dependencies and running `npm ci` in
+`ui/`. Use Node from `.node-version`. The component targets `test-ci-python`
+and `test-ci-ui` run in the corresponding GitHub and GitLab jobs, separately
+from application tests and their coverage collection. Service tests belong in `src/tests/`.
 
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:

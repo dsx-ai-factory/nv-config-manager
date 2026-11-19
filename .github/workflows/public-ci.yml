@@ -171,7 +171,7 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - name: CI tooling tests
-        run: make test-ci
+        run: make test-ci-python
       - run: uv run pytest packages/dcim/tests -v
       - run: uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
       - name: Nautobot tests
@@ -731,7 +731,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .node-version
       - run: node --test .github/scripts/*.test.js
       - name: GitLab promotion authorization tests
         run: |
@@ -763,6 +763,7 @@ jobs:
           key: ui-npm-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
       - run: npm ci --prefer-offline
       - run: npm run lint
+      - run: npm run test:sonar
 
   ui-e2e:
     name: UI Build And E2E

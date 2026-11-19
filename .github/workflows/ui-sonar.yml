@@ -6,6 +6,7 @@ on:
       - "ui/**"
       - "ci/tests/ui-sonar.test.mjs"
       - ".github/workflows/ui-sonar.yml"
+      - ".node-version"
   workflow_dispatch:
 
 permissions:
@@ -20,8 +21,6 @@ jobs:
     name: UI Sonar Rules (Advisory)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Advisory during rollout; findings do not fail the workflow.
-    continue-on-error: true
     defaults:
       run:
         working-directory: ui
@@ -31,11 +30,13 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version-file: .node-version
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npm run test:sonar
+      - name: Validate SonarJS configuration
+        id: config_tests
+        run: npm run test:sonar
       - name: Run advisory SonarJS checks
         id: sonar
         continue-on-error: true
@@ -43,10 +44,15 @@ jobs:
       - name: Summarize advisory result
         if: always()
         env:
+          CONFIG_TEST_OUTCOME: ${{ steps.config_tests.outcome }}
           SONAR_OUTCOME: ${{ steps.sonar.outcome }}
         run: |
+          if [[ "$CONFIG_TEST_OUTCOME" != success ]]; then
+            echo 'SonarJS setup or configuration validation failed. The job fails; see the logs.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           case "$SONAR_OUTCOME" in
             success) echo 'SonarJS checks passed.' ;;
             failure) echo 'SonarJS reported findings. This check is advisory; see the lint step for details.' ;;
-            *) echo 'SonarJS did not complete. This check is advisory; see the job logs.' ;;
+            *) echo 'SonarJS did not complete after configuration validation; see the job logs.' ;;
           esac >> "$GITHUB_STEP_SUMMARY"

@@ -78,6 +78,8 @@ This application uses runtime environment variables (read via `/api/config` rout
 Run `npm ci` in `ui/`, then `npm run lint:sonar`, or run `make ui-sonar`
 from the repository root. The command reports findings and exits nonzero when
 it finds them; it is separate from the required `npm run lint` checks.
+Only the configured SonarJS rules run; the normal Next/TypeScript rules are
+not enabled by this command. Both commands use Next's installed TypeScript parser.
 
 These checks use the pinned `eslint-plugin-sonarjs` package locally. No Sonar
 account, trial, token, NVIDIA network access, or server connection is needed.
@@ -88,11 +90,14 @@ analysis of other languages.
 
 The **UI Sonar Rules (Advisory)** GitHub workflow runs directly on pull requests,
 including forks, and can be run manually. It uses a GitHub-hosted runner without
-Sonar credentials and allows failures during rollout. Existing findings are
-reported without requiring contributors to fix the backlog before merging.
+Sonar credentials and allows lint findings during rollout. Dependency setup and
+the configuration self-tests must succeed; those failures fail the job.
+Existing findings are reported without requiring contributors to fix the backlog before merging.
 Normal GitHub Actions usage limits still apply.
 
-To check the lint configuration itself, run `npm run test:sonar` in `ui/`.
+Use Node from `.node-version`. To check the lint configuration itself, run
+`npm run test:sonar` in `ui/`, or `make test-ci-ui` from the repository root.
+`make test-ci` runs both the Python and UI tooling tests.
 
 ### E2E Tests (Playwright)
 

@@ -54,7 +54,7 @@ test-main-py:
     - . deploy/helm/files/python-tooling.sh && nvcm_bootstrap_uv
     - uv sync --frozen
   script:
-    - make test-ci
+    - make test-ci-python
     - uv run pytest packages/dcim/tests -v
     - uv run pytest -n auto --cov=src/nv_config_manager --cov-report=xml:coverage.xml --cov-report=term
     - *nautobot-coverage-script
@@ -238,6 +238,7 @@ test-main-ui-e2e:
     - npm ci
     - npm run build
   script:
+    - npm run test:sonar
     - npm run test:unit
     - npx playwright test
   after_script:
