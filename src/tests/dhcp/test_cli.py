@@ -40,6 +40,14 @@ from nv_config_manager.dhcp.metrics import (
     initialize_sync_metrics,
 )
 
+
+@pytest.fixture(autouse=True)
+def config_watch() -> Any:
+    """Keep the click commands from starting a real watcher thread."""
+    with patch.object(cli, "restart_on_config_change") as watch:
+        yield watch
+
+
 DESIRED_CONFIG: dict[str, Any] = {"Dhcp4": {"subnet4": ["desired"]}}
 CHANGED_CONFIG: dict[str, Any] = {"Dhcp4": {"subnet4": ["changed"]}}
 
@@ -926,6 +934,55 @@ def test_refresh_kea_configuration_check_mode_skips_metrics_server() -> None:
         )
 
     start_http_server.assert_not_called()
+
+
+@pytest.mark.parametrize(("refresh_interval", "watched"), [(300, True), (0, False)])
+def test_refresh_kea_configuration_watches_the_ini_only_when_looping(
+    config_watch: MagicMock, refresh_interval: int, watched: bool
+) -> None:
+    """The loop keeps the DCIM, Redis and Kea clients it built at startup.
+
+    Restarting the DHCP API container does not restart this one, so a rotated
+    credential would go unused unless this process watches the file itself. A
+    one-shot run reads the file and exits, so it has nothing to restart for.
+    """
+    with (
+        patch.object(cli, "start_http_server"),
+        patch.object(cli, "_set_config_path"),
+        patch.object(cli, "_refresh_loop_async"),
+        patch.object(cli.asyncio, "run"),
+    ):
+        cli.refresh_kea_configuration.callback(
+            ini_file="/tmp/nv-config-manager.ini",
+            ip_version=4,
+            check=False,
+            refresh_interval=refresh_interval,
+            debug=True,
+        )
+
+    assert config_watch.called is watched
+
+
+@pytest.mark.parametrize(("refresh_interval", "watched"), [(10, True), (0, False)])
+def test_sync_kea_configuration_watches_the_ini_only_when_looping(
+    config_watch: MagicMock, refresh_interval: int, watched: bool
+) -> None:
+    """config-sync-v4 is its own container and holds its own startup clients."""
+    with (
+        patch.object(cli, "start_http_server"),
+        patch.object(cli, "_set_config_path"),
+        patch.object(cli, "_sync_kea_configuration_async"),
+        patch.object(cli.asyncio, "run"),
+    ):
+        cli.sync_kea_configuration.callback(
+            ini_file="/tmp/nv-config-manager.ini",
+            ip_version=4,
+            refresh_interval=refresh_interval,
+            heartbeat_file=cli.DEFAULT_HEARTBEAT_FILE,
+            debug=True,
+        )
+
+    assert config_watch.called is watched
 
 
 def test_exception_handler_redacts_credentials(caplog: pytest.LogCaptureFixture) -> None:

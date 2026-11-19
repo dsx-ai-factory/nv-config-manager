@@ -11,6 +11,15 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ### Changed
 
+- Long-lived services now exit, and Kubernetes restarts them, when the contents
+  of `nv-config-manager.ini` change, so a rotated credential or renamed NATS
+  stream takes effect without a manual rollout. Each replica waits a random
+  delay of up to 20 seconds first, and the log line names the settings that
+  changed, never their values. Expect container restarts shortly after the
+  mounted Secret updates. This covers the DHCP configuration refresh and sync
+  loops as well as the API, consumer, worker, and scheduler services.
+- A workflow whose result cannot be published to NATS after three attempts now
+  logs a warning and completes, instead of failing after its work is done.
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
