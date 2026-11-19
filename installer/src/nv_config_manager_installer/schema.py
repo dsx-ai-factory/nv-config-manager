@@ -575,8 +575,8 @@ class KeaMultiThreadingConfig(BaseModel):
     """
 
     size_from_cpu_request: bool = False
-    thread_pool_size: int | None = Field(default=None, ge=0)
-    packet_queue_size: int | None = Field(default=None, ge=1)
+    thread_pool_size: StrictInt | None = Field(default=None, ge=0)
+    packet_queue_size: StrictInt | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def _validate_pool_sizing(self) -> KeaMultiThreadingConfig:
