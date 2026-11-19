@@ -41,7 +41,7 @@ navigation:
     slug: i-want-to
 
   - changelog: ./changelog
-    title: Changelog (Trial)
+    title: Changelog
     slug: changelog
 
   - section: Quick Start
