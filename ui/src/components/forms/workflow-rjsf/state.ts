@@ -318,106 +318,159 @@ const preferExistingPrefill = (
   activating !== undefined &&
   activeBefore.some((index) => index !== activating);
 
+const reduceFieldPatch = (
+  state: ShellState,
+  action: Extract<ShellAction, { type: "field-patch" }>
+): ShellState => {
+  const { owner, patch, source, exclusiveGroups = [] } = action;
+  // A prefill applies only while its owner is still pending: a late result after a
+  // user edit or an earlier settlement is ignored.
+  if (source === "prefill" && !state.pending.has(owner)) return state;
+  let formData = applyPatch(state.formData, patch);
+  let changed = changedKeys(state.formData, formData);
+  let pending = withoutOwner(state.pending, owner);
+  let filters = state.filters;
+  const activating = activatingFieldGroup(
+    exclusiveGroups,
+    changed,
+    formData
+  );
+  if (
+    preferExistingPrefill(
+      source,
+      activeExclusiveGroups(state.formData, state.filters, exclusiveGroups),
+      activating
+    )
+  ) {
+    formData = state.formData as FormData;
+    changed = [];
+  } else if (activating !== undefined) {
+    ({ formData, filters, pending } = clearInactiveGroups(
+      formData,
+      filters,
+      pending,
+      exclusiveGroups,
+      activating
+    ));
+    changed = changedKeys(state.formData, formData);
+  }
+  if (changed.length === 0 && pending === state.pending) return state;
+  return {
+    ...state,
+    formData: changed.length > 0 ? formData : state.formData,
+    filters,
+    pending,
+    serverErrors:
+      source === "user"
+        ? clearServerErrors(
+            state.serverErrors,
+            owner.startsWith("field:")
+              ? [...changed, owner.slice("field:".length)]
+              : changed
+          )
+        : state.serverErrors,
+  };
+};
+
+const reduceFilterPatch = (
+  state: ShellState,
+  action: Extract<ShellAction, { type: "filter-patch" }>
+): ShellState => {
+  const { scope, patch, source, exclusiveGroups = [] } = action;
+  const owner: Owner = `scope:${scope}`;
+  if (source === "prefill" && !state.pending.has(owner)) return state;
+  const current = state.filters[scope] ?? EMPTY_SCOPE;
+  const next: ScopeFilters = { ...current, ...patch };
+  if ("site" in patch && patch.site === undefined) delete next.site;
+  let pending = withoutOwner(state.pending, owner);
+  if (deepEquals(current, next) && pending === state.pending) return state;
+  let formData = state.formData as FormData;
+  let filters: Record<string, ScopeFilters> = {
+    ...state.filters,
+    [scope]: next,
+  };
+  let changed: string[] = [];
+  const activating = activatingFilterGroup(exclusiveGroups, scope, filters);
+  if (
+    preferExistingPrefill(
+      source,
+      activeExclusiveGroups(state.formData, state.filters, exclusiveGroups),
+      activating
+    )
+  ) {
+    filters = state.filters as Record<string, ScopeFilters>;
+  } else if (activating !== undefined) {
+    ({ formData, filters, pending } = clearInactiveGroups(
+      formData,
+      filters,
+      pending,
+      exclusiveGroups,
+      activating
+    ));
+    changed = changedKeys(state.formData, formData);
+  }
+  return {
+    ...state,
+    formData,
+    filters,
+    pending,
+    serverErrors:
+      source === "user"
+        ? clearServerErrors(state.serverErrors, changed)
+        : state.serverErrors,
+  };
+};
+
+const reduceRjsfChange = (
+  state: ShellState,
+  action: Extract<ShellAction, { type: "rjsf-change" }>
+): ShellState => {
+  // Three-way merge: apply only what this event changed relative to the data its
+  // render was given, so a field patch applied since that render survives.
+  const eventChanged = changedKeys(action.base, action.next);
+  if (eventChanged.length === 0) return state;
+  let formData = applyPatch(
+    state.formData,
+    Object.fromEntries(eventChanged.map((key) => [key, action.next[key]]))
+  );
+  let pending = state.pending;
+  for (const key of eventChanged)
+    pending = withoutOwner(pending, `field:${key}`);
+  let filters = state.filters;
+  const exclusiveGroups = action.exclusiveGroups ?? [];
+  const activating = activatingFieldGroup(
+    exclusiveGroups,
+    eventChanged,
+    formData
+  );
+  if (activating !== undefined) {
+    ({ formData, filters, pending } = clearInactiveGroups(
+      formData,
+      filters,
+      pending,
+      exclusiveGroups,
+      activating
+    ));
+  }
+  const changed = changedKeys(state.formData, formData);
+  return {
+    ...state,
+    formData,
+    filters,
+    pending,
+    serverErrors: clearServerErrors(state.serverErrors, changed),
+  };
+};
+
 export const shellReducer = (
   state: ShellState,
   action: ShellAction
 ): ShellState => {
   switch (action.type) {
-    case "field-patch": {
-      const { owner, patch, source, exclusiveGroups = [] } = action;
-      // A prefill applies only while its owner is still pending: a late result after a
-      // user edit or an earlier settlement is ignored.
-      if (source === "prefill" && !state.pending.has(owner)) return state;
-      let formData = applyPatch(state.formData, patch);
-      let changed = changedKeys(state.formData, formData);
-      let pending = withoutOwner(state.pending, owner);
-      let filters = state.filters;
-      const activating = activatingFieldGroup(
-        exclusiveGroups,
-        changed,
-        formData
-      );
-      if (
-        preferExistingPrefill(
-          source,
-          activeExclusiveGroups(state.formData, state.filters, exclusiveGroups),
-          activating
-        )
-      ) {
-        formData = state.formData as FormData;
-        changed = [];
-      } else if (activating !== undefined) {
-        ({ formData, filters, pending } = clearInactiveGroups(
-          formData,
-          filters,
-          pending,
-          exclusiveGroups,
-          activating
-        ));
-        changed = changedKeys(state.formData, formData);
-      }
-      if (changed.length === 0 && pending === state.pending) return state;
-      return {
-        ...state,
-        formData: changed.length > 0 ? formData : state.formData,
-        filters,
-        pending,
-        serverErrors:
-          source === "user"
-            ? clearServerErrors(
-                state.serverErrors,
-                owner.startsWith("field:")
-                  ? [...changed, owner.slice("field:".length)]
-                  : changed
-              )
-            : state.serverErrors,
-      };
-    }
-    case "filter-patch": {
-      const { scope, patch, source, exclusiveGroups = [] } = action;
-      const owner: Owner = `scope:${scope}`;
-      if (source === "prefill" && !state.pending.has(owner)) return state;
-      const current = state.filters[scope] ?? EMPTY_SCOPE;
-      const next: ScopeFilters = { ...current, ...patch };
-      if ("site" in patch && patch.site === undefined) delete next.site;
-      let pending = withoutOwner(state.pending, owner);
-      if (deepEquals(current, next) && pending === state.pending) return state;
-      let formData = state.formData as FormData;
-      let filters: Record<string, ScopeFilters> = {
-        ...state.filters,
-        [scope]: next,
-      };
-      let changed: string[] = [];
-      const activating = activatingFilterGroup(exclusiveGroups, scope, filters);
-      if (
-        preferExistingPrefill(
-          source,
-          activeExclusiveGroups(state.formData, state.filters, exclusiveGroups),
-          activating
-        )
-      ) {
-        filters = state.filters as Record<string, ScopeFilters>;
-      } else if (activating !== undefined) {
-        ({ formData, filters, pending } = clearInactiveGroups(
-          formData,
-          filters,
-          pending,
-          exclusiveGroups,
-          activating
-        ));
-        changed = changedKeys(state.formData, formData);
-      }
-      return {
-        ...state,
-        formData,
-        filters,
-        pending,
-        serverErrors:
-          source === "user"
-            ? clearServerErrors(state.serverErrors, changed)
-            : state.serverErrors,
-      };
-    }
+    case "field-patch":
+      return reduceFieldPatch(state, action);
+    case "filter-patch":
+      return reduceFilterPatch(state, action);
     case "settle": {
       const pending = withoutOwner(state.pending, action.owner);
       return pending === state.pending ? state : { ...state, pending };
@@ -430,43 +483,8 @@ export const shellReducer = (
       else optionSelections[action.field] = action.selection;
       return { ...state, optionSelections };
     }
-    case "rjsf-change": {
-      // Three-way merge: apply only what this event changed relative to the data its
-      // render was given, so a field patch applied since that render survives.
-      const eventChanged = changedKeys(action.base, action.next);
-      if (eventChanged.length === 0) return state;
-      let formData = applyPatch(
-        state.formData,
-        Object.fromEntries(eventChanged.map((key) => [key, action.next[key]]))
-      );
-      let pending = state.pending;
-      for (const key of eventChanged)
-        pending = withoutOwner(pending, `field:${key}`);
-      let filters = state.filters;
-      const exclusiveGroups = action.exclusiveGroups ?? [];
-      const activating = activatingFieldGroup(
-        exclusiveGroups,
-        eventChanged,
-        formData
-      );
-      if (activating !== undefined) {
-        ({ formData, filters, pending } = clearInactiveGroups(
-          formData,
-          filters,
-          pending,
-          exclusiveGroups,
-          activating
-        ));
-      }
-      const changed = changedKeys(state.formData, formData);
-      return {
-        ...state,
-        formData,
-        filters,
-        pending,
-        serverErrors: clearServerErrors(state.serverErrors, changed),
-      };
-    }
+    case "rjsf-change":
+      return reduceRjsfChange(state, action);
     case "server-errors":
       return { ...state, serverErrors: action.errors };
   }
