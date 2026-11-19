@@ -230,6 +230,17 @@ const validateRequiredDeviceSites = (
   }
 };
 
+const isRequiredError = (
+  schema: unknown,
+  path: readonly string[],
+  error: Parameters<ErrorTransformer>[0][number]
+): boolean =>
+  error.name === "required" ||
+  (error.name === "minItems" &&
+    error.params?.limit === 1 &&
+    path.length === 1 &&
+    requiredOf(schema).includes(path[0]));
+
 /**
  * Readable Ajv messages: a missing value (and an empty required list) is
  * "<label> is required"; a top-level list below its `minItems` is
@@ -249,16 +260,11 @@ export const createTransformErrors =
         const target = owner?.startsWith("field:")
           ? owner.slice("field:".length)
           : top;
+        const requiredError = isRequiredError(schema, path, error);
         if (target !== top) {
-          const emptyRequiredList =
-            error.name === "minItems" &&
-            error.params?.limit === 1 &&
-            path.length === 1 &&
-            requiredOf(schema).includes(top);
-          const message =
-            error.name === "required" || emptyRequiredList
-              ? `${labelAt(schema, uiSchema, path)} is required`
-              : capitalize(error.message ?? "is invalid");
+          const message = requiredError
+            ? `${labelAt(schema, uiSchema, path)} is required`
+            : capitalize(error.message ?? "is invalid");
           const location = path.length > 1 ? ` (${path.join(".")})` : "";
           return {
             ...error,
@@ -282,12 +288,7 @@ export const createTransformErrors =
             }`,
           };
         }
-        const emptyRequiredList =
-          error.name === "minItems" &&
-          error.params?.limit === 1 &&
-          path.length === 1 &&
-          requiredOf(schema).includes(top);
-        if (error.name === "required" || emptyRequiredList) {
+        if (requiredError) {
           return {
             ...error,
             message: `${labelAt(schema, uiSchema, path)} is required`,
