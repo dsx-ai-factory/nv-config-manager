@@ -200,16 +200,25 @@ The NATS CLI parses a 32-bit integer before applying its binary unit suffix.
 Scale large stream limits exactly; never round the configured byte count.
 */}}
 {{- define "nv-config-manager.natsCliStreamMaxBytes" -}}
-{{- $bytes := include "nv-config-manager.localStreamMaxBytes" . | int64 -}}
+{{- $limit := include "nv-config-manager.localStreamMaxBytes" . | int64 -}}
+{{- $bytes := $limit -}}
+{{- $scale := int64 1 -}}
 {{- $suffix := "" -}}
 {{- range $unit := list "K" "M" "G" "T" -}}
 {{- if gt $bytes 2147483647 -}}
-{{- if ne (mod $bytes 1024) 0 -}}
-{{- fail "nautobotNats.natsReady.streamMaxBytes cannot be expressed exactly by the NATS CLI; choose a size aligned to KiB, MiB, GiB, or TiB" -}}
-{{- end -}}
 {{- $bytes = div $bytes 1024 -}}
+{{- $scale = mul $scale 1024 -}}
 {{- $suffix = $unit -}}
 {{- end -}}
+{{- end -}}
+{{- $remainder := mod $limit $scale -}}
+{{- if ne $remainder 0 -}}
+{{- $suggestion := sub $limit $remainder -}}
+{{- $increase := sub $scale $remainder -}}
+{{- if le $limit (sub 9223372036854775807 $increase) -}}
+{{- $suggestion = add $limit $increase -}}
+{{- end -}}
+{{- fail (printf "nautobotNats.natsReady.streamMaxBytes=%d cannot be expressed exactly by the NATS CLI; try nautobotNats.natsReady.streamMaxBytes=%d" $limit $suggestion) -}}
 {{- end -}}
 {{- printf "%d%s" $bytes $suffix -}}
 {{- end -}}
