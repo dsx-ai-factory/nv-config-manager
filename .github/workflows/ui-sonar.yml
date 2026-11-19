@@ -53,6 +53,6 @@ jobs:
           fi
           case "$SONAR_OUTCOME" in
             success) echo 'SonarJS checks passed.' ;;
-            failure) echo 'SonarJS reported findings. This check is advisory; see the lint step for details.' ;;
+            failure) echo 'The SonarJS check command exited unsuccessfully. This step is advisory; see the lint step for details.' ;;
             *) echo 'SonarJS did not complete after configuration validation; see the job logs.' ;;
           esac >> "$GITHUB_STEP_SUMMARY"
