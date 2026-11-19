@@ -73,27 +73,6 @@ This application uses runtime environment variables (read via `/api/config` rout
 
 ## Testing
 
-### Optional SonarJS checks
-
-Run `npm ci` in `ui/`, then `npm run lint:sonar`, or run `make ui-sonar`
-from the repository root. The command reports findings and exits nonzero when
-it finds them; it is separate from the required `npm run lint` checks.
-
-These checks use the pinned `eslint-plugin-sonarjs` package locally. No Sonar
-account, trial, token, NVIDIA network access, or server connection is needed.
-The enabled rules check cognitive complexity (15), function nesting (4), sort
-comparators, and unnecessary `void` expressions. This is a subset of the
-JavaScript/TypeScript analysis, not the full SonarQube quality gate or its
-analysis of other languages.
-
-The **UI Sonar Rules (Advisory)** GitHub workflow runs directly on pull requests,
-including forks, and can be run manually. It uses a GitHub-hosted runner without
-Sonar credentials and allows failures during rollout. Existing findings are
-reported without requiring contributors to fix the backlog before merging.
-Normal GitHub Actions usage limits still apply.
-
-To check the lint configuration itself, run `npm run test:sonar` in `ui/`.
-
 ### E2E Tests (Playwright)
 
 **Prerequisites:**
