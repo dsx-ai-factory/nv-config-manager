@@ -25,9 +25,9 @@ audit_image() {
 }
 
 attest() {
-    local value
-    value="$(grep -m1 "^$1=" "${CI_PROJECT_DIR}/promote.env" | cut -d= -f2-)"
-    [[ -n "$value" ]] || { echo "Missing $1 in promote.env" >&2; exit 1; }
+    local key="$1" value
+    value="$(grep -m1 "^${key}=" "${CI_PROJECT_DIR}/promote.env" | cut -d= -f2-)"
+    [[ -n "$value" ]] || { echo "Missing $key in promote.env" >&2; exit 1; }
     printf '%s' "$value"
 }
 
