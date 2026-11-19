@@ -13,9 +13,9 @@ version before the selected release candidate is promoted.
 - Bundled Nautobot now assigns the MCP read-only token to the dedicated
   `nvcm-mcp-read-only` inventory account. Before upgrading, ensure
   `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
-  belongs to another user, the `run-migrations` init container stops: reassign
-  that token to the dedicated account, or configure a fresh token and update
-  MCP clients.
+  belongs to another user, the `run-migrations` init container stops: first create
+  the `nvcm-mcp-read-only` account if needed, then reassign that token to it.
+  Alternatively, configure a fresh token and update MCP clients.
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
