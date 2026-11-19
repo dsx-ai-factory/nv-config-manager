@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 from ruamel.yaml import YAML
 
-_CHART_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
+_CHART_DIR = Path(__file__).resolve().parents[2] / "deploy" / "helm"
 _MAX_BYTES_SETTING = "nautobotNats.natsReady.streamMaxBytes"
 _BINARY_UNITS = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
 
