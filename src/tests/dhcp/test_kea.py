@@ -21,10 +21,10 @@ from aioresponses import aioresponses
 from yarl import URL
 
 from nv_config_manager.dhcp.kea import (
+    CLIENT_TIMEOUT_OPTION,
     DEFAULT_TIMEOUT_SECONDS,
     KEA_PORT_ENV,
     KEA_SERVER_ENV,
-    KEA_TIMEOUT_ENV,
     KeaClient,
     KeaException,
 )
@@ -71,12 +71,24 @@ def test_from_config_attached_ignores_env_override(monkeypatch) -> None:
     assert client.url == "http://localhost:8000/"
 
 
-def test_timeout_defaults_to_ten_seconds(monkeypatch) -> None:
+def _kea_config_with_timeout(value: str) -> ConfigParser:
+    """Build a [dhcp.kea] section that sets client_timeout_seconds."""
+    config = _kea_config()
+    config.set("dhcp.kea", CLIENT_TIMEOUT_OPTION, value)
+    return config
+
+
+def test_timeout_defaults_to_ten_seconds() -> None:
     """Without an explicit value, the client keeps its historical 10s timeout."""
-    monkeypatch.delenv(KEA_TIMEOUT_ENV, raising=False)
     assert DEFAULT_TIMEOUT_SECONDS == 10.0
     assert KeaClient(host="kea").timeout_seconds == DEFAULT_TIMEOUT_SECONDS
     assert KeaClient.from_config(_kea_config()).timeout_seconds == DEFAULT_TIMEOUT_SECONDS
+
+
+def test_blank_ini_timeout_uses_the_default() -> None:
+    """An empty client_timeout_seconds is treated as unset."""
+    client = KeaClient.from_config(_kea_config_with_timeout(""))
+    assert client.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
 
 
 def test_from_config_passes_timeout_to_client(monkeypatch) -> None:
@@ -84,44 +96,45 @@ def test_from_config_passes_timeout_to_client(monkeypatch) -> None:
     monkeypatch.delenv(KEA_SERVER_ENV, raising=False)
     monkeypatch.delenv(KEA_PORT_ENV, raising=False)
 
-    monkeypatch.delenv(KEA_TIMEOUT_ENV, raising=False)
-
-    default = KeaClient.from_config(_kea_config())
     detached = KeaClient.from_config(_kea_config(), timeout_seconds=45)
     attached = KeaClient.from_config(_kea_config(), attached=True, timeout_seconds=45)
 
-    assert default.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
     assert detached.timeout_seconds == 45
     assert attached.timeout_seconds == 45
 
 
-def test_from_config_timeout_env_applies_when_no_explicit_value(monkeypatch) -> None:
-    """NV_CONFIG_MANAGER_KEA_TIMEOUT sets the timeout for attached and detached clients."""
-    monkeypatch.setenv(KEA_TIMEOUT_ENV, "30")
+def test_from_config_reads_ini_timeout_when_no_explicit_value() -> None:
+    """[dhcp.kea] client_timeout_seconds sets the timeout for attached and detached clients."""
+    config = _kea_config_with_timeout("30")
 
-    assert KeaClient.from_config(_kea_config()).timeout_seconds == 30
-    assert KeaClient.from_config(_kea_config(), attached=True).timeout_seconds == 30
-
-
-def test_from_config_explicit_timeout_beats_env(monkeypatch) -> None:
-    """A caller-supplied timeout (config-sync's outer deadline) overrides the env var."""
-    monkeypatch.setenv(KEA_TIMEOUT_ENV, "30")
-
-    assert KeaClient.from_config(_kea_config(), timeout_seconds=45).timeout_seconds == 45
+    assert KeaClient.from_config(config).timeout_seconds == 30
+    assert KeaClient.from_config(config, attached=True).timeout_seconds == 30
 
 
-@pytest.mark.parametrize("bad_value", ["abc", "0", "-5"])
-def test_from_config_rejects_invalid_timeout_env(monkeypatch, bad_value: str) -> None:
-    """A malformed or non-positive env value fails loudly instead of being ignored."""
-    monkeypatch.setenv(KEA_TIMEOUT_ENV, bad_value)
+def test_from_config_explicit_timeout_beats_ini() -> None:
+    """A caller-supplied timeout (config-sync's outer deadline) overrides the INI value."""
+    config = _kea_config_with_timeout("30")
 
-    with pytest.raises(ValueError, match="(?i)timeout"):
-        KeaClient.from_config(_kea_config())
+    assert KeaClient.from_config(config, timeout_seconds=45).timeout_seconds == 45
 
 
-@pytest.mark.parametrize("bad_timeout", [0, -1])
+def test_from_config_ignores_invalid_ini_timeout_when_explicit() -> None:
+    """An explicit timeout never parses the INI value, so probes survive a bad setting."""
+    config = _kea_config_with_timeout("abc")
+
+    assert KeaClient.from_config(config, timeout_seconds=10).timeout_seconds == 10
+
+
+@pytest.mark.parametrize("bad_value", ["abc", "0", "-5", "inf", "nan"])
+def test_from_config_rejects_invalid_ini_timeout(bad_value: str) -> None:
+    """A malformed, non-positive, or non-finite value fails loudly instead of being ignored."""
+    with pytest.raises(ValueError, match=CLIENT_TIMEOUT_OPTION):
+        KeaClient.from_config(_kea_config_with_timeout(bad_value))
+
+
+@pytest.mark.parametrize("bad_timeout", [0, -1, float("inf"), float("nan")])
 def test_non_positive_timeout_is_rejected(bad_timeout: float) -> None:
-    """A zero or negative timeout would fail every request, so reject it up front."""
+    """A zero, negative, or non-finite timeout would break every request, so reject it."""
     with pytest.raises(ValueError, match="timeout_seconds"):
         KeaClient(host="kea", timeout_seconds=bad_timeout)
 

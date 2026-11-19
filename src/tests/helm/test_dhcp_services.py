@@ -443,6 +443,91 @@ def test_null_cpu_requests_are_ignored_when_cpu_sizing_is_off(tmp_path: Path) ->
     }
 
 
+def _kea_timeouts(
+    *set_args: str, template: str = _INI_TEMPLATE, extra_values: tuple[Path, ...] = ()
+) -> dict[str, str]:
+    """Return the Kea timeout options from the rendered [dhcp.kea] INI."""
+    rendered = _render(*set_args, template=template, extra_values=extra_values)
+    settings: dict[str, str] = {}
+    for key in ("client_timeout_seconds", "sync_timeout_seconds"):
+        match = re.search(rf"^\s*{re.escape(key)} = (\S+)\s*$", rendered, re.MULTILINE)
+        if match is None:
+            pytest.fail(f"{key} missing from rendered [dhcp.kea] INI")
+        settings[key] = match.group(1)
+    return settings
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", "templates/vault-secrets.yaml"),
+        ("kubernetes", "templates/kubernetes-secrets.yaml"),
+        ("vault-agent", "templates/vault-agent-configmap.yaml"),
+    ],
+)
+def test_kea_timeouts_are_written_to_the_shared_ini(secret_method: str, template: str) -> None:
+    """Every secrets method renders both timeouts, with defaults and overrides."""
+    method = f"secrets.method={secret_method}"
+
+    assert _kea_timeouts(method, template=template) == {
+        "client_timeout_seconds": "10",
+        "sync_timeout_seconds": "15",
+    }
+    assert _kea_timeouts(
+        method,
+        "networkDhcp.kea.clientTimeoutSeconds=25",
+        "networkDhcp.kea.configSyncTimeoutSeconds=45",
+        template=template,
+    ) == {"client_timeout_seconds": "25", "sync_timeout_seconds": "45"}
+
+
+def test_kea_timeouts_from_a_values_file_keep_decimals(tmp_path: Path) -> None:
+    values = tmp_path / "timeouts.yaml"
+    values.write_text(
+        "networkDhcp:\n  kea:\n    clientTimeoutSeconds: 2.5\n    configSyncTimeoutSeconds: 1000000\n"
+    )
+
+    assert _kea_timeouts(extra_values=(values,)) == {
+        "client_timeout_seconds": "2.5",
+        "sync_timeout_seconds": "1000000",
+    }
+
+
+def test_unset_kea_timeouts_render_the_defaults() -> None:
+    """A null value, as after --reuse-values from an older release, keeps the default."""
+    assert _kea_timeouts(
+        "networkDhcp.kea.clientTimeoutSeconds=null",
+        "networkDhcp.kea.configSyncTimeoutSeconds=null",
+    ) == {"client_timeout_seconds": "10", "sync_timeout_seconds": "15"}
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        "networkDhcp.kea.clientTimeoutSeconds=0",
+        "networkDhcp.kea.clientTimeoutSeconds=-1",
+        "networkDhcp.kea.configSyncTimeoutSeconds=soon",
+    ],
+)
+def test_invalid_kea_timeout_fails_rendering(override: str) -> None:
+    result = _render_result(override, template=_INI_TEMPLATE)
+
+    assert result.returncode != 0
+    assert "must be a positive number of seconds" in result.stderr
+
+
+def test_kea_timeouts_are_not_rendered_as_container_env() -> None:
+    """The timeouts live in the shared INI, not in per-container env vars."""
+    docs = _load_docs(_render())
+    containers = {
+        **_containers(docs, _DHCP_NAME),
+        **_containers(docs, f"{_DHCP_NAME}-refresh"),
+    }
+    for name, container in containers.items():
+        env = {item["name"] for item in container.get("env", [])}
+        assert not env & {"NV_CONFIG_MANAGER_KEA_TIMEOUT", "CONFIG_SYNC_KEA_TIMEOUT"}, name
+
+
 def test_liveness_uses_livez_and_readiness_uses_healthcheck() -> None:
     """Liveness probes gate on Kea process (/livez); readiness stays strict."""
     docs = _load_docs(_render())

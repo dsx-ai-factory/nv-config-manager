@@ -36,15 +36,28 @@ from nv_config_manager.common.config.loader import load_config
 KEA_SERVER_ENV = "NV_CONFIG_MANAGER_KEA_SERVER"
 KEA_PORT_ENV = "NV_CONFIG_MANAGER_KEA_PORT"
 
-# Per-container override for the total HTTP timeout (seconds) of each Kea
-# control request, used when the caller does not pass ``timeout_seconds``
-# explicitly. Applies to attached and non-attached clients alike.
-KEA_TIMEOUT_ENV = "NV_CONFIG_MANAGER_KEA_TIMEOUT"
+# [dhcp.kea] option for the total HTTP timeout (seconds) of each Kea control
+# request, used when the caller does not pass ``timeout_seconds`` explicitly.
+CLIENT_TIMEOUT_OPTION = "client_timeout_seconds"
 
 # Default total HTTP timeout for a single Kea control request. Callers that wrap
 # Kea calls in their own deadline (e.g. config-sync) should pass a value at or
 # above it so this inner timeout never fires first.
 DEFAULT_TIMEOUT_SECONDS = 10.0
+
+
+def timeout_option(config: ConfigParser, option: str, default: float) -> float:
+    """Return a positive, finite ``[dhcp.kea]`` timeout in seconds, or ``default`` if unset."""
+    raw = config.get("dhcp.kea", option, fallback="").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"[dhcp.kea] {option} must be a number of seconds, got {raw!r}") from exc
+    if not isfinite(value) or value <= 0:
+        raise ValueError(f"[dhcp.kea] {option} must be a positive number of seconds, got {raw!r}")
+    return value
 
 
 class IpVersion(IntEnum):
@@ -87,22 +100,13 @@ class KeaClient:
         Ready, without weakening readiness for anyone else.
 
         ``timeout_seconds`` is the total HTTP timeout applied to each request.
-        An explicit value wins; otherwise ``NV_CONFIG_MANAGER_KEA_TIMEOUT`` is
-        used when set, falling back to ``DEFAULT_TIMEOUT_SECONDS``.
+        An explicit value wins; otherwise ``[dhcp.kea] client_timeout_seconds``
+        is used when set, falling back to ``DEFAULT_TIMEOUT_SECONDS``.
         """
-        if timeout_seconds is None:
-            raw_timeout = os.environ.get(KEA_TIMEOUT_ENV)
-            if raw_timeout:
-                try:
-                    timeout_seconds = float(raw_timeout)
-                except ValueError as exc:
-                    raise ValueError(
-                        f"{KEA_TIMEOUT_ENV} must be a number of seconds, got {raw_timeout!r}"
-                    ) from exc
-            else:
-                timeout_seconds = DEFAULT_TIMEOUT_SECONDS
         if config is None:
             config = load_config()
+        if timeout_seconds is None:
+            timeout_seconds = timeout_option(config, CLIENT_TIMEOUT_OPTION, DEFAULT_TIMEOUT_SECONDS)
         if attached:
             host = "localhost"
             port = int(config["dhcp.kea"]["port"])

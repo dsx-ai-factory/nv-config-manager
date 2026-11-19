@@ -2437,6 +2437,35 @@ auto-detected, and otherwise defaults to eight packets per worker.
 {{- end -}}
 
 {{/*
+A positive networkDhcp.kea timeout in seconds, or the default when unset.
+
+A missing key (such as after helm upgrade --reuse-values from a release that
+predates it), null, or a blank string renders the default.
+Context: (dict "root" . "name" "clientTimeoutSeconds|configSyncTimeoutSeconds" "default" 10)
+*/}}
+{{- define "nv-config-manager.dhcp.keaTimeoutSeconds" -}}
+{{- $kea := .root.Values.networkDhcp.kea | default dict -}}
+{{- $raw := "" -}}
+{{- if hasKey $kea .name -}}
+{{- $value := index $kea .name -}}
+{{- /* Values files decode numbers as float64, which toString prints as 1e+06 from a million up. */ -}}
+{{- if or (kindIs "float64" $value) (kindIs "int" $value) (kindIs "int64" $value) -}}
+{{- $number := $value | float64 -}}
+{{- $raw = ternary (printf "%.0f" $number) (toString $number) (eq $number (floor $number)) -}}
+{{- else -}}
+{{- $raw = $value | toString | trim -}}
+{{- end -}}
+{{- end -}}
+{{- if or (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
+{{- .default -}}
+{{- else if or (not (regexMatch `^[0-9]+(\.[0-9]+)?$` $raw)) (le ($raw | float64) 0.0) -}}
+{{- fail (printf "networkDhcp.kea.%s must be a positive number of seconds, got %q" .name $raw) -}}
+{{- else -}}
+{{- $raw -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Render one container probe (livenessProbe / readinessProbe / startupProbe) from
 a chart-provided default handler plus operator-supplied values.
 

@@ -99,6 +99,26 @@ resolved sizes are written to the shared `[dhcp.kea]` section as
 [ISC multi-threading guidance](https://kea.readthedocs.io/en/kea-3.2.0/arm/dhcp4-srv.html#multi-threading-settings)
 for sizing recommendations.
 
+## Kea Control Timeouts
+
+Applying a large configuration can take longer than the default timeouts when
+Kea is under load. When the config-sync sidecar times out, it records a failure
+and re-sends the full configuration on its next pass, even though Kea usually
+applies the configuration anyway. Raise these Helm values under
+`networkDhcp.kea` if that happens:
+
+| Helm value | INI option (`[dhcp.kea]`) | Default | Description |
+| :--------- | :------------------------ | :------ | :---------- |
+| `configSyncTimeoutSeconds` | `sync_timeout_seconds` | `15` | Deadline for each config-sync Kea operation. One deadline covers `config-set` and the `config-write` that follows it. `config-hash-get` has its own deadline with the same value. |
+| `clientTimeoutSeconds` | `client_timeout_seconds` | `10` | Total timeout for each Kea request from the `api` and `config-refresh-v4` containers, such as `config-test`. |
+
+Both values must be positive numbers of seconds, and invalid values fail the
+Helm render. The `/livez` and `/healthcheck` probes always use a 10-second Kea
+timeout. The config-sync heartbeat probe raises its staleness threshold above
+the default 90 seconds when `configSyncTimeoutSeconds` is large enough that one
+sync iteration could take longer. Setting `CONFIG_SYNC_HEARTBEAT_MAX_AGE` on the
+container overrides that threshold.
+
 ## CLI Usage
 
 ### Basic Configuration Generation

@@ -213,6 +213,40 @@ def test_check_sync_heartbeat_missing_exits_nonzero(tmp_path) -> None:
     assert "missing" in result.output
 
 
+@pytest.mark.parametrize(("sync_timeout", "exit_code"), [(None, 1), ("60", 0)])
+def test_check_sync_heartbeat_default_max_age_follows_sync_timeout(
+    tmp_path, monkeypatch, kea_ini, sync_timeout: str | None, exit_code: int
+) -> None:
+    """Without --max-age, a 150s-old heartbeat is stale at the default deadline only."""
+    monkeypatch.delenv("CONFIG_SYNC_HEARTBEAT_MAX_AGE", raising=False)
+    kea_ini(**({} if sync_timeout is None else {"sync_timeout_seconds": sync_timeout}))
+    hb = tmp_path / "hb"
+    hb.write_text("")
+    old = time.time() - 150
+    os.utime(hb, (old, old))
+
+    result = CliRunner().invoke(cli_group, ["check-sync-heartbeat", "--heartbeat-file", str(hb)])
+
+    assert result.exit_code == exit_code, result.output
+
+
+def test_check_sync_heartbeat_env_max_age_beats_sync_timeout(
+    tmp_path, monkeypatch, kea_ini
+) -> None:
+    """An explicit CONFIG_SYNC_HEARTBEAT_MAX_AGE is not raised by the sync timeout."""
+    monkeypatch.setenv("CONFIG_SYNC_HEARTBEAT_MAX_AGE", "60")
+    kea_ini(sync_timeout_seconds="60")
+    hb = tmp_path / "hb"
+    hb.write_text("")
+    old = time.time() - 150
+    os.utime(hb, (old, old))
+
+    result = CliRunner().invoke(cli_group, ["check-sync-heartbeat", "--heartbeat-file", str(hb)])
+
+    assert result.exit_code == 1
+    assert "stale" in result.output
+
+
 # --------------------------------------------------------------------------- #
 # reconcile loop: heartbeat advancement, error handling, timeouts
 # --------------------------------------------------------------------------- #
