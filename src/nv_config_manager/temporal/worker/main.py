@@ -26,7 +26,11 @@ from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxR
 
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import configure_logging
-from nv_config_manager.temporal.client.connection import client_connect_options, temporal_address
+from nv_config_manager.temporal.client.connection import (
+    client_connect_options,
+    failed_stage_retry_timeout_seconds,
+    temporal_address,
+)
 from nv_config_manager.temporal.converter import get_data_converter
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager.temporal.telemetry import setup_telemetry
@@ -35,6 +39,7 @@ from nv_config_manager.temporal.workflow_registry import (
     log_workflow_registry,
 )
 from nv_config_manager_workflows.registration.registry import WorkflowRegistry
+from nv_config_manager_workflows.retry_timeout import FailedStageRetryTimeoutInterceptor
 from nv_config_manager_workflows.workflows import LOCAL_TEST_WORKFLOWS
 
 configure_logging(service="temporal-worker")
@@ -108,6 +113,7 @@ def workflow_runner() -> SandboxedWorkflowRunner:
 async def main() -> None:
     """Run the temporal worker."""
     max_cached_workflows, max_concurrent_workflow_tasks = _workflow_cache_and_task_limits()
+    retry_timeout_seconds = failed_stage_retry_timeout_seconds()
     configure_workflow_runtime()
     runtime = setup_telemetry("nv-config-manager-temporal-worker")
 
@@ -115,7 +121,10 @@ async def main() -> None:
         temporal_address(),
         **client_connect_options(),
         data_converter=get_data_converter(),
-        interceptors=[TracingInterceptor(always_create_workflow_spans=True)],
+        interceptors=[
+            TracingInterceptor(always_create_workflow_spans=True),
+            FailedStageRetryTimeoutInterceptor(retry_timeout_seconds),
+        ],
         runtime=runtime,
     )
 

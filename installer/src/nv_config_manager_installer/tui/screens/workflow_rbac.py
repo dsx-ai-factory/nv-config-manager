@@ -234,13 +234,17 @@ class WorkflowsScreen(Container):
         self._rebuild_overrides()
 
     def _collect_all(self) -> None:
+        retry_window = self._config.temporal.failed_stage_retry_timeout_seconds
         if self._managed_temporal_enabled():
             self._config.temporal = TemporalDeploymentConfig(
                 history_replicas=self._optional_int("#temporal-history-replicas"),
                 num_history_shards=self._optional_int("#temporal-history-shards"),
+                failed_stage_retry_timeout_seconds=retry_window,
             )
         else:
-            self._config.temporal = TemporalDeploymentConfig()
+            self._config.temporal = TemporalDeploymentConfig(
+                failed_stage_retry_timeout_seconds=retry_window
+            )
         self._config.rbac.admin_roles = _parse_roles(
             self.query_one("#rbac-admin-roles", Input).value
         )

@@ -84,7 +84,7 @@ RUN mkdir -p /opt/nautobot/static \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.11-v4.1.10@sha256:f7190d4046f9f30ea842604a1c7cc71be03ab27fe78cbfbb15c876f3b7c80641
+FROM nvcr.io/nvidia/distroless/python:3.11-v4.2.1@sha256:3b342e1e55d104be799172d1d706345f3e28088546d806e64cb7d3a135533c90
 
 # Replace the pinned runtime's trust store, including hashed certificate paths.
 # Copying only the bundle would leave distrusted roots reachable through capath.
@@ -169,7 +169,7 @@ COPY --from=builder /lib/*-linux-gnu/librtmp.so* /usr/lib/
 COPY --from=builder /lib/*-linux-gnu/libssh2.so* /usr/lib/
 COPY --from=builder /lib/*-linux-gnu/libtasn1.so* /usr/lib/
 COPY --from=builder /lib/*-linux-gnu/libunistring.so* /usr/lib/
-COPY --from=builder /lib/*-linux-gnu/libz.so* /usr/lib/
+# Use the runtime's security-patched libz.so.1 instead of the builder's copy.
 COPY --from=builder /lib/*-linux-gnu/libzstd.so* /usr/lib/
 
 ## The following dependencies are required by git HTTPS but are already covered by an earlier COPY statement

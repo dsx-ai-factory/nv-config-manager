@@ -1069,6 +1069,9 @@ oidc:
   proxy:
     replicas: 2
     cookieName: _nvcm_oidc_proxy
+    # Request-driven session refresh interval (oauth2-proxy duration string).
+    # Set below the forwarded ID token lifetime, for example "2m" for 5m tokens.
+    cookieRefresh: "1h"
     # Use only ID token claims instead of the OIDC discovery profile URL.
     # Keep disabled by default for compatibility with providers that require
     # claims to be resolved from their UserInfo endpoint.
@@ -1982,6 +1985,8 @@ temporal:
     # the cache is enabled, the task slot count must be at least 2.
     maxCachedWorkflows: 200
     maxConcurrentWorkflowTasks: 10
+    # Manual retry window in seconds (1-31536000), captured at workflow start.
+    failedStageRetryTimeoutSeconds: 10800
     resources:
       requests:
         cpu: 1

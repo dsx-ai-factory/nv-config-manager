@@ -13,6 +13,8 @@ The installer controls Temporal deployment through `nv-config-manager-install.ya
 - `services.temporal`: enables the Temporal API, workers, and related deployment resources.
 - `temporal.history_replicas`: optionally overrides the managed History service pod count.
 - `temporal.num_history_shards`: optionally overrides the persisted History shard count.
+- `temporal.failed_stage_retry_timeout_seconds`: optionally overrides the
+  [failed-stage retry window](#failed-stage-retry-window).
 - `cluster.hostname`: drives public workflow API and Temporal Web hostnames.
 - `secrets`: provides database, auth, and integration secrets.
 - `rbac`: configures workflow read and execute roles.
@@ -96,6 +98,51 @@ does not provide an in-place re-sharding command; do not attempt to work around
 this by editing cluster metadata or restoring the database under a different
 shard count.
 </Warning>
+
+## Failed-Stage Retry Window
+
+Configure the manual retry window after an activity or child workflow exhausts its
+automatic retries. The default is three hours. In `nv-config-manager-install.yaml`,
+omit the setting or set it to `0` to keep the default:
+
+```yaml
+temporal:
+  failed_stage_retry_timeout_seconds: 7200 # Two hours
+```
+
+Unlike the History sizing fields, this setting also applies when Temporal is
+external, because the workflow API, scheduler, and workers still run in this
+deployment. The installer maps it to the Helm value
+`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`. The equivalent
+direct Helm override is:
+
+```yaml
+temporal:
+  configManagerWorker:
+    failedStageRetryTimeoutSeconds: 7200
+```
+
+The Helm value must be a positive integer in seconds, up to 31536000 (365 days).
+The chart rejects `0`, negative, non-integer, and oversized values instead of
+disabling the cap; only the installer treats `0` as "use the default". If the key
+is unset or null, for example after `helm upgrade --reuse-values` from a release
+that predates it, the chart renders the three-hour default. The value is written to
+`[temporal.worker].failed_stage_retry_timeout_seconds` in the unified INI for
+Kubernetes Secrets, ESO, and Vault Agent deployments.
+
+The workflow API and scheduler read the current INI each time they start a workflow
+or create a schedule, so a change applies to workflows and schedules created after
+the updated INI reaches those pods. They record the setting in each new workflow or
+schedule action. Children and continue-as-new runs inherit it from the parent
+history, so a worker restart or configuration update cannot alter a recorded retry
+window. Existing schedules keep their recorded value until recreated; workflows
+started without this setting in history retain the three-hour default. Existing
+histories already waiting on the legacy indefinite retry path remain on that path.
+
+This setting does not impose a total workflow run timeout or limit healthy work
+and approval waits. When an unanswered failure wait expires, the workflow closes
+as **Failed** with a `StageRetryTimeout` cause. Existing shorter run or execution
+deadlines continue to apply. See [Workflow Lifecycle](../user-guides/workflow-lifecycle/index.mdx#retry).
 
 ## Temporal Images
 

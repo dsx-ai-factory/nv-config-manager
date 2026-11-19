@@ -229,15 +229,15 @@ async def mock_wait_reboot_failure(activity_input: WaitRebootInput) -> WaitReboo
 
 
 @activity.defn(name="persist_config_backup")
-async def mock_persist_config_backup(activity_input: PersistConfigBackupInput) -> None:
-    pass
+async def mock_persist_config_backup(activity_input: PersistConfigBackupInput) -> str:
+    return "mock_backup_commit"
 
 
 @activity.defn(name="record_backup_config_manager_plugin")
 async def mock_record_backup_config_manager_plugin(
     activity_input: RecordBackupConfigManagerPluginInput,
-) -> None:
-    pass
+) -> tuple[bool, str]:
+    return True, "Backup recorded"
 
 
 @activity.defn(name="check_recorded_config_drift")
