@@ -221,6 +221,7 @@ test-main-ui-e2e:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       changes:
         - "ui/**/*"
+        - "ci/tests/ui-sonar.test.mjs"
       when: on_success
     - when: never
   image: $NVCM_CI_IMAGE_PLAYWRIGHT
