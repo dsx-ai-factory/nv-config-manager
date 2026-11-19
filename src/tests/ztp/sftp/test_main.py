@@ -484,3 +484,22 @@ def test_start_server(mock_socket, mock_start_http_server):
     mock_socket_instance.listen.assert_called_once_with(10)
     mock_socket_instance.close.assert_called_once()
     mock_start_http_server.assert_called_once_with(9100, addr="0.0.0.0")
+
+
+@pytest.mark.timeout(0)  # override default timeout, sftp startup takes a bit
+@patch("nv_config_manager.ztp.sftp.main.start_http_server")
+@patch("nv_config_manager.ztp.sftp.main.socket.socket")
+def test_shutdown_waits_one_deadline_for_all_sessions(mock_socket, mock_start_http_server):
+    """Open sessions share one wait, so exit stays inside the grace period."""
+    sessions = [MagicMock(is_alive=MagicMock(return_value=True)) for _ in range(3)]
+    shutdown_event.set()
+    with (
+        patch("nv_config_manager.ztp.sftp.main.threading.enumerate", return_value=sessions),
+        patch(
+            "nv_config_manager.ztp.sftp.main.time.monotonic",
+            side_effect=[100.0, 100.0, 120.0, 140.0],
+        ),
+    ):
+        start_server(host="127.0.0.1", port=2222, level="INFO")
+
+    assert [s.join.call_args.kwargs["timeout"] for s in sessions] == [30.0, 10.0, 0.0]

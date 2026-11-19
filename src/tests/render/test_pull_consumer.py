@@ -487,6 +487,31 @@ async def test_nats_failures_and_reconnects_are_counted(
     assert CONSUMER_NATS_RECONNECTS.labels(*labels)._value.get() == 1
 
 
+@pytest.mark.asyncio
+async def test_a_stop_requested_while_connecting_is_not_lost(
+    custom_ini: Callable[[str], None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The config watcher signals once, so a stop that lands mid-connect must stick."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stop-during-connect")
+    consumer.loop = None
+    conn = MagicMock(close=AsyncMock())
+
+    async def connect(**_kwargs: object) -> MagicMock:
+        consumer._clean_exit()
+        return conn
+
+    with (
+        patch("nv_config_manager.render.pull_consumer.nats_connection", new=connect),
+        patch.object(consumer, "_run_pull_consumer", new_callable=AsyncMock) as run,
+    ):
+        await consumer.main()
+
+    conn.close.assert_awaited_once()
+    run.assert_not_awaited()
+
+
 def test_render_consumer_metrics_are_labeled_by_fixed_consumer(custom_ini, monkeypatch):
     """Render exports consumer state without relying on a NATS monitoring exporter."""
     custom_ini(TEST_NATS_CONFIG)

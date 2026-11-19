@@ -23,6 +23,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from temporalio import workflow
+from temporalio.exceptions import ActivityError, CancelledError, RetryState
 
 from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
 from nv_config_manager_workflows.mixins import (
@@ -123,3 +124,38 @@ async def test_a_failed_publish_does_not_fail_the_workflow(
     await ArchiveMixin().archive_results()
 
     warning.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_publish_still_cancels_the_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancellation is not a broker failure, so Temporal must still see it."""
+
+    async def execute_activity(*_args: Any, **_kwargs: Any) -> None:
+        error = ActivityError(
+            "cancelled",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker",
+            activity_type=PUBLISH_NATS_ACTIVITY_NAME,
+            activity_id="1",
+            retry_state=RetryState.CANCEL_REQUESTED,
+        )
+        error.__cause__ = CancelledError("cancelled")
+        raise error
+
+    warning = MagicMock()
+    monkeypatch.setattr(workflow, "info", workflow_info)
+    monkeypatch.setattr(
+        workflow,
+        "now",
+        lambda: datetime(2026, 8, 31, 12, 45, tzinfo=UTC),
+    )
+    monkeypatch.setattr(workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(workflow, "logger", SimpleNamespace(warning=warning))
+
+    with pytest.raises(ActivityError):
+        await ArchiveMixin().archive_results()
+
+    warning.assert_not_called()

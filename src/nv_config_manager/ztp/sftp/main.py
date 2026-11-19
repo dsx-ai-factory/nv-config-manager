@@ -75,6 +75,10 @@ logger = get_logger(__name__, category=LogCategory.ZTP)
 # Global flag to control server shutdown
 shutdown_event = threading.Event()
 
+# Shared by every session thread, so open sessions cannot stack their waits
+# past the pod's termination grace period.
+SHUTDOWN_JOIN_TIMEOUT_SECONDS = 30.0
+
 # SFTP clients normally issue small, sequential reads. Keeping one bounded range
 # in memory avoids a full-object buffer while limiting S3 requests for large files.
 SFTP_OBJECT_STORAGE_READ_AHEAD_BYTES = get_positive_int_config(
@@ -822,10 +826,11 @@ def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -
 
         # Wait for all active connections to complete
         active_threads = threading.enumerate()
+        deadline = time.monotonic() + SHUTDOWN_JOIN_TIMEOUT_SECONDS
         for thread in active_threads:
             if thread != threading.current_thread() and thread.is_alive():
                 logger.info("Waiting for thread %s to complete", thread.name)
-                thread.join(timeout=30)  # Give threads 30 seconds to complete
+                thread.join(timeout=max(0.0, deadline - time.monotonic()))
 
     except Exception as e:
         logger.error("Server error: %s", e)

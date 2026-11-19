@@ -22,6 +22,7 @@ from datetime import timedelta
 from pydantic import BaseModel
 from temporalio import workflow
 from temporalio.common import RetryPolicy, SearchAttributes
+from temporalio.exceptions import is_cancelled_exception
 
 from nv_config_manager_workflows.metadata import RequiredActivity
 from nv_config_manager_workflows.mixins.base import BaseMixin
@@ -71,7 +72,9 @@ class ArchiveMixin(BaseMixin):
                 schedule_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-        except Exception:  # noqa: BLE001 - a lost notification must not fail the finished run
+        except Exception as exc:  # noqa: BLE001 - a lost notification must not fail the finished run
+            if is_cancelled_exception(exc):
+                raise
             # The run has already finished its work by the time results are
             # published, so a broker problem must not turn it into a failure.
             workflow.logger.warning(
