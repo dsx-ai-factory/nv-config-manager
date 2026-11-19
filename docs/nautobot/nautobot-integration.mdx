@@ -117,6 +117,21 @@ curl -X POST https://nautobot.config-manager.example.com/api/graphql/ \
     -d '{"query": "{ devices { name } }"}'
 ```
 
+## Cable-Status Persistence
+
+The Nautobot DCIM plugin saves cable-validation changes with at most two
+concurrent updates. One GraphQL query per device loads only the requested
+interfaces and their attached cable IDs before the updates start.
+Valid interface matches are saved even when another record is malformed;
+unresolved targets report an invalid-data error.
+
+The plugin reads each cable's current status before deciding to skip or write
+an update. Status changes include a note identifying the validation workflow.
+Each activity retry loads a fresh interface-to-cable mapping.
+REST GET requests retry transient connection failures, timeouts, and HTTP
+502/503/504 once with jittered backoff. TLS verification failures and REST writes
+are not automatically retried by the HTTP client.
+
 ## NATS-Ready Init Container
 
 The NATS-ready init container ensures the configured JetStream streams exist before Nautobot starts. Stream names and subjects come from the Helm values:
