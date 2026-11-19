@@ -44,7 +44,12 @@ import {
   queryValues,
   scopePrefillFilters,
 } from "../prefill";
-import { EMPTY_SCOPE, type Owner, type ScopeFilters } from "../state";
+import {
+  EMPTY_SCOPE,
+  type Owner,
+  type QuerySnapshot,
+  type ScopeFilters,
+} from "../state";
 import type { DeviceFilter, DeviceOptions } from "../ui-schema";
 import {
   fieldDescription,
@@ -87,6 +92,40 @@ interface ScopeControlsProps {
   disabled: boolean;
   idPrefix: string;
 }
+
+const scopePrefillPatch = (
+  query: QuerySnapshot,
+  requested: Partial<Record<DeviceFilter, readonly OptionSourceItem[]>>
+): Partial<ScopeFilters> => {
+  const patch: Partial<ScopeFilters> = {};
+  if (requested.site) {
+    const [site] = matchOptions(queryValues(query, ["site"]), requested.site, false);
+    if (site)
+      patch.site = {
+        id: String(site.value),
+        type: site.type == null ? "" : String(site.type),
+      };
+  }
+  if (requested.tenant) {
+    const matched = matchOptions(
+      queryValues(query, ["tenant"]),
+      requested.tenant,
+      true
+    );
+    if (matched.length > 0)
+      patch.tenant = matched.map((item) => String(item.value));
+  }
+  if (requested.status) {
+    const matched = matchOptions(
+      queryValues(query, ["status"]),
+      requested.status,
+      true
+    );
+    if (matched.length > 0)
+      patch.status = matched.map((item) => String(item.value));
+  }
+  return patch;
+};
 
 /**
  * The scope's filter controls and its prefill: one terminal `setFilters(..., "prefill")`
@@ -138,25 +177,11 @@ const ScopeControls = ({
     ) {
       return;
     }
-    const patch: Partial<ScopeFilters> = {};
-    if (wantSite) {
-      const [site] = matchOptions(raw("site"), sites.options, false);
-      if (site)
-        patch.site = {
-          id: String(site.value),
-          type: site.type == null ? "" : String(site.type),
-        };
-    }
-    if (wantTenant) {
-      const matched = matchOptions(raw("tenant"), tenants.options, true);
-      if (matched.length > 0)
-        patch.tenant = matched.map((item) => String(item.value));
-    }
-    if (wantStatus) {
-      const matched = matchOptions(raw("status"), statuses.options, true);
-      if (matched.length > 0)
-        patch.status = matched.map((item) => String(item.value));
-    }
+    const patch = scopePrefillPatch(query, {
+      site: wantSite ? sites.options : undefined,
+      tenant: wantTenant ? tenants.options : undefined,
+      status: wantStatus ? statuses.options : undefined,
+    });
     if (Object.keys(patch).length > 0) setFilters(scope, patch, "prefill");
     else settle(owner);
   }, [
@@ -263,6 +288,36 @@ const ScopeControls = ({
   );
 };
 
+const resolveDeviceSite = (
+  siteField: string | undefined,
+  scope: ScopeFilters,
+  { formData, layout }: ShellFormContext
+): { id: string; type?: string } | undefined => {
+  if (siteField !== undefined) {
+    const id = formData[siteField];
+    const typeField = layout.typeFields[siteField];
+    const type = typeField !== undefined ? formData[typeField] : undefined;
+    if (typeof id === "string" && id !== "") {
+      return {
+        id,
+        type: typeof type === "string" && type !== "" ? type : undefined,
+      };
+    }
+    return undefined;
+  }
+  return scope.site
+    ? { id: scope.site.id, type: scope.site.type || undefined }
+    : undefined;
+};
+
+const selectedDeviceKeys = (
+  value: unknown,
+  multiple: boolean
+): string | string[] => {
+  if (multiple) return (Array.isArray(value) ? value : []).map(String);
+  return isEmptyValue(value) ? "" : String(value);
+};
+
 export const DeviceField = (props: FieldProps) => {
   const {
     name,
@@ -312,20 +367,7 @@ export const DeviceField = (props: FieldProps) => {
 
   const scope = context.filters[filterScope] ?? EMPTY_SCOPE;
   const usesSite = filters.includes("site");
-  let site: { id: string; type?: string } | undefined;
-  if (usesSite && siteField !== undefined) {
-    const id = formData[siteField];
-    const typeField = layout.typeFields[siteField];
-    const type = typeField !== undefined ? formData[typeField] : undefined;
-    if (typeof id === "string" && id !== "") {
-      site = {
-        id,
-        type: typeof type === "string" && type !== "" ? type : undefined,
-      };
-    }
-  } else if (usesSite && scope.site) {
-    site = { id: scope.site.id, type: scope.site.type || undefined };
-  }
+  const site = usesSite ? resolveDeviceSite(siteField, scope, context) : undefined;
   const tenant = filters.includes("tenant") ? scope.tenant : [];
   const status = filters.includes("status") ? scope.status : [];
   const siteMissing = usesSite && siteRequired && site === undefined;
@@ -406,11 +448,7 @@ export const DeviceField = (props: FieldProps) => {
   });
 
   const locked = Boolean(disabled || readonly);
-  const selected = multiple
-    ? (Array.isArray(value) ? value : []).map(String)
-    : isEmptyValue(value)
-    ? ""
-    : String(value);
+  const selected = selectedDeviceKeys(value, multiple);
 
   return (
     <div className="space-y-6">

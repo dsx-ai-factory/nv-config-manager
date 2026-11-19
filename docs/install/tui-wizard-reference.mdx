@@ -29,6 +29,7 @@ Set the deployment identity, site list, and resource size profile. These values 
 | Environment | Environment label, such as `local`, `test`, or `prod` |
 | Namespace | Kubernetes namespace for the deployment |
 | Release Name | Helm release name |
+| Custom Labels | Kubernetes label key/value pairs propagated to workloads, monitoring resources, probes, and exported metrics |
 | Airgapped Deployment | Enable airgapped mode |
 | NVIDIA Config Manager Device Username | Device login username for the Config Manager service account |
 | Size | Resource profile: `small`, `medium`, or `large` |
@@ -59,6 +60,15 @@ Choose which Config Manager services this deployment should run.
 | Config Store | Configuration storage API |
 
 To use an existing Nautobot instance, configure it on the [External Services](#3-external-services) screen.
+
+The screen also tunes Kea DHCP multi-threading. With CPU sizing off, blank fields keep Kea's defaults: pool `0` and queue `64`. With CPU sizing on, a blank pool uses the DHCP CPU request and a blank queue is eight packets per selected thread. The size profiles request 1 CPU, so set a DHCP CPU request to get more than one thread. An explicit pool of `0` keeps the queue at `64`. Invalid values block navigation until corrected.
+
+| Field | Description |
+| :---- | :---------- |
+| Size threads from DHCP CPU request | Sizes the Kea thread pool from the DHCP CPU request |
+| DHCP CPU request | Optional Kubernetes quantity. Blank keeps the size profile, which requests 1 CPU |
+| Thread pool size | Optional. `0` keeps auto-detection. Cannot be combined with CPU sizing |
+| Packet queue size | Optional positive integer. Blank is 64 while the pool is auto-detected, otherwise eight packets per thread |
 
 ![Services section screen](../assets/images/installer/02-services.svg)
 
@@ -188,16 +198,25 @@ If a PVC is `ReadWriteOnce`, it can only mount on the node where it was first bo
 
 ## 9. Workflows
 
-Configure Temporal workflow RBAC defaults and per-workflow overrides.
+Configure the managed Temporal server and workflow RBAC defaults and overrides.
 
 | Field | Description |
 | :---- | :---------- |
+| **History Replicas** | Optional History service pod count. Leave blank to use the deployment size profile and chart default. |
+| **History Shards** | Optional persisted History shard count. Leave blank to derive it from the History replica count. |
 | Admin Roles | Roles with full admin access to all workflows |
 | Default Read Roles | Default read access for all workflows |
 | Default Execute Roles | Default execute access for all workflows |
 | Per-Workflow Overrides | Override read or execute roles for specific workflows |
 
 The workflow list is generated from the Helm RBAC values file.
+
+<Warning>
+Blank History Shards follows History Replicas. After Temporal has initialized
+its database, confirm and pin the persisted shard count before changing
+replicas. Temporal ignores shard-count changes after the first run; changing
+the persisted count requires migration to a separate Temporal cluster.
+</Warning>
 
 ![Workflows section screen](../assets/images/installer/09-workflows.svg)
 

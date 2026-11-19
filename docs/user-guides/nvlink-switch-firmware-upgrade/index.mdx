@@ -37,7 +37,7 @@ The workflow runs six stages in order. None require manual approval — the work
 
 1. **`perform_backup` — Capture a pre-upgrade backup.**
 
-   Starts the [Configuration Backup](../configuration-backup/index.mdx) workflow as a child workflow so the device's pre-upgrade configuration is preserved.
+   Starts the [Configuration Backup](../configuration-backup/index.mdx) workflow as a child workflow so the device's pre-upgrade configuration is preserved. If the backup child fails or times out, the stage fails and the upgrade does not proceed. Resolve the underlying issue and retry the stage within the [failed-stage retry window](../workflow-lifecycle/index.mdx#retry) (three hours by default); otherwise the workflow closes as **Failed** with the firmware unchanged.
 
 1. **`update_context_and_validate` — Refresh device context and validate config drift.**
 

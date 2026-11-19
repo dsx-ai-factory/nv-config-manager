@@ -33,6 +33,17 @@ import {
 const isEmptyDefault = (value: unknown): boolean =>
   value === undefined || (Array.isArray(value) && value.length === 0);
 
+const normalizeStringValue = (
+  value: unknown,
+  uiSchema: unknown,
+  name: string
+): unknown => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (trimmed === "") return undefined;
+  return isTextarea(uiSchema, name) ? value : trimmed;
+};
+
 /**
  * - only projected top-level properties; `undefined` omitted;
  * - single-line strings trimmed; blank strings omitted; textarea values kept verbatim
@@ -50,12 +61,12 @@ export const buildPayload = (
   const payload: FormData = {};
   const required = requiredOf(schema);
   for (const [name, node] of Object.entries(propertiesOf(schema))) {
-    let value = Object.prototype.hasOwnProperty.call(formData, name) ? formData[name] : undefined;
+    const value = normalizeStringValue(
+      Object.prototype.hasOwnProperty.call(formData, name) ? formData[name] : undefined,
+      uiSchema,
+      name
+    );
     if (value === undefined) continue;
-    if (typeof value === "string") {
-      if (value.trim() === "") continue;
-      if (!isTextarea(uiSchema, name)) value = value.trim();
-    }
     if (
       Array.isArray(value) &&
       value.length === 0 &&

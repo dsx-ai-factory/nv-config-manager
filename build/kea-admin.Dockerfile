@@ -19,6 +19,7 @@ ARG APT_MIRROR_GPG_KEY_URL=""
 # Install kea-admin from ISC Cloudsmith repository
 # The isc-kea-admin package contains the database administration tools
 COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
+COPY build/setup.kea.deb.sh /tmp/setup.kea.deb.sh
 RUN set -eux; \
     /tmp/configure-apt-mirror.sh "$APT_MIRROR" "$APT_MIRROR_GPG_KEY_URL" ubuntu && \
     apt-get update && apt-get upgrade -y && \
@@ -31,7 +32,8 @@ RUN set -eux; \
     { dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 || \
         { echo "ca-certificates < 20260816ubuntu0.24.04.1" >&2; exit 1; }; } && \
     # Add ISC Cloudsmith repository for Kea 2.6
-    curl -1sLf 'https://dl.cloudsmith.io/public/isc/kea-2-6/setup.deb.sh' | bash && \
+    bash /tmp/setup.kea.deb.sh && \
+    rm /tmp/setup.kea.deb.sh && \
     # Install only the admin tools (not the full DHCP server)
     apt-get update && \
     apt-get install -y --no-install-recommends isc-kea-admin && \

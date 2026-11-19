@@ -177,6 +177,72 @@ configured Vault path; the installer will not invent integration credentials.
 Use `--skip-vault-population` when those paths are managed separately; this also
 avoids requiring a provisioning token for the deployment command.
 
+### `nvcm-installer test`
+
+Run integration tests against an existing deployment without redeploying:
+
+```bash
+nvcm-installer test install.yaml
+nvcm-installer test install.yaml --kubeconfig /path/to/kubeconfig
+# SSO: use the existing oidc-client-secret and sso.client_id by default.
+nvcm-installer test install.yaml --oidc-client-secret-name nvcm-integration-tests
+# Or supply a pre-issued access token in a protected file.
+nvcm-installer test install.yaml --oidc-token-file /run/secrets/nvcm-test-token
+```
+
+Alternatively, run without an installer config:
+
+```bash
+nvcm-installer test --namespace nv-config-manager --release-name nv-config-manager
+# For Keycloak, add the existing client's non-secret connection settings.
+nvcm-installer test \
+  --namespace nv-config-manager --release-name nv-config-manager \
+  --kubeconfig /path/to/kubeconfig \
+  --sso --oidc-client-id config-manager \
+  --oidc-issuer-url https://keycloak.example.com/realms/config-manager
+```
+
+Without a config, both target flags are required. With a config, flags override
+its corresponding settings without rewriting it. A nonempty `client_id` in the
+selected OIDC Secret takes precedence over `--oidc-client-id` or the config's
+client ID. `--oidc-issuer-url` selects
+the realm URL reachable from the test pod, overriding any configured internal
+issuer. `--sso`/`--no-sso` override the config's authentication mode; without a
+config, SSO is disabled unless `--sso` is supplied. Existing credential-Secret
+and token-file options work with either form.
+
+The namespace and release name come from flags or the config file. The command uses
+the current Kubernetes context (or `--kubeconfig`) and runs the pytest suite
+shipped inside the deployed ZTP `sftp` container, streaming its output. No
+repository checkout, Helm chart, Makefile, host-side pytest, or internet access
+is required. The caller needs permission to list pods, read `nautobot-admin`,
+and exec into the ZTP pod. Exit status is zero only when pytest succeeds;
+setup, collection, execution, and test failures return nonzero.
+
+With SSO enabled and no token file, the runner reads the selected OIDC Secret,
+`oidc-client-secret` by default. It uses the Secret's nonempty `client_id`, if
+present; otherwise, it uses `--oidc-client-id` or `sso.client_id`. The secret
+value comes from `client-secret` or `client_secret`. Keycloak must enable
+service accounts for the client and issue
+the audience and roles required by the tested APIs and workflows; browser/PKCE
+configuration alone is insufficient. `sso.internal_issuer`, when set, supplies
+the internal realm URL for token requests. Tokens renew automatically during
+the run. The override Secret supports `client_id` and `client_secret` or
+`client-secret`. A supplied access-token file must remain valid for the whole
+run. Both modes avoid browser login and token-cache writes. Client-credentials
+authentication also requires permission to read the selected OIDC Secret;
+token-file authentication does not. The deployed image must
+include the headless OIDC integration-test helper; token requests verify HTTPS
+certificates using the image's CA trust.
+
+This runner supports the bundled Nautobot provider and the chart's default
+resource naming. Load site topology and templates first, and
+ensure the services under test and the ZTP container are ready. Optional and
+CI-only tests may be skipped. See the
+[airgapped post-deployment test procedure](../docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
+for prerequisites and limitations. Older installer packages without the `test`
+subcommand must be updated to use this workflow.
+
 ### `nvcm-installer pvc-updater`
 
 Use this command from automation after the NVCM GitOps application is healthy.
@@ -314,6 +380,17 @@ Toggle individual NVIDIA Config Manager services on or off.
 
 When Nautobot is disabled, configure an external Nautobot URL in the
 [External Services](#3-external-services) section.
+
+**Kea DHCP multi-threading** (below the service toggles)
+
+| Field | Description |
+|-------|-------------|
+| Size threads from DHCP CPU request | Toggle — sizes the Kea thread pool from the DHCP CPU request |
+| DHCP CPU request | Optional Kubernetes quantity. Blank keeps the size profile, which requests 1 CPU |
+| Thread pool size | Optional; `0` keeps Kea auto-detection. Cannot be combined with CPU sizing |
+| Packet queue size | Optional positive integer; defaults to 64, or eight packets per thread |
+
+Blank fields keep Kea's defaults. Invalid values block navigation until corrected.
 
 For an independently packaged DCIM provider, set `dcim.provider`,
 `dcim.server`, and `services.nautobot: false` in the installer YAML. Provider
@@ -560,11 +637,23 @@ also be uploaded later via the ZTP `/v1/files` API.
 
 ![Workflows](../docs/assets/images/installer/09-workflows.svg)
 
-Temporal workflow RBAC configuration.
+Managed Temporal server sizing and workflow RBAC configuration.
 
 Per-workflow overrides are selected from a dropdown of known workflows:
 
 ![Workflows Dropdown](../docs/assets/images/installer/18-workflows-dropdown.svg)
+
+**Managed Temporal Server**
+
+| Field | Description |
+|-------|-------------|
+| **History Replicas** | Optional History service pod count; blank uses the deployment size profile and chart default |
+| **History Shards** | Optional persisted shard count; blank derives it from the History replica count |
+
+> **Warning:** Blank History Shards follows History Replicas. After Temporal
+> initializes its database, pin the current shard count before changing replicas.
+> Temporal ignores shard-count changes after the first run; changing the persisted
+> count requires migration to a separate Temporal cluster.
 
 **RBAC**
 
@@ -786,6 +875,76 @@ sites:
 services:
   nautobot: true
 ```
+
+### Kea DHCP Multi-Threading
+
+By default Kea auto-detects its worker count and keeps a 64-packet queue. The
+optional `dhcp.kea_multi_threading` block tunes this and maps to
+`networkDhcp.kea.multiThreading` in the Helm values. Nothing is emitted unless
+a field is set.
+
+Size the pool from the DHCP CPU request:
+
+```yaml
+dhcp:
+  cpu_request: "2"                # networkDhcp.resources.dhcp.requests.cpu
+  kea_multi_threading:
+    size_from_cpu_request: true   # size the pool from that CPU request
+```
+
+The CPU request is rounded up to whole cores (at least one thread) and the queue
+defaults to eight packets per thread. Every size profile requests 1 CPU, so
+leaving `cpu_request` blank makes this setting one thread and an 8-packet queue.
+
+Or set the sizes explicitly. `thread_pool_size` cannot be combined with
+`size_from_cpu_request`, and the installer and chart both reject that pair:
+
+```yaml
+dhcp:
+  kea_multi_threading:
+    thread_pool_size: 4           # 0 keeps Kea auto-detection
+    packet_queue_size: 32         # positive integer
+```
+
+### Managed Temporal Sizing
+
+Both fields are optional. Omit them or set them to `0` to use the deployment
+size profile and Helm chart behavior:
+
+```yaml
+services:
+  temporal: true
+temporal:
+  history_replicas: 16
+  num_history_shards: 128
+```
+
+`history_replicas` controls History service pods and can be adjusted with
+capacity, up to the shard count. Each History pod processes only the shards it
+owns, so replicas beyond the shard count add no capacity; choose enough shards
+for planned replica growth before the first install.
+`num_history_shards` initializes immutable cluster metadata and is
+ignored after Temporal's first run. If an initialized deployment still derives
+shards from replicas, confirm and pin its persisted shard count before changing
+`history_replicas`. Changing the persisted count requires a separate-cluster
+migration.
+
+### Failed-Stage Retry Window
+
+`temporal.failed_stage_retry_timeout_seconds` sets how long a failed, retryable
+workflow stage waits for a manual retry before the workflow closes as Failed.
+Omit it or set it to `0` to keep the three-hour chart default; the maximum is
+`31536000` (365 days). Unlike the sizing fields, it also applies when Temporal is
+external:
+
+```yaml
+temporal:
+  failed_stage_retry_timeout_seconds: 7200 # Two hours
+```
+
+The installer maps it to the Helm value
+`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`. See
+[Failed-stage retry window](../docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 
 ### File Storage Example (on-prem with OS images)
 

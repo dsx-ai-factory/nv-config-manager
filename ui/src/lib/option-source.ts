@@ -79,6 +79,13 @@ const readOwn = (record: object, key: string): unknown =>
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const compareStrings = (a: string, b: string): number => {
+  const order = a.localeCompare(b);
+  if (order !== 0 || a === b) return order;
+  // Distinct spellings can collate equally; keep cache keys independent of input order.
+  return a < b ? -1 : 1;
+};
+
 /**
  * Turn one form value into query-parameter values. Returns `[]` for "empty":
  * absent, `null`, `""`, and `[]`, plus values with no query-string form (objects,
@@ -95,7 +102,7 @@ export const normalizeDependencyValue = (value: unknown): string[] => {
     const items = value.flatMap((item) =>
       Array.isArray(item) ? [] : normalizeDependencyValue(item)
     );
-    return [...new Set(items)].sort();
+    return [...new Set(items)].sort(compareStrings);
   }
   return [];
 };
@@ -275,6 +282,31 @@ export const dependencySignature = (
 const staticParamValues = (value: OptionSourceParamValue): string[] =>
   Array.isArray(value) ? value.map(String) : [String(value)];
 
+const buildSearchParams = (
+  params: OptionSource["params"],
+  query: ResolvedDependencies["query"],
+  extra: ExtraParams
+): URLSearchParams => {
+  const merged = new Map<string, string[]>();
+  for (const [name, value] of Object.entries(params ?? {})) {
+    merged.set(name, staticParamValues(value));
+  }
+  for (const [param, normalized] of query) {
+    if (normalized.length > 0) merged.set(param, normalized);
+  }
+  for (const [param, extraValues] of Object.entries(extra)) {
+    if (extraValues.length > 0) merged.set(param, [...extraValues]);
+  }
+
+  const search = new URLSearchParams();
+  for (const name of [...merged.keys()].sort(compareStrings)) {
+    for (const value of merged.get(name) ?? []) {
+      search.append(name, value);
+    }
+  }
+  return search;
+};
+
 /**
  * Build the request for an option source from the current form data.
  *
@@ -345,24 +377,7 @@ export const buildOptionSourceRequest = (
   );
   if (!url) return invalidEndpoint;
 
-  const merged = new Map<string, string[]>();
-  for (const [name, value] of Object.entries(source.params ?? {})) {
-    merged.set(name, staticParamValues(value));
-  }
-  for (const [param, normalized] of query) {
-    if (normalized.length > 0) merged.set(param, normalized);
-  }
-  for (const [param, extraValues] of Object.entries(extra)) {
-    if (extraValues.length > 0) merged.set(param, [...extraValues]);
-  }
-
-  const search = new URLSearchParams();
-  for (const name of [...merged.keys()].sort()) {
-    for (const value of merged.get(name) ?? []) {
-      search.append(name, value);
-    }
-  }
-  url.search = search.toString();
+  url.search = buildSearchParams(source.params, query, extra).toString();
   return { kind: "ready", url: url.toString() };
 };
 
@@ -379,6 +394,24 @@ const isOptionValue = (value: unknown): value is ScalarValue =>
   (typeof value === "string" && value !== "") ||
   (typeof value === "number" && Number.isFinite(value)) ||
   typeof value === "boolean";
+
+const optionType = (
+  row: Record<string, unknown>,
+  typeKey: string | undefined
+): ScalarValue | null | undefined => {
+  if (typeKey === undefined) return undefined;
+  const value = readOwn(row, typeKey);
+  return isOptionValue(value) ? value : null;
+};
+
+/** A type or group distinguishes options that share the same submitted value. */
+const optionIdentity = (
+  value: ScalarValue,
+  discriminator?: ScalarValue | null
+): string =>
+  discriminator === undefined
+    ? String(value)
+    : JSON.stringify([String(value), discriminator === null ? null : String(discriminator)]);
 
 /**
  * Map parameter-endpoint rows to options through `label_key`/`value_key` (and
@@ -411,16 +444,9 @@ export const mapOptionRows = (
       skippedRows += 1;
       continue;
     }
-    let type: ScalarValue | null | undefined;
-    if (typeKey !== undefined) {
-      const rawType = readOwn(row, typeKey);
-      type = isOptionValue(rawType) ? rawType : null;
-    }
+    const type = optionType(row, typeKey);
     // Rendered option values are strings, so 1 and "1" are the same option.
-    const identity =
-      typeKey === undefined
-        ? String(value)
-        : JSON.stringify([String(value), type === null ? null : String(type)]);
+    const identity = optionIdentity(value, type);
     if (seen.has(identity)) {
       duplicateRows += 1;
       continue;
@@ -437,6 +463,23 @@ export const mapOptionRows = (
   }
 
   return { options, skippedRows, duplicateRows };
+};
+
+const nonEmptyString = (value: unknown): string | undefined =>
+  typeof value === "string" && value !== "" ? value : undefined;
+
+const mapOptionMeta = (value: unknown): OptionSourceMeta | undefined => {
+  if (!isPlainObject(value)) return undefined;
+  const count = value.matching_device_count;
+  const warnings = value.warnings;
+  return {
+    ...(typeof count === "number" && Number.isInteger(count) && count >= 0
+      ? { matching_device_count: count }
+      : {}),
+    ...(Array.isArray(warnings) && warnings.every((item) => typeof item === "string")
+      ? { warnings }
+      : {}),
+  };
 };
 
 /** Map the normalized `options-v1` response used by enriched direct option sources. */
@@ -456,8 +499,8 @@ export const mapOptionEnvelope = (response: unknown): OptionRowsMapping | null =
     // sections (for example a diagnostic command supported by two, but not all,
     // selected platforms). De-duplicate within a group while retaining those
     // cross-group appearances.
-    const group = typeof row.group === "string" && row.group !== "" ? row.group : undefined;
-    const identity = group ? JSON.stringify([String(row.value), group]) : String(row.value);
+    const group = nonEmptyString(row.group);
+    const identity = optionIdentity(row.value, group);
     if (seen.has(identity)) {
       duplicateRows += 1;
       continue;
@@ -467,26 +510,13 @@ export const mapOptionEnvelope = (response: unknown): OptionRowsMapping | null =
       label: isOptionValue(row.label) ? String(row.label) : identity,
       value: row.value,
     };
-    if (typeof row.description === "string" && row.description !== "") {
-      item.description = row.description;
-    }
+    const description = nonEmptyString(row.description);
+    if (description) item.description = description;
     if (group) item.group = group;
     options.push(item);
   }
 
-  let meta: OptionSourceMeta | undefined;
-  if (isPlainObject(response.meta)) {
-    const count = response.meta.matching_device_count;
-    const warnings = response.meta.warnings;
-    meta = {
-      ...(typeof count === "number" && Number.isInteger(count) && count >= 0
-        ? { matching_device_count: count }
-        : {}),
-      ...(Array.isArray(warnings) && warnings.every((item) => typeof item === "string")
-        ? { warnings }
-        : {}),
-    };
-  }
+  const meta = mapOptionMeta(response.meta);
   return { options, meta, skippedRows, duplicateRows };
 };
 

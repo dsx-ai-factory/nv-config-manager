@@ -19,40 +19,21 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, ClassVar
 
-from nv_config_manager_dcim import (
-    DCIMLocationIdentifier,
-    DCIMLocationType,
-    dcim_location_id,
-    dcim_location_reference,
-    dcim_location_type,
-)
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, ChildWorkflowError
 
-from nv_config_manager_workflows import ui
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.workflow_references import (
-    DEVICE_REFERENCE,
-    DeviceReference,
-    LocationReference,
-)
-from nv_config_manager_workflows.workflows._form_sources import (
-    MANAGED_DEVICE_SOURCE,
-    NAMESPACE_TAG_SOURCE,
-    SITE_FILTER_SOURCE,
-)
-
 with workflow.unsafe.imports_passed_through():
+    from nv_config_manager_dcim import (
+        DCIMLocationIdentifier,
+        DCIMLocationType,
+        dcim_location_id,
+        dcim_location_reference,
+        dcim_location_type,
+    )
+    from pydantic import BaseModel, Field
+
+    from nv_config_manager_workflows import ui
     from nv_config_manager_workflows.activities.dcim import (
         AssignVrfToDeviceInput,
         AssignVrfToInterfaceInput,
@@ -93,7 +74,26 @@ with workflow.unsafe.imports_passed_through():
         ExecuteRenderInput,
         execute_render,
     )
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins import ArchiveMixin, DeviceMixin
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.workflow_references import (
+        DEVICE_REFERENCE,
+        DeviceReference,
+        LocationReference,
+    )
+    from nv_config_manager_workflows.workflows._form_sources import (
+        MANAGED_DEVICE_SOURCE,
+        NAMESPACE_TAG_SOURCE,
+        SITE_FILTER_SOURCE,
+    )
     from nv_config_manager_workflows.workflows.deploy import (
         TenantDeployInput,
         TenantDeployWorkflow,

@@ -225,6 +225,7 @@
           "nv-os",
           "mlnx-os",
           "juniper-junos",
+          "cisco-ios-xr",
           "ufm"
         ],
         "title": "Platform",
@@ -422,6 +423,7 @@
           "nv-os",
           "mlnx-os",
           "juniper-junos",
+          "cisco-ios-xr",
           "ufm"
         ],
         "title": "Platform",
@@ -1619,6 +1621,7 @@
           "nv-os",
           "mlnx-os",
           "juniper-junos",
+          "cisco-ios-xr",
           "ufm"
         ],
         "title": "Platform",

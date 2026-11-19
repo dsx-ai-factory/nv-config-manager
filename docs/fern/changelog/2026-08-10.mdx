@@ -1,0 +1,60 @@
+---
+tags: ["deployment", "dhcp", "networking", "rest-api", "security", "telemetry", "workflows"]
+---
+
+## Config Manager 1.3.1
+
+Adds DHCP lease management, site backups, live configuration diffs, and tracing.
+Improves the UI, deployment reliability, authentication, and security.
+
+### Added
+
+- Added a DHCP lease API and dashboard with searchable, paginated views of
+  leases, reservations, pools, and subnet data.
+- Added site configuration backup and live configuration-diff workflows,
+  including bulk device selection, child-workflow result reporting, and
+  workflow action auditing.
+- Added YAML-driven Nautobot group-to-role mappings for JWT-authenticated users
+  and gated integration coverage for the RBAC configuration.
+- Added OpenTelemetry tracing and metrics across services and Temporal
+  workflows, plus optional NATS exporter monitoring for Nautobot messaging.
+- Added support for kgateway, external Temporal deployments, image digests,
+  Ceph-backed ZTP storage, and installer-managed Vault/OpenBao and PVC content.
+
+### Changed
+
+- Improved workflow and device UI filtering, sorting, site context, forms,
+  status details, accessibility, and error presentation.
+- Expanded the Spectrum-X AIR topology, templates, examples, and end-to-end
+  switch-management documentation.
+- Improved installer behavior for local images, secrets, storage staging,
+  deployment updates, and Python 3.13 environments.
+
+### Fixed
+
+- Fixed a Nautobot uWSGI self-deadlock on `/metrics/` by running
+  `prometheus_client` in multiprocess mode, and scrape Nautobot via `/metrics/`
+  instead of `/metrics` to avoid recurring 404s. Nautobot metrics now aggregate
+  across all uWSGI workers instead of reporting only the worker that answered
+  the scrape. The multiprocess metrics directory is an `emptyDir` with a size
+  limit so it starts empty on every pod start and cannot grow without bound,
+  and the Celery probes no longer leave metric files behind on each check.
+- Fixed multi-deploy result duplication, backup persistence reporting,
+  intended-configuration validation, workflow locking, and several workflow
+  replay and child-workflow edge cases.
+- Fixed ZTP streaming and storage handling, including download hardening and an
+  ONIE provisioning race condition.
+- Fixed authentication and authorization edge cases involving JWKS caching,
+  SPIFFE path matching, in-cluster Nautobot requests, and Temporal codec CORS.
+- Fixed Helm deployment issues involving Temporal image credentials, Redis
+  update strategy, monitoring namespaces, and Nautobot readiness checks.
+
+### Security
+
+- Added CodeQL and secret scanning, a secret-free build stage for untrusted pull
+  requests, and repository guidance and hooks for cryptographically signed
+  commits.
+- Hardened installer archive extraction, ZTP download streaming, shell tooling,
+  and container images, and updated vulnerable application and UI dependencies.
+
+<Button intent="none" outlined rightIcon="arrow-right" href="https://github.com/dsx-ai-factory/nv-config-manager/releases/tag/1.3.1">View GitHub Release</Button>

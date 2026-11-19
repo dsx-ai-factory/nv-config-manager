@@ -11,6 +11,10 @@ Temporal is deployed as part of the Config Manager Helm release. Use the [standa
 The installer controls Temporal deployment through `nv-config-manager-install.yaml` and generated Helm values:
 
 - `services.temporal`: enables the Temporal API, workers, and related deployment resources.
+- `temporal.history_replicas`: optionally overrides the managed History service pod count.
+- `temporal.num_history_shards`: optionally overrides the persisted History shard count.
+- `temporal.failed_stage_retry_timeout_seconds`: optionally overrides the
+  [failed-stage retry window](#failed-stage-retry-window).
 - `cluster.hostname`: drives public workflow API and Temporal Web hostnames.
 - `secrets`: provides database, auth, and integration secrets.
 - `rbac`: configures workflow read and execute roles.
@@ -38,6 +42,108 @@ non-nullable fields with `422`.
 Explicit caller-owned domain values are preserved, while fields declared
 `ServerOwned` are always replaced by authenticated attribution.
 
+## History Shards and Replicas
+
+In `nv-config-manager-install.yaml`, leave the Temporal sizing values unset or
+set them to `0` to use the deployment size profile and chart defaults. Set
+positive values to configure a new managed Temporal cluster explicitly:
+
+```yaml
+services:
+  temporal: true
+temporal:
+  history_replicas: 16
+  num_history_shards: 128
+```
+
+The installer maps `temporal.num_history_shards` to
+`temporal.numHistoryShards`, which initializes the persisted History shard
+count when Temporal creates the cluster. Legacy deployments that leave
+`temporal.numHistoryShards` unset initialize that count from the then-current
+`temporal.services.history.replicas` value.
+
+Before scaling History replicas, confirm the existing persisted shard count and
+set `temporal.numHistoryShards` (or the installer
+`temporal.num_history_shards`) to that value. Pinning the value does not modify
+an initialized cluster; it keeps the declared configuration aligned with the
+persisted count. If the shard count itself must change, follow an approved
+shard migration procedure instead.
+
+The installer maps `temporal.history_replicas` to the Helm value
+`temporal.services.history.replicas`. This controls the number of History
+service pods. Each History pod processes only the shards it owns, so the shard
+count limits useful History replicas. With the default four shards, at most
+four pods own shards; additional replicas add no shard-processing capacity.
+Choose a shard count that covers the largest planned History replica count
+before Temporal initializes the cluster. See Temporal's
+[History shards](https://github.com/temporalio/temporal/blob/v1.31.5/docs/architecture/history-service.md#history-shards)
+architecture notes for the deployed server version.
+
+After the shard count is pinned, History replicas can be adjusted as load
+changes, up to the shard count. The equivalent direct Helm override is:
+
+```yaml
+temporal:
+  numHistoryShards: 128
+  services:
+    history:
+      replicas: 16
+```
+
+<Warning>
+Temporal ignores changes to `temporal.numHistoryShards` after the cluster's
+first run and continues using the original persisted shard count. Changing only
+the Helm or installer value does not re-shard an initialized cluster. Temporal
+does not provide an in-place re-sharding command; do not attempt to work around
+this by editing cluster metadata or restoring the database under a different
+shard count.
+</Warning>
+
+## Failed-Stage Retry Window
+
+Configure the manual retry window after an activity or child workflow exhausts its
+automatic retries. The default is three hours. In `nv-config-manager-install.yaml`,
+omit the setting or set it to `0` to keep the default:
+
+```yaml
+temporal:
+  failed_stage_retry_timeout_seconds: 7200 # Two hours
+```
+
+Unlike the History sizing fields, this setting also applies when Temporal is
+external, because the workflow API, scheduler, and workers still run in this
+deployment. The installer maps it to the Helm value
+`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`. The equivalent
+direct Helm override is:
+
+```yaml
+temporal:
+  configManagerWorker:
+    failedStageRetryTimeoutSeconds: 7200
+```
+
+The Helm value must be a positive integer in seconds, up to 31536000 (365 days).
+The chart rejects `0`, negative, non-integer, and oversized values instead of
+disabling the cap; only the installer treats `0` as "use the default". If the key
+is unset or null, for example after `helm upgrade --reuse-values` from a release
+that predates it, the chart renders the three-hour default. The value is written to
+`[temporal.worker].failed_stage_retry_timeout_seconds` in the unified INI for
+Kubernetes Secrets, ESO, and Vault Agent deployments.
+
+The workflow API and scheduler read the current INI each time they start a workflow
+or create a schedule, so a change applies to workflows and schedules created after
+the updated INI reaches those pods. They record the setting in each new workflow or
+schedule action. Children and continue-as-new runs inherit it from the parent
+history, so a worker restart or configuration update cannot alter a recorded retry
+window. Existing schedules keep their recorded value until recreated; workflows
+started without this setting in history retain the three-hour default. Existing
+histories already waiting on the legacy indefinite retry path remain on that path.
+
+This setting does not impose a total workflow run timeout or limit healthy work
+and approval waits. When an unanswered failure wait expires, the workflow closes
+as **Failed** with a `StageRetryTimeout` cause. Existing shorter run or execution
+deadlines continue to apply. See [Workflow Lifecycle](../user-guides/workflow-lifecycle/index.mdx#retry).
+
 ## Temporal Images
 
 The managed Temporal deployment uses three independently scoped distroless
@@ -54,13 +160,32 @@ connection](external-temporal.mdx) instead. The chart does not run the server,
 UI, database schema, namespace, or search-attribute bootstrap workloads in
 that mode.
 
-### Upgrading from Temporal 1.30.8 to 1.31.4
+### Upgrading from Temporal 1.30.8 to 1.31.5
 
 Upgrade the server and bootstrap images together. Temporal 1.31 requires
 PostgreSQL core schema `1.19` and visibility schema `1.14`. The chart's frontend
 `schema-setup` init container runs the matching bootstrap image to update both
 databases before that frontend starts. The same images are built for Kind
 integration testing.
+
+The 1.31.5 security patch includes Go's compromised-CA distrust fix for
+CVE-2026-111943. The matching bootstrap image includes Temporal CLI 1.10.0.
+Upgrading from 1.31.4 keeps the same PostgreSQL schema versions. With Temporal's
+default authorizer enabled, this patch requires namespace write permission for
+`ValidateWorkerDeploymentVersionComputeConfig`. The managed chart leaves
+Temporal gRPC authorization unset, which selects its no-op authorizer; workflow
+read/execute roles are enforced separately by Config Manager's workflow API.
+The chart's role mappings therefore need no change. Operators of external
+Temporal servers with authorization enabled must review their caller roles.
+See the
+[Temporal 1.31.5 release notes](https://github.com/temporalio/temporal/releases/tag/v1.31.5).
+
+The container build checks the copied server and admin-tool binaries' Go build
+metadata. It accepts patched Go 1.26 and 1.27 releases, including experiment
+suffixes, and rejects prereleases or unknown versions. A future Go release
+series requires reviewing the build guard when updating the image pins. CI
+regression tests cover the minimum patch versions and rejected metadata;
+image builds check the actual upstream executables.
 
 Before upgrading, take recoverable backups of both databases. After deployment,
 check the frontend's `schema-setup` logs and confirm both `schema_version` tables

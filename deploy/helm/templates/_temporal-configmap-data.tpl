@@ -60,7 +60,7 @@ config_template.yaml: |-
     level: DEBUG
 
   persistence:
-    numHistoryShards: {{ .Values.temporal.services.history.replicas }}
+    numHistoryShards: {{ include "nv-config-manager.temporalShardCount" . }}
     defaultStore: default
     visibilityStore: visibility
     datastores:
@@ -171,12 +171,6 @@ dynamic_config.yaml: |-
   # Dynamic configuration for Temporal
   # See: https://docs.temporal.io/references/dynamic-configuration
   {{- if .Values.temporal.dynamicConfig }}
-  {{- range .Values.temporal.dynamicConfig }}
-  - key: {{ .key }}
-    value: {{ .value }}
-    {{- if .constraints }}
-    constraints: {{ toYaml .constraints | nindent 6 }}
-    {{- end }}
-  {{- end }}
+  {{- toYaml .Values.temporal.dynamicConfig | nindent 2 }}
   {{- end }}
 {{- end -}}

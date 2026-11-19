@@ -62,15 +62,15 @@ def extract_links(html_content, link_texts):
     """
     Extracts and returns the `href` values for the given link texts in the HTML content.
     """
+    soup = BeautifulSoup(html_content, "html.parser")
     links = {}
-    for link_text in link_texts:
-        match = re.search(
-            rf'<td>{link_text}</td>\s*<td>\s*<a href="([^"]+)"',
-            html_content,
-        )
-
-        if match:
-            links[link_text] = match.group(1)
+    for row in soup.find_all("tr"):
+        header = row.find("th")
+        if header is None or header.get_text(strip=True) not in link_texts:
+            continue
+        link = row.find("a", href=True)
+        if link is not None:
+            links[header.get_text(strip=True)] = link["href"]
     return links
 
 
@@ -608,7 +608,7 @@ class ConfigManagerDeviceTabTestCase(  # pylint: disable=too-many-ancestors
         self.assertEqual(
             links.get("Intended Config Version"),
             f"{config_store_url}/device/{device_uuid}/{data.CONFIG_PATH}"
-            f"?file_type=intended&amp;version={data.TEST_DEPLOYABLE_COMMIT_ID}",
+            f"?file_type=intended&version={data.TEST_DEPLOYABLE_COMMIT_ID}",
         )
         self.assertEqual(
             links.get("Intended Config History"),
@@ -617,7 +617,7 @@ class ConfigManagerDeviceTabTestCase(  # pylint: disable=too-many-ancestors
         self.assertEqual(
             links.get("Last Config Backup"),
             f"{config_store_url}/device/{device_uuid}/{data.BACKUP_CONFIG_PATH}"
-            f"?file_type=backup&amp;version={data.TEST_BACKUP_COMMIT_ID}",
+            f"?file_type=backup&version={data.TEST_BACKUP_COMMIT_ID}",
         )
         self.assertEqual(
             links.get("Backup History"),

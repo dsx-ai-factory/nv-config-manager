@@ -39,6 +39,7 @@ IMAGES = (
     "nv-config-manager-temporal",
     "nv-config-manager-temporal-bootstrap",
     "nv-config-manager-temporal-ui",
+    "nv-config-manager-oidc-proxy",
 )
 
 
@@ -58,6 +59,9 @@ def gate(tmp_path: Path) -> Gate:
     binaries = tmp_path / "bin"
     binaries.mkdir()
     shutil.copyfile(certifi.where(), binaries / "roots.pem")
+    image_certs = binaries / "image/etc/ssl/certs"
+    image_certs.mkdir(parents=True)
+    shutil.copyfile(certifi.where(), image_certs / "ca-certificates.crt")
     (binaries / "arch").write_text("amd64")
     (binaries / "docker").write_text(
         "#!/bin/bash\n"
@@ -77,8 +81,15 @@ def gate(tmp_path: Path) -> Gate:
         '    [[ ! -e "$DOCKER_CONFIG/config.json" ]] || exit 91\n'
         '    case "$1" in\n'
         '      create) [[ ! -f "$base/fail-audit" ]] || exit 92; echo container-id ;;\n'
-        '      cp) mkdir -p "${!#}"\n'
-        '          if [[ "$2" == *:/etc/ssl/certs ]]; then cp "$base/roots.pem" "${!#}/ca-certificates.crt"; fi ;;\n'
+        "      cp) flags=-RP\n"
+        '          if [[ "$2" == -L ]]; then flags=-RH; shift; fi\n'
+        '          path="${2#*:}"\n'
+        '          if [[ "$path" == /etc/pki/tls/certs && -f "$base/fail-copy" ]]; then\n'
+        '            echo "permission denied" >&2; exit 95; fi\n'
+        '          source="$base/image$path"\n'
+        '          if [[ ! -e "$source" && ! -L "$source" ]]; then\n'
+        '            echo "Could not find the file $path in container" >&2; exit 1; fi\n'
+        '          cp "$flags" "$source" "${!#}" ;;\n'
         '      run) [[ "$*" == *"--network none"* && "$*" == *"--read-only"* ]] || exit 93\n'
         '           cat "$base/roots.pem" ;;\n'
         "    esac ;;\n"
@@ -163,6 +174,56 @@ def test_audit_failure_stops_the_gate(gate: Gate, mode: tuple[str, ...]) -> None
     assert "push " not in (binaries / "calls").read_text()
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "etc/pki/tls/certs/stale.pem",
+        "etc/pki/tls/certs/ca-bundle.crt",
+        "etc/pki/tls/cacert.pem",
+        "etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+        "etc/ssl/ca-bundle.pem",
+        "etc/ssl/cert.pem",
+    ],
+)
+def test_other_go_trust_paths_are_audited(gate: Gate, path: str) -> None:
+    """A clean default bundle cannot hide a distrusted root in another Go path."""
+    _, binaries, _ = gate
+    target = binaries / "image" / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(ROOT / "ci/tests/fixtures/emsign-root-tls-g3.pem", target)
+    result = run_gate(gate, "promote")
+    assert result.returncode != 0
+    assert "Affected emSign trust anchor remains" in result.stderr
+
+
+def test_unexpected_optional_copy_error_fails_the_audit(gate: Gate) -> None:
+    """Only an absent optional trust path is allowed, not a failed inspection."""
+    _, binaries, _ = gate
+    (binaries / "fail-copy").touch()
+    result = run_gate(gate, "promote")
+    assert result.returncode != 0
+    assert "permission denied" in result.stderr
+
+
+@pytest.mark.parametrize("affected", [False, True])
+def test_symlinked_go_trust_directory_exports_contents(gate: Gate, affected: bool) -> None:
+    """A directory link to an existing export parent must not hide its anchors."""
+    _, binaries, _ = gate
+    trust_directory = binaries / "image/etc/pki/tls"
+    trust_directory.mkdir(parents=True)
+    (trust_directory / "certs").symlink_to(".")
+    source = (
+        ROOT / "ci/tests/fixtures/emsign-root-tls-g3.pem" if affected else binaries / "roots.pem"
+    )
+    shutil.copyfile(source, trust_directory / "anchor.pem")
+    result = run_gate(gate, "promote")
+    if affected:
+        assert result.returncode != 0
+        assert "Affected emSign trust anchor remains" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+
+
 def test_promotion_rejects_changed_archive_before_loading_or_pushing(gate: Gate) -> None:
     repo, binaries, env = gate
     result = run_gate(gate, "promote")
@@ -201,3 +262,10 @@ def test_promotion_requires_a_successful_independent_audit() -> None:
         "docker-build-main-amd64",
         "docker-build-main-arm64",
     ]
+
+
+def test_all_pr_images_receive_a_trust_audit() -> None:
+    """New project images must join both the artifact build and trusted audit."""
+    config = yaml.safe_load((ROOT / ".gitlab/ci/pr-build.yml").read_text())
+    built = {entry["NVCM_PR_IMAGE"] for entry in config["pr-build-image"]["parallel"]["matrix"]}
+    assert built == set(IMAGES)

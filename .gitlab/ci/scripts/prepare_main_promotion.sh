@@ -14,7 +14,10 @@ fail() { echo "ERROR: invalid build promotion: $*" >&2; exit 1; }
 [[ "$NVCM_PROMOTE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || fail 'invalid source SHA'
 case "$NVCM_PROMOTE_ENV" in test|test01|kiwi-qa|demo01) ;; *) fail 'unsupported target' ;; esac
 api="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}"
-get() { curl -fsS --max-time 30 -H "PRIVATE-TOKEN: ${NVCM_MIRROR_API_TOKEN}" "$1"; }
+get() {
+    local url="$1"
+    curl -fsS --max-time 30 -H "PRIVATE-TOKEN: ${NVCM_MIRROR_API_TOKEN}" "$url"
+}
 job="$(curl -fsS --max-time 30 -H "JOB-TOKEN: ${CI_JOB_TOKEN}" "${CI_API_V4_URL}/job")"
 child_id="$(jq -r '.pipeline.id' <<< "$job")"
 [[ "$child_id" =~ ^[0-9]+$ ]] || fail 'missing authenticated child id'
@@ -68,9 +71,9 @@ while :; do
     page=$((page + 1))
 done
 build_job() {
-    local found
-    found="$(jq -c --arg name "$1" '[.[] | select(.name == $name)] | max_by(.id)' <<< "$jobs")"
-    jq -e '.status == "success"' <<< "$found" >/dev/null || fail "$1 did not succeed"
+    local name="$1" found
+    found="$(jq -c --arg name "$name" '[.[] | select(.name == $name)] | max_by(.id)' <<< "$jobs")"
+    jq -e '.status == "success"' <<< "$found" >/dev/null || fail "$name did not succeed"
     jq -r '.id' <<< "$found"
 }
 manifest_id="$(build_job "$manifest_job")"
@@ -100,7 +103,7 @@ eval "$image_config"
 : > digests.env
 for image in NV_CONFIG_MANAGER NV_CONFIG_MANAGER_UI NV_CONFIG_MANAGER_KEA NV_CONFIG_MANAGER_KEA_ADMIN \
     NV_CONFIG_MANAGER_NAUTOBOT NV_CONFIG_MANAGER_NATS_READY NV_CONFIG_MANAGER_TEMPORAL \
-    NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP NV_CONFIG_MANAGER_TEMPORAL_UI; do
+    NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP NV_CONFIG_MANAGER_TEMPORAL_UI NV_CONFIG_MANAGER_OIDC_PROXY; do
     digest="$(sed -n "s/^DIGEST_${image}=//p" "$artifact")"
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "invalid digest for ${image}"
     printf 'DIGEST_%s=%s\n' "$image" "$digest" >> digests.env

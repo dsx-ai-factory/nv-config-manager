@@ -721,6 +721,10 @@ def create_workflow_command(workflow_name: str, workflow_info: WorkflowInfo) -> 
         if hasattr(param_type, "__origin__") and param_type.__origin__ is list:
             click_type = str
             description += " (comma-separated list)"
+            if isinstance(default, list):
+                # The option is a string, so a list default must use the same
+                # comma-separated form the command parses back into a list.
+                default = ",".join(str(item) for item in default)
         elif str(param_type).startswith("typing.Union") or "|" in str(param_type):
             click_type = str
             if "None" in str(param_type):

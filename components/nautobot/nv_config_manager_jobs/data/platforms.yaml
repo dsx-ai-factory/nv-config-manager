@@ -8,6 +8,11 @@
   description: Arista Extensible Operating System
   napalm_driver: eos
 
+- name: Cisco IOS XR
+  manufacturer: Cisco
+  description: Cisco IOS XR network operating system
+  napalm_driver: iosxr
+
 - name: Cumulus Linux
   # No manufacturer - runs on both NVIDIA and Mellanox switches
   description: NVIDIA Cumulus Linux Network OS

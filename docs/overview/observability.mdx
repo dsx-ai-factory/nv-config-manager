@@ -67,6 +67,36 @@ Key service metrics include:
 
 Each render consumer polls the state of its exact durable consumer and publishes that state as `nv_config_manager_nats_consumer_*` gauges. The built-in dashboard uses these render-owned metrics, so displaying consumer backlog does not require access to the NATS HTTP monitoring endpoint or a NATS Prometheus exporter. Accurate idle backlog still requires the fixed durable's JetStream consumer-info permission, which the render runtime also uses for consumer lifecycle management.
 
+### Temporal worker metrics
+
+When `monitoring.enabled` and `monitoring.podMonitors.enabled` are set, the chart renders a PodMonitor for the Config Manager Temporal worker.
+The worker serves its Temporal SDK metrics on port 8000, named `metrics`.
+These metrics include `temporal_workflow_*`, `temporal_activity_*`, and related families.
+
+Scraping adds the pod's Kubernetes namespace to each series. Use the `namespace` label to distinguish deployments.
+The SDK's Temporal namespace tag becomes `exported_namespace`, matching the Temporal server metrics.
+Workflow results include `workflow_type`.
+
+The worker has one metrics exporter. When the PodMonitor is rendered, its SDK metrics are scraped instead of pushed over OTLP.
+This also applies when `observability.enabled` is set. Tracing is unaffected.
+
+Scraped series use the PodMonitor's `job` label: `<namespace>/<worker deployment name>`.
+Previously, OTLP series used `nv-config-manager-temporal-worker`.
+Update dashboards and alerts that match the old `job` label.
+Duration values remain in milliseconds.
+The scraped endpoint adds no unit suffix: a latency histogram is exposed as `temporal_request_latency_bucket`, `_sum`, and `_count`.
+This matches the series stored when the OTLP collector does not translate units.
+A collector that does, including the bundled Alloy (`otelcol.exporter.prometheus` adds unit suffixes by default), stores the same histogram as `temporal_request_latency_milliseconds_bucket`, `_sum`, and `_count`.
+On that path the scraped names differ from the OTLP names:
+
+| | OTLP through a unit-suffixing collector (before) | Scraped (after) |
+| :-- | :-- | :-- |
+| Workflow end-to-end latency | `temporal_workflow_endtoend_latency_milliseconds_bucket` | `temporal_workflow_endtoend_latency_bucket` |
+| Request latency | `temporal_request_latency_milliseconds_sum` | `temporal_request_latency_sum` |
+
+Update dashboards and alerts that use the suffixed names.
+The Temporal API, scheduler, and archive continue exporting SDK metrics over OTLP when observability is enabled.
+
 ## Tracing
 
 OpenTelemetry trace export is controlled by a single global Helm toggle, `observability.enabled`. When enabled, the chart injects standard `OTEL_*` environment variables into every instrumented service — no per-pod sidecar.
@@ -93,7 +123,7 @@ The chart points each service's OTel SDK at an existing OTLP collector:
 | `observability.otlpEndpoint` empty and `alloy.enabled: true` | Default to `http://alloy.<namespace>.svc.cluster.local:4317`. |
 | `observability.enabled: true` with neither of the above | Helm render fails so pods never target a dead OTLP endpoint. |
 
-Temporal also exports built-in runtime metrics (workflow completion, activity latency, and similar) to the same OTLP endpoint when tracing is enabled.
+Temporal also exports built-in runtime metrics (workflow completion, activity latency, and similar) to the same OTLP endpoint when tracing is enabled. The Config Manager worker is the exception when its PodMonitor is rendered; see [Temporal worker metrics](#temporal-worker-metrics).
 
 **Local development:** layer `deploy/helm/values-observability.yaml` on your values file. It enables the bundled Alloy OTLP receiver and Tempo, sets `observability.enabled: true`, and leaves `otlpEndpoint` empty so traces flow:
 

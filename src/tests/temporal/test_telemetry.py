@@ -14,6 +14,11 @@
 # limitations under the License.
 """Tests for the Temporal telemetry layer."""
 
+import socket
+import time
+import urllib.error
+import urllib.request
+from datetime import timedelta
 from unittest import mock
 
 import pytest
@@ -21,6 +26,7 @@ import pytest
 from nv_config_manager.temporal import telemetry
 
 OTLP_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
+PROMETHEUS_ENV = "TEMPORAL_METRICS_PROMETHEUS_ADDRESS"
 
 
 @pytest.fixture(autouse=True)
@@ -33,8 +39,9 @@ def _reset_runtime():
 
 @pytest.fixture
 def _clean_env(monkeypatch):
-    """Remove the OTLP endpoint so each test controls it explicitly."""
+    """Remove the OTLP endpoint and Prometheus address so each test controls them explicitly."""
     monkeypatch.delenv(OTLP_ENV, raising=False)
+    monkeypatch.delenv(PROMETHEUS_ENV, raising=False)
     return monkeypatch
 
 
@@ -46,12 +53,14 @@ def otel_mocks():
         mock.patch.object(telemetry, "Runtime") as runtime_cls,
         mock.patch.object(telemetry, "TelemetryConfig") as telemetry_config_cls,
         mock.patch.object(telemetry, "OpenTelemetryConfig") as otel_config_cls,
+        mock.patch.object(telemetry, "PrometheusConfig") as prometheus_config_cls,
     ):
         yield {
             "setup_tracing": setup_tracing,
             "runtime_cls": runtime_cls,
             "telemetry_config_cls": telemetry_config_cls,
             "otel_config_cls": otel_config_cls,
+            "prometheus_config_cls": prometheus_config_cls,
         }
 
 
@@ -102,6 +111,118 @@ class TestSetupTelemetryEnabled:
         telemetry.setup_telemetry("svc")
 
         otel_mocks["otel_config_cls"].assert_called_once_with(url="http://collector:4317")
+
+
+class TestSetupTelemetryPrometheus:
+    """setup_telemetry() serves SDK metrics on a Prometheus endpoint when asked."""
+
+    def test_address_configures_prometheus_runtime(self, _clean_env, otel_mocks):
+        """A configured address exposes SDK metrics for a PodMonitor to scrape."""
+        _clean_env.setenv(PROMETHEUS_ENV, "0.0.0.0:8000")
+
+        result = telemetry.setup_telemetry("svc")
+
+        otel_mocks["setup_tracing"].assert_called_once_with("svc")
+        otel_mocks["prometheus_config_cls"].assert_called_once_with(bind_address="0.0.0.0:8000")
+        otel_mocks["otel_config_cls"].assert_not_called()
+        otel_mocks["telemetry_config_cls"].assert_called_once_with(
+            metrics=otel_mocks["prometheus_config_cls"].return_value
+        )
+        assert result is otel_mocks["runtime_cls"].return_value
+        assert telemetry._runtime is result
+
+    def test_prometheus_wins_over_otlp_for_metrics(self, _clean_env, otel_mocks):
+        """A Runtime has one metrics exporter, so Prometheus takes precedence over OTLP."""
+        _clean_env.setenv(PROMETHEUS_ENV, "0.0.0.0:8000")
+        _clean_env.setenv(OTLP_ENV, "http://collector:4317")
+
+        telemetry.setup_telemetry("svc")
+
+        otel_mocks["prometheus_config_cls"].assert_called_once_with(bind_address="0.0.0.0:8000")
+        otel_mocks["otel_config_cls"].assert_not_called()
+        otel_mocks["setup_tracing"].assert_called_once_with("svc")
+
+    def test_address_is_stripped(self, _clean_env, otel_mocks):
+        """Surrounding whitespace on the address is trimmed before use."""
+        _clean_env.setenv(PROMETHEUS_ENV, "  0.0.0.0:8000  ")
+
+        telemetry.setup_telemetry("svc")
+
+        otel_mocks["prometheus_config_cls"].assert_called_once_with(bind_address="0.0.0.0:8000")
+
+    @pytest.mark.parametrize("value", ["", "   ", "\t\n"])
+    def test_blank_address_is_disabled(self, _clean_env, otel_mocks, value):
+        """Empty or whitespace address leaves the Prometheus endpoint off."""
+        _clean_env.setenv(PROMETHEUS_ENV, value)
+
+        telemetry.setup_telemetry("svc")
+
+        otel_mocks["prometheus_config_cls"].assert_not_called()
+        otel_mocks["telemetry_config_cls"].assert_called_once_with()
+
+
+class TestPrometheusExporterOutput:
+    """Pin the metric names the real SDK exporter serves; no mocks are involved."""
+
+    @staticmethod
+    def _free_port() -> int:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            return sock.getsockname()[1]
+
+    @staticmethod
+    def _scrape(port: int, prefix: str) -> list[str]:
+        """Return the sample names starting with ``prefix`` once the exporter has any.
+
+        Each request has a short timeout so a stalled scrape cannot outlast the ten-second
+        deadline. Timeouts are retried until that deadline, after which the last one is
+        raised. Any other URL error (for example a refused connection) propagates at once.
+        """
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                with urllib.request.urlopen(  # noqa: S310
+                    f"http://127.0.0.1:{port}/metrics", timeout=1
+                ) as response:
+                    body = response.read().decode()
+            except (TimeoutError, urllib.error.URLError) as error:
+                is_timeout = isinstance(error, TimeoutError) or isinstance(
+                    error.reason, TimeoutError
+                )
+                if not is_timeout or time.monotonic() > deadline:
+                    raise
+                time.sleep(0.1)
+                continue
+            names = sorted({line.split("{")[0].split(" ")[0] for line in body.splitlines()})
+            matching = [name for name in names if name.startswith(prefix)]
+            if matching or time.monotonic() > deadline:
+                return matching
+            time.sleep(0.1)
+
+    def test_unit_is_not_appended_to_metric_names(self, _clean_env):
+        """A millisecond histogram is served as ``<name>_bucket``, not ``<name>_milliseconds_bucket``.
+
+        These are the names the OTLP path produces behind a collector that does not
+        translate units (the kiwi pipeline), so existing dashboards keep matching. A
+        collector that does add unit suffixes, such as the bundled Alloy, stores the
+        same series as ``temporal_request_latency_milliseconds_*``; the observability
+        docs list that rename. Enabling PrometheusConfig(unit_suffix=True) would flip
+        this, so this test fails if that default changes.
+        """
+        port = self._free_port()
+        _clean_env.setenv(PROMETHEUS_ENV, f"127.0.0.1:{port}")
+
+        runtime = telemetry.setup_telemetry("svc")
+        histogram = runtime.metric_meter.create_histogram_timedelta(
+            "temporal_request_latency", "request latency", unit="ms"
+        )
+        histogram.record(timedelta(milliseconds=12))
+
+        assert self._scrape(port, "temporal_request_latency") == [
+            "temporal_request_latency_bucket",
+            "temporal_request_latency_count",
+            "temporal_request_latency_sum",
+        ]
 
 
 class TestGetRuntime:

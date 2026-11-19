@@ -106,6 +106,21 @@ def test_redact_text_handles_single_line_secret_assignments() -> None:
     assert clients.redact_text("token = secret-value") == "token = <redacted>"
 
 
+def test_public_keys_allowlist_does_not_apply_to_nested_data() -> None:
+    value = {
+        "token_count": 42,
+        "access_token": "secret",
+        "items": [{"token_count": "nested-secret"}],
+        "metadata": {"token_count": "nested-secret"},
+    }
+    assert clients.redact_data(value, public_keys=frozenset({"token_count"})) == {
+        "token_count": 42,
+        "access_token": "<redacted>",
+        "items": [{"token_count": "<redacted>"}],
+        "metadata": {"token_count": "<redacted>"},
+    }
+
+
 async def test_start_workflow_adds_config_manager_ui_href(settings: MCPSettings) -> None:
     result = await clients.start_workflow(settings, "/ngc/backup", {"device_id": "device-1"})
 
@@ -133,6 +148,81 @@ async def test_workflow_list_adds_config_manager_ui_href(settings: MCPSettings) 
     assert workflow["ui_href"] == "https://config-manager.example.test/workflows/workflow-123"
     assert workflow["temporal_href"] == (
         "http://localhost:8080/namespaces/default/workflows/workflow-123"
+    )
+
+
+@pytest.mark.parametrize("final_cursor", [None, ""])
+async def test_workflow_list_paginates_without_exposing_secrets(
+    settings: MCPSettings, monkeypatch: pytest.MonkeyPatch, final_cursor: str | None
+) -> None:
+    cursor = "opaque-cursor+/=="
+    requests = []
+
+    class PaginatedWorkflowClient(FakeWorkflowClient):
+        async def list_workflows(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            assert params is not None
+            requests.append(dict(params))
+            page = 1 if "next_page_token" not in params else 2
+            if page == 2:
+                assert params["next_page_token"] == cursor
+            return {
+                "workflows": [
+                    {
+                        "id": f"workflow-{page}",
+                        "workflow_input": {
+                            "next_page_token": "nested-secret",
+                            "access_token": "access-secret",
+                            "password": "password-secret",
+                            "config": "token = config-secret",
+                        },
+                    }
+                ],
+                "access_token": "response-secret",
+                "next_page_token": cursor if page == 1 else final_cursor,
+                "total_count": 2,
+            }
+
+    monkeypatch.setattr(clients, "workflow_client", lambda settings: PaginatedWorkflowClient())
+    params: dict[str, Any] = {"user": "test-user", "limit": 1}
+    ids = []
+    for _ in range(3):
+        result = await clients.fetch_workflows(settings, params)
+        assert result["truncated"] is False
+        data = result["data"]
+        assert data["total_count"] == 2
+        assert data["access_token"] == "<redacted>"
+        for workflow in data["workflows"]:
+            ids.append(workflow["id"])
+            assert workflow["workflow_input"] == {
+                "next_page_token": "<redacted>",
+                "access_token": "<redacted>",
+                "password": "<redacted>",
+                "config": "token = <redacted>",
+            }
+        if not data["next_page_token"]:
+            assert data["next_page_token"] == final_cursor
+            break
+        params = {**params, "next_page_token": data["next_page_token"]}
+    assert ids == ["workflow-1", "workflow-2"]
+    assert requests == [
+        {"user": "test-user", "limit": 1},
+        {"user": "test-user", "limit": 1, "next_page_token": cursor},
+    ]
+
+
+def test_workflow_cursor_exemption_is_scoped_and_bounded() -> None:
+    value = {"next_page_token": "x" * 1000}
+    assert clients.bounded_response(value, 100)["data"]["next_page_token"] == "<redacted>"
+    result = clients.bounded_response(value, 100, public_keys=clients.WORKFLOW_LIST_PUBLIC_KEYS)
+    assert result["truncated"] is True
+    assert len(result["preview"].encode("utf-8")) == 100
+    assert (
+        clients.bounded_response(
+            {"next_page_token": {"password": "secret"}},
+            100,
+            public_keys=clients.WORKFLOW_LIST_PUBLIC_KEYS,
+        )["data"]["next_page_token"]
+        == "<redacted>"
     )
 
 
