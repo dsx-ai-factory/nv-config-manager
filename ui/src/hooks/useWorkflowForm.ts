@@ -47,7 +47,7 @@ export const preloadWorkflowForm = (
   apiURL: string,
   formId: string
 ): void => {
-  void preload(
+  preload(
     getWorkflowFormKey(apiURL, formId),
     workflowFormFetcher
   ).catch(() => undefined);
