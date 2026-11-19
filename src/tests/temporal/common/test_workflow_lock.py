@@ -14,6 +14,7 @@
 # limitations under the License.
 """End-to-end compatibility coverage for the service workflow lock import paths."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -27,6 +28,8 @@ from nv_config_manager.temporal.common.decorators.workflow import run_nv_config_
 from nv_config_manager.temporal.common.lock import WorkflowLockSpec
 from nv_config_manager.temporal.common.mixins.metadata import WorkflowMetadataMixin
 from nv_config_manager_workflows.activities.lock import LOCK_ACTIVITIES
+
+pytestmark = pytest.mark.timeout(120)
 
 
 class _ProbeInput(BaseModel):
@@ -62,12 +65,13 @@ async def _run_probe(env_factory, probe_input: _ProbeInput) -> str:
             activities=LOCK_ACTIVITIES,
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            return await env.client.execute_workflow(
-                _LockedProbeWorkflow.run,
-                probe_input,
-                id=str(uuid.uuid4()),
-                task_queue=task_queue,
-            )
+            async with asyncio.timeout(10):
+                return await env.client.execute_workflow(
+                    _LockedProbeWorkflow.run,
+                    probe_input,
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
 
 
 @pytest.mark.asyncio

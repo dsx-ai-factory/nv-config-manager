@@ -18,39 +18,20 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, ClassVar, cast
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    SerializerFunctionWrapHandler,
-    model_serializer,
-    model_validator,
-)
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
-from nv_config_manager_workflows.decorators import (
-    run_nv_config_manager_workflow,
-)
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.secret_redaction import redact_device_secrets
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StageRuntimeFailure,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import device_field
-from nv_config_manager_workflows.workflow_references import (
-    DEVICE_REFERENCE,
-    DeviceReference,
-)
-from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
-
 with workflow.unsafe.imports_passed_through():
+    from pydantic import (
+        BaseModel,
+        ConfigDict,
+        Field,
+        SerializerFunctionWrapHandler,
+        model_serializer,
+        model_validator,
+    )
+
     from nv_config_manager_workflows.activities.config import get_ui_base_url
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDeviceInput,
@@ -70,10 +51,30 @@ with workflow.unsafe.imports_passed_through():
         validate_config_diff,
     )
     from nv_config_manager_workflows.activities.device import NetworkDeviceData
+    from nv_config_manager_workflows.decorators import (
+        run_nv_config_manager_workflow,
+    )
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins.archive import ArchiveMixin
     from nv_config_manager_workflows.mixins.device import DeviceMixin
+    from nv_config_manager_workflows.secret_redaction import redact_device_secrets
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StageRuntimeFailure,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import device_field
+    from nv_config_manager_workflows.workflow_references import (
+        DEVICE_REFERENCE,
+        DeviceReference,
+    )
     from nv_config_manager_workflows.workflow_urls import build_workflow_url
+    from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
     from nv_config_manager_workflows.workflows.backup import (
+        BACKUP_CHILD_RESULT_PATCH_ID,
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
@@ -357,7 +358,10 @@ class DeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, ArchiveMixi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched(BACKUP_CHILD_RESULT_PATCH_ID):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
         # TODO: once we have a UI, link out to this workflow.
         return DeployWorkflow.BackupStageOutput(
             display=(f"Configuration change has been backed up via workflow {backup_handle.id}.")
@@ -835,7 +839,10 @@ class TenantDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched(BACKUP_CHILD_RESULT_PATCH_ID):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
 
         backup_workflow_url = build_workflow_url(ui_base_url, backup_handle.id)
 

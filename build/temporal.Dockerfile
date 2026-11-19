@@ -19,10 +19,10 @@ FROM temporalio/server:${TEMPORAL_SERVER_VERSION} AS server-upstream
 FROM temporalio/admin-tools:${TEMPORAL_ADMIN_TOOLS_VERSION} AS admin-tools-upstream
 FROM temporalio/ui:${TEMPORAL_UI_VERSION} AS ui-upstream
 
-FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS dockerize-builder
+FROM golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS dockerize-builder
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/jwilder/dockerize@v0.15.1
 
-FROM golang:1.26.10-alpine@sha256:27f2d3b83cfc5803c8078f8e730af0f7c431bf067afaec8f60a36fb763187cba AS bootstrap-builder
+FROM golang:1.26.11-alpine@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb AS bootstrap-builder
 WORKDIR /src
 COPY components/temporal/go.mod ./
 COPY components/temporal/cmd/ ./cmd/
@@ -57,14 +57,15 @@ RUN set -eu; \
 # Rebuild the version-matched UI server until an upstream release includes the
 # patched Go toolchain and dependency versions. The released module contains
 # the same embedded frontend assets as the upstream image.
-FROM golang:1.26.10-alpine@sha256:27f2d3b83cfc5803c8078f8e730af0f7c431bf067afaec8f60a36fb763187cba AS ui-server-builder
+FROM golang:1.26.11-alpine@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb AS ui-server-builder
 ARG TEMPORAL_UI_VERSION
 WORKDIR /src
 RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
     go mod download github.com/temporalio/ui-server/v2@v${ui_version} && \
     cp -R /go/pkg/mod/github.com/temporalio/ui-server/v2@v${ui_version}/. . && \
     chmod -R u+w . && \
-    go get golang.org/x/crypto@v0.57.0 \
+    go get github.com/gomarkdown/markdown@v0.0.0-20260724235538-61af6e1e6971 \
+        golang.org/x/crypto@v0.57.0 \
         golang.org/x/net@v0.60.0 \
         golang.org/x/text@v0.42.0 \
         google.golang.org/grpc@v1.83.2 && \
@@ -73,7 +74,7 @@ RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
 # =============================================================================
 # Temporal Server
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS server
+FROM nvcr.io/nvidia/distroless/go:v4.2.1@sha256:f68eec2eff2ecd70354573605ed5ab3bc6c727ae26978260e2486c34cc5adeec AS server
 COPY --from=checked-upstream /checked/temporal-server /usr/local/bin/temporal-server
 COPY --from=dockerize-builder /out/dockerize /usr/local/bin/dockerize
 USER nvs
@@ -84,7 +85,7 @@ ENTRYPOINT ["/usr/local/bin/temporal-server"]
 # =============================================================================
 # This image carries Temporal's v1.31 schema files plus NVIDIA Config Manager's
 # bootstrap binary. It runs only as a chart-managed init container.
-FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS bootstrap
+FROM nvcr.io/nvidia/distroless/go:v4.2.1@sha256:f68eec2eff2ecd70354573605ed5ab3bc6c727ae26978260e2486c34cc5adeec AS bootstrap
 COPY --from=checked-upstream /checked/temporal /usr/local/bin/temporal
 COPY --from=checked-upstream /checked/temporal-sql-tool /usr/local/bin/temporal-sql-tool
 COPY --from=admin-tools-upstream /etc/temporal/schema /etc/temporal/schema
@@ -95,7 +96,7 @@ ENTRYPOINT ["/usr/local/bin/temporal-bootstrap"]
 # =============================================================================
 # Temporal Web UI
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/go:v4.1.7@sha256:9ef7b9ac43cbf4c833fd5d98689dc09b06a29e5ec3451796b037aa27928fe532 AS ui
+FROM nvcr.io/nvidia/distroless/go:v4.2.1@sha256:f68eec2eff2ecd70354573605ed5ab3bc6c727ae26978260e2486c34cc5adeec AS ui
 WORKDIR /home/ui-server
 COPY --from=ui-upstream /home/ui-server /home/ui-server
 COPY --from=ui-server-builder /out/ui-server /home/ui-server/ui-server

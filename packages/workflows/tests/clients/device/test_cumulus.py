@@ -28,6 +28,7 @@ from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection
 from nv_config_manager_workflows.clients.device.exceptions import (
     ConfigApplyFailureException,
     InvalidConfigException,
+    NetworkDeviceException,
 )
 from nv_config_manager_workflows.clients.device.models import InterfaceNeighborData
 from nv_config_manager_workflows.clients.device.settings import DeviceConnectionSettings
@@ -313,6 +314,136 @@ def test_get_diff_raises_when_added_direction_response_fails() -> None:
         conn._get_diff("rev-1")
 
     added.json.assert_not_called()
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    ("firmware", "neighbor_path"),
+    [
+        ("5.9.0", "ip/neighbor"),
+        ("5.14.0", "ip/neighbor"),
+        ("5.14.99", "ip/neighbor"),
+        ("5.15.0", "ipv4/neighbor"),
+        ("5.15.1", "ipv4/neighbor"),
+        ("5.18.0", "ipv4/neighbor"),
+        ("5.19.0.0026", "ipv4/neighbor"),
+    ],
+)
+def test_get_arp_table_selects_versioned_endpoint_and_parses_neighbors(
+    firmware: str, neighbor_path: str
+) -> None:
+    conn = _cumulus_connection()
+    base = f"https://{_TEST_HOST}:8765/nvue_v1"
+    responses.get(f"{base}/system", json={"version": {"product-release": firmware}})
+    responses.get(
+        f"{base}/interface",
+        json={"swp1": {"type": "swp"}, "eth0": {"type": "eth"}, "bond1": {"type": "bond"}},
+    )
+    neighbors = {
+        "192.0.2.10": {"lladdr": "AA:BB:CC:DD:EE:FF"},
+        "192.0.2.11": {"lladdr": "AA:BB:CC:DD:EE:FF"},
+        "192.0.2.12": {},
+    }
+    ipv6_neighbors = {
+        "2001:0DB8:0000:0000:0000:0000:0000:0010": {"lladdr": "AA:BB:CC:DD:EE:FF"},
+        "fe80::1": {"lladdr": "00:11:22:33:44:55"},
+        "2001:db8::12": {},
+    }
+    # The 5.14 response wraps both families; 5.15 exposes a flat endpoint per family.
+    body = (
+        {"ipv4": neighbors, "ipv6": ipv6_neighbors} if neighbor_path == "ip/neighbor" else neighbors
+    )
+    responses.get(f"{base}/interface/swp1/{neighbor_path}", json=body)
+    responses.get(f"{base}/interface/eth0/{neighbor_path}", json={})
+    if neighbor_path == "ipv4/neighbor":
+        responses.get(f"{base}/interface/swp1/ipv6/neighbor", json=ipv6_neighbors)
+        responses.get(f"{base}/interface/eth0/ipv6/neighbor", json={})
+
+    table = conn.get_arp_table()
+
+    mac = "AA-BB-CC-DD-EE-FF"
+    ipv6_mac = "00-11-22-33-44-55"
+    assert table.ip_to_mac == {
+        "192.0.2.10": [mac],
+        "192.0.2.11": [mac],
+        "2001:db8::10": [mac],
+        "fe80::1": [ipv6_mac],
+    }
+    assert table.mac_to_ip == {
+        mac: ["192.0.2.10", "192.0.2.11", "2001:db8::10"],
+        ipv6_mac: ["fe80::1"],
+    }
+    assert table.interface_to_mac == {"swp1": [mac, ipv6_mac], "eth0": []}
+    assert len(responses.calls) == (6 if neighbor_path == "ipv4/neighbor" else 4)
+
+
+@responses.activate
+@pytest.mark.parametrize(
+    ("firmware", "path"),
+    [("5.14.0", "ip/neighbor"), ("5.15.0", "ipv4/neighbor"), ("5.15.0", "ipv6/neighbor")],
+)
+@pytest.mark.parametrize("status", [404, 400, 500])
+def test_get_arp_table_handles_missing_neighbors_and_http_errors(
+    firmware: str, path: str, status: int
+) -> None:
+    conn = _cumulus_connection()
+    base = f"https://{_TEST_HOST}:8765/nvue_v1"
+    responses.get(f"{base}/system", json={"version": {"product-release": firmware}})
+    responses.get(f"{base}/interface", json={"swp1": {"type": "swp"}})
+    if path == "ipv6/neighbor":
+        responses.get(f"{base}/interface/swp1/ipv4/neighbor", status=404)
+    elif path == "ipv4/neighbor":
+        responses.get(f"{base}/interface/swp1/ipv6/neighbor", status=404)
+    responses.get(f"{base}/interface/swp1/{path}", status=status)
+
+    if status == 404:
+        assert conn.get_arp_table().model_dump() == {
+            "ip_to_mac": {},
+            "mac_to_ip": {},
+            "interface_to_mac": {},
+        }
+    elif status == 500:
+        with pytest.raises(requests.exceptions.RetryError, match="Max retries exceeded"):
+            conn.get_arp_table()
+    else:
+        with pytest.raises(NetworkDeviceException, match="Error getting from url"):
+            conn.get_arp_table()
+
+
+@responses.activate
+def test_get_arp_table_rejects_unknown_firmware() -> None:
+    conn = _cumulus_connection()
+    responses.get(
+        f"https://{_TEST_HOST}:8765/nvue_v1/system",
+        json={"version": {"product-release": "unknown"}},
+    )
+
+    with pytest.raises(NetworkDeviceException, match="Unable to select the IP neighbor API"):
+        conn.get_arp_table()
+
+
+@responses.activate
+@pytest.mark.parametrize(("family", "address"), [("ipv4", "192.0.2.10"), ("ipv6", "2001:db8::10")])
+def test_get_arp_table_preserves_neighbors_when_other_family_is_missing(
+    family: str, address: str
+) -> None:
+    conn = _cumulus_connection()
+    base = f"https://{_TEST_HOST}:8765/nvue_v1"
+    responses.get(f"{base}/system", json={"version": {"product-release": "5.15.0"}})
+    responses.get(f"{base}/interface", json={"swp1": {"type": "swp"}})
+    for current_family in ("ipv4", "ipv6"):
+        if current_family == family:
+            responses.get(
+                f"{base}/interface/swp1/{current_family}/neighbor",
+                json={address: {"lladdr": "00:11:22:33:44:55"}},
+            )
+        else:
+            responses.get(f"{base}/interface/swp1/{current_family}/neighbor", status=404)
+
+    table = conn.get_arp_table()
+
+    assert table.ip_to_mac == {address: ["00-11-22-33-44-55"]}
+    assert table.interface_to_mac == {"swp1": ["00-11-22-33-44-55"]}
 
 
 def test_get_mac_table_parses_domains_and_keeps_the_newest_duplicate() -> None:

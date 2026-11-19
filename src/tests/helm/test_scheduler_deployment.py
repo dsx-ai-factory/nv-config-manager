@@ -25,6 +25,8 @@ from typing import Any
 import pytest
 from ruamel.yaml import YAML
 
+from nv_config_manager_workflows.retry_timeout import DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
+
 _CHART_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
 _TEMPORAL_TEMPLATE = "templates/temporal.yaml"
 _RENDER_TEMPLATE = "templates/render-service.yaml"
@@ -227,6 +229,169 @@ def test_default_user_domain_is_written_to_unified_ini(secret_method: str, templ
     )
 
     assert "user_domain = ci.example.com" in rendered
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+def test_worker_limits_are_written_to_unified_ini(secret_method: str, template: str) -> None:
+    default = _render(f"secrets.method={secret_method}", templates=(template,))
+    overridden = _render(
+        f"secrets.method={secret_method}",
+        "temporal.configManagerWorker.maxCachedWorkflows=400",
+        "temporal.configManagerWorker.maxConcurrentWorkflowTasks=20",
+        "temporal.configManagerWorker.failedStageRetryTimeoutSeconds=7200",
+        templates=(template,),
+    )
+
+    assert "[temporal.worker]" in default
+    assert "max_cached_workflows = 200" in default
+    assert "max_concurrent_workflow_tasks = 10" in default
+    assert "failed_stage_retry_timeout_seconds = 10800" in default
+    assert "max_cached_workflows = 400" in overridden
+    assert "max_concurrent_workflow_tasks = 20" in overridden
+    assert "failed_stage_retry_timeout_seconds = 7200" in overridden
+
+
+@pytest.mark.parametrize("secret_method", ["eso", "kubernetes", "vault-agent"])
+@pytest.mark.parametrize(
+    "override",
+    [
+        "temporal.configManagerWorker.maxCachedWorkflows=400",
+        "temporal.configManagerWorker.maxConcurrentWorkflowTasks=20",
+        "temporal.configManagerWorker.failedStageRetryTimeoutSeconds=7200",
+    ],
+)
+def test_worker_limit_change_rolls_the_worker_pods(secret_method: str, override: str) -> None:
+    def checksum(*set_args: str) -> str:
+        rendered = _render(f"secrets.method={secret_method}", *set_args)
+        (worker,) = [
+            document
+            for document in _documents(rendered)
+            if document.get("kind") == "Deployment"
+            and document["metadata"]["name"].endswith("-nv-config-manager-worker")
+        ]
+        return worker["spec"]["template"]["metadata"]["annotations"]["checksum/worker-limits"]
+
+    assert checksum() != checksum(override)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "true"])
+def test_failed_stage_retry_window_requires_positive_integer(value: str) -> None:
+    command = _helm_command(f"temporal.configManagerWorker.failedStageRetryTimeoutSeconds={value}")
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "failedStageRetryTimeoutSeconds must be a positive integer" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+def test_missing_retry_window_renders_the_default(secret_method: str, template: str) -> None:
+    """helm upgrade --reuse-values from an older release has no key; null removes it here."""
+    rendered = _render(
+        f"secrets.method={secret_method}",
+        "temporal.configManagerWorker.failedStageRetryTimeoutSeconds=null",
+        templates=(template, _TEMPORAL_TEMPLATE),
+    )
+
+    assert (
+        f"failed_stage_retry_timeout_seconds = {DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS}\n"
+        in rendered
+    )
+
+
+def test_values_default_retry_window_matches_the_services() -> None:
+    """values.yaml, the helper fallback above, and the services share one default."""
+    yaml = YAML(typ="safe", pure=True)
+    values = yaml.load((_CHART_DIR / "values.yaml").read_text())
+    worker = values["temporal"]["configManagerWorker"]
+
+    assert worker["failedStageRetryTimeoutSeconds"] == DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
+
+
+def _retry_window_values_file(tmp_path: Path, value: str) -> str:
+    """Write the retry window as an unquoted values-file number."""
+    values_file = tmp_path / "retry-window.yaml"
+    values_file.write_text(
+        f"temporal:\n  configManagerWorker:\n    failedStageRetryTimeoutSeconds: {value}\n"
+    )
+    return str(values_file)
+
+
+@pytest.mark.parametrize(
+    ("secret_method", "template"),
+    [
+        ("eso", _VAULT_SECRETS_TEMPLATE),
+        ("kubernetes", _KUBERNETES_SECRETS_TEMPLATE),
+        ("vault-agent", _VAULT_AGENT_CONFIGMAP_TEMPLATE),
+    ],
+)
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1209600", "1209600"),
+        ("1209600.0", "1209600"),
+        ("10000000", "10000000"),
+        ("31536000", "31536000"),
+    ],
+)
+def test_values_file_retry_window_renders_decimal_seconds(
+    tmp_path: Path, secret_method: str, template: str, value: str, expected: str
+) -> None:
+    """Values files decode numbers as floats; large whole values must still render."""
+    rendered = _render(
+        f"secrets.method={secret_method}",
+        extra_values=(_retry_window_values_file(tmp_path, value),),
+        templates=(template,),
+    )
+
+    assert f"failed_stage_retry_timeout_seconds = {expected}\n" in rendered
+
+
+@pytest.mark.parametrize("value", ["0", "-7200", "1.5", "1209600.5", "1.0e+30"])
+def test_values_file_retry_window_rejects_non_positive_integers(tmp_path: Path, value: str) -> None:
+    command = _helm_command(extra_values=(_retry_window_values_file(tmp_path, value),))
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert "failedStageRetryTimeoutSeconds must be a positive integer" in result.stderr
+
+
+_TOO_LARGE = "failedStageRetryTimeoutSeconds must not exceed 31536000 seconds (365 days)"
+
+
+@pytest.mark.parametrize("value", ["31536001", "1000000000000000"])
+def test_values_file_retry_window_rejects_more_than_365_days(tmp_path: Path, value: str) -> None:
+    command = _helm_command(extra_values=(_retry_window_values_file(tmp_path, value),))
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert _TOO_LARGE in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("set_args", "set_string_args"),
+    [
+        (("temporal.configManagerWorker.failedStageRetryTimeoutSeconds=31536001",), ()),
+        ((), ("temporal.configManagerWorker.failedStageRetryTimeoutSeconds=" + "9" * 30,)),
+    ],
+)
+def test_set_retry_window_rejects_more_than_365_days(
+    set_args: tuple[str, ...], set_string_args: tuple[str, ...]
+) -> None:
+    command = _helm_command(*set_args, set_string_args=set_string_args)
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert _TOO_LARGE in result.stderr
 
 
 def test_scheduler_keeps_the_shared_deployment_strategy() -> None:

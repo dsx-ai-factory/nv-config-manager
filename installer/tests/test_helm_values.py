@@ -34,6 +34,7 @@ from nv_config_manager_installer.schema import (
     ContentConfig,
     DCIMConfig,
     DCIMProviderPackage,
+    DHCPConfig,
     ExternalNATSConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
@@ -49,6 +50,7 @@ from nv_config_manager_installer.schema import (
     JobsConfig,
     JWTProvider,
     K8sSecretGroup,
+    KeaMultiThreadingConfig,
     KubernetesSecretsConfig,
     LBProvider,
     LoadBalancerConfig,
@@ -380,6 +382,41 @@ class TestGenerateHelmValues:
 
         assert "numHistoryShards" not in temporal
         assert "services" not in temporal
+        assert "configManagerWorker" not in temporal
+
+    def test_failed_stage_retry_window_maps_to_worker_value(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=1209600),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["configManagerWorker"] == {"failedStageRetryTimeoutSeconds": 1209600}
+        assert "numHistoryShards" not in temporal
+        assert "services" not in temporal
+
+    def test_failed_stage_retry_window_maps_with_external_temporal(self) -> None:
+        config = _make_config(
+            external_services=ExternalServicesConfig(
+                temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+            ),
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["server"]["enabled"] is False
+        assert temporal["configManagerWorker"]["failedStageRetryTimeoutSeconds"] == 7200
+
+    def test_failed_stage_retry_window_keeps_size_profile_worker_values(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200),
+        )
+
+        worker = _gen(config, complete=True)["temporal"]["configManagerWorker"]
+
+        assert worker["failedStageRetryTimeoutSeconds"] == 7200
+        assert "resources" in worker
 
     def test_temporal_deployment_maps_history_replicas_and_shards(self) -> None:
         config = _make_config(
@@ -752,6 +789,50 @@ class TestGenerateHelmValues:
         assert values["networkDhcp"]["enabled"] is False
         assert values["networkZtp"]["enabled"] is True
         assert values["mcp"]["enabled"] is False
+
+    def test_kea_multi_threading_omitted_by_default(self) -> None:
+        values = _gen(_make_config())
+
+        assert "kea" not in values["networkDhcp"]
+
+    def test_kea_multi_threading_size_from_cpu_request(self) -> None:
+        config = _make_config(
+            dhcp=DHCPConfig(kea_multi_threading=KeaMultiThreadingConfig(size_from_cpu_request=True))
+        )
+
+        values = _gen(config)
+
+        assert values["networkDhcp"]["kea"]["multiThreading"] == {"sizeFromCpuRequest": True}
+        assert "resources" not in values["networkDhcp"]
+
+    def test_kea_cpu_request_overrides_the_size_profile(self) -> None:
+        config = _make_config(
+            dhcp=DHCPConfig(
+                cpu_request="2",
+                kea_multi_threading=KeaMultiThreadingConfig(size_from_cpu_request=True),
+            )
+        )
+
+        values = _gen(config)
+
+        assert values["networkDhcp"]["resources"]["dhcp"]["requests"]["cpu"] == "2"
+        assert values["networkDhcp"]["kea"]["multiThreading"] == {"sizeFromCpuRequest": True}
+
+    def test_kea_multi_threading_explicit_overrides(self) -> None:
+        config = _make_config(
+            dhcp=DHCPConfig(
+                kea_multi_threading=KeaMultiThreadingConfig(
+                    thread_pool_size=0, packet_queue_size=10
+                )
+            )
+        )
+
+        values = _gen(config)
+
+        assert values["networkDhcp"]["kea"]["multiThreading"] == {
+            "threadPoolSize": 0,
+            "packetQueueSize": 10,
+        }
 
     def test_nodeport_when_no_lb(self):
         config = _make_config(

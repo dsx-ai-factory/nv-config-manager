@@ -14,7 +14,7 @@ For per-workflow specifics, follow the link in each workflow's guide; this page 
 | :------ | :---- | :------------------ | :----------- |
 | **Approve** | One stage | The stage is in `PENDING_APPROVAL`. | Continues the workflow past the approval gate. |
 | **Reject** | One stage | The stage is in `PENDING_APPROVAL`. | Marks downstream stages UNREACHABLE and exits the workflow without touching the device. |
-| **Retry** | One stage | The stage is in `FAILED` **and** the stage is marked retryable. | Resets the stage to `IN_PROGRESS` and re-runs it from the start of that stage. |
+| **Retry** | One stage | The stage is in `FAILED`, the stage is marked retryable, **and** the workflow status is `RUNNING`. | Resets the stage to `IN_PROGRESS` and re-runs it from the start of that stage. |
 | **Terminate** | Whole workflow | The workflow status is `RUNNING`. | Stops the workflow immediately at the Temporal layer. In-flight activities are canceled; no graceful cleanup runs. |
 
 The Approve / Reject / Retry buttons live on the **stage details** panel for the selected stage. The Terminate button lives at the top of the **workflow details** panel, next to the workflow status badge.
@@ -41,13 +41,47 @@ After fixing the upstream cause, start a new workflow — there is no way to "un
 
 ## Retry
 
-Use when a single stage failed in a way you believe is transient (network blip, momentary device unreachability) and you want to re-run just that stage rather than starting the whole workflow over. The stage's state must be `FAILED`, and the stage itself must be marked retryable.
+Use when a single stage failed in a way you believe is transient (network blip, momentary device unreachability) and you want to re-run just that stage rather than starting the whole workflow over. The stage's state must be `FAILED`, the stage itself must be marked retryable, and the workflow must still be `RUNNING`.
+
+After an activity or child workflow exhausts its automatic retries and the stage
+enters `FAILED`, you have **three hours by default** to send a manual Retry. If no retry arrives,
+the workflow closes as **Failed**, with a `StageRetryTimeout` cause identifying the
+stage. This is a durable workflow timer, so worker restarts do not reset the window.
+The deadline is processed when a worker can run the workflow task.
+
+The clock starts when the stage enters its failure wait, not when the workflow
+starts. Healthy work and approval waits do not start this clock. A manual retry
+before the deadline resumes the stage; a subsequent failure starts a new retry
+window. Non-retryable failures and workflows configured to terminate on failure
+still fail immediately. Existing shorter workflow deadlines also continue to apply.
+
+The window is configurable through the installer's
+`temporal.failed_stage_retry_timeout_seconds` or the Helm value
+[`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`](../../temporal/temporal-deployment.mdx#failed-stage-retry-window).
+Changes apply to new workflow starts and newly created schedules. Running workflows
+and existing schedules keep the window they started with; already-running timers
+are not shortened or extended by a Helm update.
+
+The bounded wait is versioned for Temporal history compatibility. Workflows already
+parked on the earlier indefinite failure wait keep it; the deadline is not added to
+them retroactively.
+
+On workflows that back up a single device (for example Configuration Deploy and
+Switch OS Upgrade), the backup stage fails when its backup child workflow fails
+or times out; retry the stage to start a new backup. Backup stages that were
+already running when you upgraded keep the earlier behavior and may report the
+stage as complete even when the child failed. For those runs, check the backup
+workflow named in the stage output and, if the backup failed, run
+[Configuration Backup](../configuration-backup/index.mdx) against the device;
+do not start a new run of the original workflow. Batch Deploy and Site Backup
+record each device's backup result in the stage output instead of failing the
+stage.
 
 Retry is not appropriate when:
 
 - The stage failed because of a non-retryable error class (for example `ConfigSyntaxException`, `DiffChangedException`, `FirmwareUpgradeException`). These are deliberate fail-closed conditions — fix the underlying cause and run a new workflow.
-- The stage isn't marked retryable (the Retry button will be disabled).
-- The whole workflow already terminated. Retry signals only land on stages of a still-running workflow; for a terminated or failed-out workflow, start a new run.
+- The stage isn't marked retryable (the Retry button is not shown).
+- The whole workflow already terminated. Retry signals only land on stages of a still-running workflow; for a terminated or failed-out workflow, start a new run. The UI hides Retry once the workflow is no longer running, and the API returns `409 Conflict` if the workflow closed before the retry arrived.
 
 ## Terminate
 

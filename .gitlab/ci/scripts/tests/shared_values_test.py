@@ -70,7 +70,7 @@ class SharedValuesTests(unittest.TestCase):
             "    target = data; parts = key.split('.')\n"
             "    for part in parts[:-1]: target = target.setdefault(part, {})\n"
             "    target[parts[-1]] = os.environ[name]\n"
-            "if null_input: data['hold'] = os.environ['current_hold'] == 'true'\n"
+            "if null_input: data['hold'] = os.environ['CURRENT_HOLD'] == 'true'\n"
             "for key in re.findall(r'\\.(\\w+) = \"\"', expr): data[key] = ''\n"
             "buffer = StringIO(); y.dump(data, buffer)\n"
             "if edit: open(args[1], 'w').write(buffer.getvalue())\n"

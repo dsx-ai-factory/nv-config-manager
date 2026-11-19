@@ -61,6 +61,8 @@ The workflow runs four stages in order. Only `approve_upgrade` requires approval
 
    Starts the [Configuration Backup](../configuration-backup/index.mdx) workflow as a child workflow with `trigger=WORKFLOW`. After it completes, the workflow runs `check_recorded_config_drift`: if the just-recorded backup differs from what was last known to Config Manager, the upgrade halts with the downstream stages marked UNREACHABLE. Drift means the device has been configured out of band; resolve the drift before re-running.
 
+   If the backup child fails or times out, the stage fails and the upgrade does not proceed. Resolve the underlying issue and retry the stage within the [failed-stage retry window](../workflow-lifecycle/index.mdx#retry) (three hours by default); otherwise the workflow closes as **Failed** with the device untouched.
+
 1. **`update_device_configuration` — Refresh device context for the upgrade.**
 
    Calls `validate_rendered_image_change` (6-minute start-to-close timeout, 2-minute heartbeat) to ensure upgrade artifacts match the target, and updates Config Manager's internal state to track the new firmware. Cumulus checks `VERSION_ID=` in the rendered `boot-script`. Junos checks that the image is on the ZTP server and that `full-config` exists in the intended config store.

@@ -4,12 +4,43 @@ Notable user-facing changes for NVIDIA Config Manager should be recorded here.
 
 This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
-version before the selected release candidate is promoted.
+version before creating the release candidate tag selected for promotion.
+The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
 ### Changed
 
+- Cable validation now allows five minutes per ARP collection attempt, up from
+  two, to accommodate switches with large interface inventories and slow NVUE
+  responses. New site validations allow thirty minutes per device, up from ten,
+  so the ARP retries and remaining validation stages fit within the child
+  workflow deadline. Already-started child workflows keep their existing deadline.
+- A render consumer whose NATS fetches keep failing now exits, and Kubernetes
+  restarts the pod, once no round trip to NATS has completed for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
+  on a connection that was not coming back while the pod stayed `Running`.
+  Expect a container restart where a consumer used to stall. The render
+  consumers also export progress metrics for stalls the exit cannot catch,
+  such as a handler that never returns. See
+  [Render service](docs/render/render-service.mdx).
+- Retryable failed workflow stages now wait for a manual retry for a configurable
+  window (three hours by default) after automatic activity or child retries are
+  exhausted, instead of indefinitely. An unanswered retry wait closes the
+  workflow as Failed with a non-retryable `StageRetryTimeout` cause. The durable
+  timer survives worker restarts and does not limit healthy work or approval
+  waits. Existing histories that already took the indefinite failure-wait path
+  retain it for replay compatibility.
+- Helm `temporal.configManagerWorker.failedStageRetryTimeoutSeconds` configures
+  the failed-stage manual retry window in positive integer seconds (default
+  10800, maximum 31536000, or 365 days). It is rendered for every secrets
+  method and recorded in new workflow histories and schedule actions so replay
+  and child runs keep their original value across worker restarts and later
+  configuration changes. An unset key, such as after `helm upgrade
+  --reuse-values` from an earlier release, renders the default. Installer
+  deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
+  `nv-config-manager-install.yaml`. See
+  [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
@@ -26,9 +57,44 @@ version before the selected release candidate is promoted.
   (`preferred` or `required`). The chart defaults now set
   `enablePodAntiAffinity: true` and `podAntiAffinityType: preferred`, which
   match the scheduling CloudNativePG already applied when they were unset.
+- The Config Manager Temporal worker's sticky workflow cache now defaults to 200
+  entries (the Temporal SDK default is 1,000) and the worker runs at most 10
+  workflow tasks at once (the SDK default is 100), so bursts of new workflows
+  queue instead of all exceeding the workflow task timeout, and the memory held
+  by cached runs is bounded. Both limits are set in the new
+  `[temporal.worker]` INI section (`max_cached_workflows`,
+  `max_concurrent_workflow_tasks`), which the Helm chart renders from
+  `temporal.configManagerWorker.maxCachedWorkflows` and
+  `maxConcurrentWorkflowTasks`. Invalid values fail worker startup.
+- `nv_config_manager_nautobot_change_message_end_to_end_time` gains buckets at
+  900, 1200, 1800, 2700, 3600, and 7200 seconds. Its time includes queue wait,
+  which can pass ten minutes when one change fans out to many devices, and the
+  old 600-second top bucket left everything beyond that in `+Inf`. Existing
+  bucket boundaries are unchanged, so queries on them keep working.
+- `nv_config_manager_workflows.workflows` now imports each exported name from
+  its defining module when the name is accessed. Importing one workflow module no longer
+  imports all of them, so each workflow run's sandbox re-imports only the
+  modules that run uses instead of all 29 workflow modules. The package's
+  public names are unchanged.
 
 ### Fixed
 
+- Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
+  NVLink firmware upgrade, and reprovisioning now await the backup child's result
+  so failures and timeouts reach stage failure handling. Previously a failed or
+  timed-out backup was reported as backed up and the workflow continued. These
+  workflows now stop at the backup stage even when the configuration change was
+  already applied: retry the stage to start a new backup, or the workflow closes
+  as **Failed** after the failed-stage retry window. A backup child keeps its own
+  stage retry until the earlier of the failed-stage retry window or its 10-minute
+  run timeout, so the parent stage then reports a failure or timeout; the backup
+  workflow's page shows the underlying error. Histories that already used the old
+  child-completion check retain that path for replay compatibility.
+- Workflow API approve, reject, and retry requests for a workflow that closed
+  before the signal arrived now return `409 Conflict` with the workflow status
+  instead of `500`, and return `404` if the workflow no longer exists. The UI
+  no longer offers Retry for a failed stage once its workflow has closed, and on
+  a `409` it reports that the workflow is no longer running and refreshes it.
 - `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
   anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
   and CloudNativePG then enabled preferred anti-affinity by default.
@@ -36,10 +102,32 @@ version before the selected release candidate is promoted.
   `values-local-medium.yaml` profiles, will see their database pods' scheduling
   rules change on upgrade
   ([#406](https://github.com/dsx-ai-factory/nv-config-manager/issues/406)).
+- `localDev.mockDevices` now takes effect with `secrets.method: eso` and
+  `secrets.method: vault-agent`. Before, only `secrets.method: kubernetes`
+  rendered `mock = true` in the `[device]` section, so the other methods
+  silently kept real device connections.
+- With `secrets.method: vault-agent`, pods now carry a `checksum/vault-agent-ini`
+  annotation, so a change to the rendered `nv-config-manager.ini` template rolls
+  them. Before, the injector kept serving the old template until pods restarted.
+- The Temporal worker no longer re-imports pydantic and the shared workflow
+  libraries in the sandbox for every workflow run. This cuts the per-run startup
+  CPU and per-run memory that contributed to workflow task timeouts, deadlock
+  errors, and OOMKills during large fan-outs such as site cable validation.
+  Every built-in workflow module now imports everything except the standard
+  library and `temporalio` inside its
+  `workflow.unsafe.imports_passed_through()` block, a test enforces this, and
+  the workflows package README documents the pattern for plugin workflows. The
+  worker also passes through `annotated_types`, which Pydantic imports lazily
+  after those blocks have closed.
+- `workflow-cli` now sends the default of a list option as a list when the
+  option is omitted. Before, it sent the default's text split on commas, for
+  example `["['Active'", "'Provisioned']"]` for `--status`, so commands such as
+  `site-cable-validation` failed at their first stage unless every list option
+  was passed explicitly.
 
 ## 1.4.2
 
-Changes since 1.4.1, prepared against `1.4.2-rc.2`. Release promotion is pending.
+Changes since 1.4.1. Released November 16, 2026.
 
 ### Added
 

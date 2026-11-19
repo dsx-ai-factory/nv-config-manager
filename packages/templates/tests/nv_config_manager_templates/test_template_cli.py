@@ -145,5 +145,6 @@ def test_render_rejects_removed_split_cache_option(tmp_path) -> None:
         ],
     )
 
-    assert result.exit_code != 0
-    assert "No such option: --cached-data" in result.output
+    assert result.exit_code == 2
+    assert "No such option" in result.output
+    assert "--cached-data" in result.output

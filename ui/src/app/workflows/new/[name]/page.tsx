@@ -92,6 +92,40 @@ const WorkflowApiUpgradeRequired = () => (
   </PageCard>
 );
 
+const WorkflowPermissionWarning = ({
+  isUnavailable,
+  isRetrying,
+  onRetry,
+}: {
+  isUnavailable: boolean;
+  isRetrying: boolean;
+  onRetry(): void;
+}) => {
+  if (!isUnavailable) return null;
+  return (
+    <div className="flex justify-center px-6 pt-6">
+      <Alert className="w-full max-w-3xl" variant="destructive">
+        <AlertTitle>Permissions could not be verified</AlertTitle>
+        <AlertDescription>
+          <p>
+            The workflow form remains available. The server will verify your
+            permission when you submit it.
+          </p>
+          <Button
+            className="mt-3"
+            disabled={isRetrying}
+            onClick={onRetry}
+            type="button"
+            variant="outline"
+          >
+            {isRetrying ? "Retrying..." : "Retry permission check"}
+          </Button>
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+};
+
 export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
   const formId = decodeSegment(React.use(params).name);
   const searchParams = useSearchParams();
@@ -146,28 +180,11 @@ export default function NewWorkflowPage({ params }: NewWorkflowPageProps) {
     : getWorkflowExecutePermission(entry, userRoles, isUnauthorized);
   return (
     <>
-      {whoamiUnavailable ? (
-        <div className="flex justify-center px-6 pt-6">
-          <Alert className="w-full max-w-3xl" variant="destructive">
-            <AlertTitle>Permissions could not be verified</AlertTitle>
-            <AlertDescription>
-              <p>
-                The workflow form remains available. The server will verify your
-                permission when you submit it.
-              </p>
-              <Button
-                className="mt-3"
-                disabled={whoamiRetrying}
-                onClick={() => void reloadWhoami()}
-                type="button"
-                variant="outline"
-              >
-                {whoamiRetrying ? "Retrying..." : "Retry permission check"}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        </div>
-      ) : null}
+      <WorkflowPermissionWarning
+        isUnavailable={whoamiUnavailable}
+        isRetrying={whoamiRetrying}
+        onRetry={reloadWhoami}
+      />
       {permission.allowed ? null : (
         <div className="flex justify-center px-6 pt-6">
           <Alert className="w-full max-w-3xl">

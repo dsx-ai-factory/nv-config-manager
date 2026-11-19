@@ -351,6 +351,8 @@ spec:
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:
         {{- include "nv-config-manager.authIniChecksum" . | nindent 8 }}
+        {{- /* Roll workers when startup settings change. */}}
+        checksum/worker-limits: {{ printf "%v/%v/%v" .Values.temporal.configManagerWorker.maxCachedWorkflows .Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks (include "nv-config-manager.failedStageRetryTimeoutSeconds" .) | sha256sum }}
         {{- if eq .Values.secrets.method "vault-agent" }}
         {{- include "nv-config-manager.vaultAgent.injectorAnnotations" . | nindent 8 }}
         {{- end }}

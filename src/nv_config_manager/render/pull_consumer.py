@@ -18,9 +18,11 @@ import asyncio
 import asyncio.log
 import json
 import logging
+import math
 import os
 import signal
 import ssl
+import time
 from asyncio import AbstractEventLoop
 from datetime import datetime
 
@@ -32,7 +34,7 @@ from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, DeliverPolicy
 from nats.js.errors import FetchTimeoutError, NotFoundError
 from nv_config_manager_infrastructure.nats import DEFAULT_NATS_API_PREFIX
-from prometheus_client import Gauge, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.config.nats import (
@@ -66,6 +68,15 @@ configure_logging(service="render")
 # JetStream error code for "stream not found".
 STREAM_NOT_FOUND_ERR_CODE = 10059
 
+# Ceiling on the delay before a failed message is redelivered. Doubling up to a
+# minute spreads the delivery limit over minutes of outage instead of seconds.
+RETRY_BACKOFF_MAX_SECONDS = 60
+
+# Lock waits back off too, so the deliveries a render spends waiting for another
+# render's device lock outlast how long that lock can be held.
+LOCK_RETRY_INITIAL_SECONDS = 5
+LOCK_RETRY_MAX_SECONDS = 30
+
 CONSUMER_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
 CONSUMER_PENDING = Gauge(
     "nv_config_manager_nats_consumer_num_pending",
@@ -85,6 +96,53 @@ CONSUMER_REDELIVERED = Gauge(
 CONSUMER_WAITING = Gauge(
     "nv_config_manager_nats_consumer_num_waiting",
     "Outstanding pull requests waiting for render consumer messages",
+    CONSUMER_METRIC_LABELS,
+)
+
+GIVE_UP_FAILED = "failed"
+GIVE_UP_LOCK = "lock"
+CONSUMER_GIVEN_UP = Counter(
+    "nv_config_manager_nats_consumer_messages_given_up",
+    "Messages terminated on their last delivery without being processed",
+    [*CONSUMER_METRIC_LABELS, "reason"],
+)
+
+# Stall detection. The retry loop exits on its own once fetches keep failing,
+# but a handler that never returns or a blocked event loop never reaches that
+# check. These are served from the metrics thread, so their age keeps growing
+# while the loop is stuck. Alert on time() minus the gauge.
+CONSUMER_LAST_PROGRESS = Gauge(
+    "nv_config_manager_nats_consumer_last_progress_timestamp_seconds",
+    "Unix time the render consumer last completed a fetch, idle fetches included, "
+    "or finished handling a message",
+    CONSUMER_METRIC_LABELS,
+)
+CONSUMER_PROCESSING_STARTED = Gauge(
+    "nv_config_manager_nats_consumer_processing_start_timestamp_seconds",
+    "Unix time the render consumer started handling its current message, or 0 when idle",
+    CONSUMER_METRIC_LABELS,
+)
+CONSUMER_PROCESSING_DURATION = Histogram(
+    "nv_config_manager_nats_consumer_processing_duration_seconds",
+    "Time the render consumer spent handling a message, whether it succeeded or failed",
+    CONSUMER_METRIC_LABELS,
+    buckets=(1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, 7200),
+)
+CONSUMER_LAST_NATS_SUCCESS = Gauge(
+    "nv_config_manager_nats_consumer_last_nats_success_timestamp_seconds",
+    "Unix time the render consumer last completed a fetch or consumer info lookup",
+    CONSUMER_METRIC_LABELS,
+)
+NATS_FAILURE_CYCLE = "cycle"
+NATS_FAILURE_CONSUMER_INFO = "consumer_info"
+CONSUMER_NATS_FAILURES = Counter(
+    "nv_config_manager_nats_consumer_nats_failures",
+    "Failed render consumer cycles and consumer info lookups",
+    [*CONSUMER_METRIC_LABELS, "operation"],
+)
+CONSUMER_NATS_RECONNECTS = Counter(
+    "nv_config_manager_nats_consumer_nats_reconnects",
+    "Times the render consumer's NATS connection was re-established",
     CONSUMER_METRIC_LABELS,
 )
 
@@ -123,6 +181,19 @@ class PullConsumer:
         self.running = False
         self.namespace = os.getenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "unknown")
         self.metrics_refresh_interval = 15.0
+        # The existing durable's limit, which is what JetStream enforces.
+        self.max_deliver = CONSUMER_MAX_DELIVER
+        for reason in (GIVE_UP_FAILED, GIVE_UP_LOCK):
+            CONSUMER_GIVEN_UP.labels(self.queue, self.stream, self.namespace, reason)
+        self._metric_labels = (self.queue, self.stream, self.namespace)
+        # Export every series from startup so an alert never reads a missing one.
+        CONSUMER_LAST_PROGRESS.labels(*self._metric_labels).set_to_current_time()
+        CONSUMER_PROCESSING_STARTED.labels(*self._metric_labels).set(0)
+        CONSUMER_PROCESSING_DURATION.labels(*self._metric_labels)
+        CONSUMER_LAST_NATS_SUCCESS.labels(*self._metric_labels).set_to_current_time()
+        for operation in (NATS_FAILURE_CYCLE, NATS_FAILURE_CONSUMER_INFO):
+            CONSUMER_NATS_FAILURES.labels(*self._metric_labels, operation)
+        CONSUMER_NATS_RECONNECTS.labels(*self._metric_labels)
         self._metrics_permission_warning_logged = False
         self._last_permission_error: Exception | None = None
         self._permission_guidance_logged: set[str] = set()
@@ -133,6 +204,36 @@ class PullConsumer:
         # Heartbeat interval for consumer health detection
         # Must be < FetchMaxWait/2 (default FetchMaxWait=5s, so heartbeat must be < 2.5s)
         self.heartbeat_interval = 1.0
+
+        # Liveness. A broken connection can leave this loop retrying forever
+        # without the process ever exiting, so the only trustworthy evidence
+        # that the consumer still works is a round trip to the server. While
+        # idle that is a fetch that completes; an idle queue is healthy. While a
+        # handler runs the loop does not fetch, so the consumer info lookup the
+        # metrics loop makes every metrics_refresh_interval stands in for it,
+        # and a long config context batch does not restart the pod.
+        #
+        # Synchronous work in a handler blocks the event loop, and with it both
+        # kinds of evidence, so the budget has to exceed the longest such
+        # stretch. A message blocked for its whole ack wait is already
+        # redelivered elsewhere, so that is the point where a stalled loop stops
+        # being merely slow.
+        self.liveness_timeout = float(
+            os.getenv("CONSUMER_LIVENESS_TIMEOUT_SECONDS", str(CONSUMER_ACK_WAIT_SECONDS + 240))
+        )
+        if not math.isfinite(self.liveness_timeout):
+            raise ValueError(
+                f"CONSUMER_LIVENESS_TIMEOUT_SECONDS={self.liveness_timeout:g} must be a finite "
+                "number of seconds, or a stalled consumer would never be restarted"
+            )
+        if self.liveness_timeout <= CONSUMER_ACK_WAIT_SECONDS:
+            raise ValueError(
+                f"CONSUMER_LIVENESS_TIMEOUT_SECONDS={self.liveness_timeout:g} must exceed the "
+                f"consumer ack wait of {CONSUMER_ACK_WAIT_SECONDS}s, or a slow render would "
+                "restart the pod before it finishes"
+            )
+        self._last_round_trip = time.monotonic()
+        self._handler_started: float | None = None
 
     def run(self) -> None:
         """Run the consumer."""
@@ -179,6 +280,26 @@ class PullConsumer:
         """
         return True
 
+    def _record_round_trip(self) -> None:
+        """Note a completed fetch, or a consumer info lookup made while a handler runs."""
+        self._last_round_trip = time.monotonic()
+
+    def _record_fetch(self) -> None:
+        """Note a completed fetch, which is both a round trip and consumer progress."""
+        self._record_round_trip()
+        CONSUMER_LAST_PROGRESS.labels(*self._metric_labels).set_to_current_time()
+        CONSUMER_LAST_NATS_SUCCESS.labels(*self._metric_labels).set_to_current_time()
+
+    def liveness(self) -> tuple[bool, str]:
+        """Report whether a server round trip has completed recently enough."""
+        stalled_for = time.monotonic() - self._last_round_trip
+        if stalled_for > self.liveness_timeout:
+            return False, (
+                f"no successful fetch or consumer info for {stalled_for:.0f}s "
+                f"(limit {self.liveness_timeout:.0f}s)"
+            )
+        return True, f"last successful fetch or consumer info {stalled_for:.0f}s ago"
+
     async def ack(self, msg: Msg) -> None:
         """Acknowledge a message with resilient error handling."""
         try:
@@ -202,6 +323,24 @@ class PullConsumer:
         except Exception as e:
             self.logger.error("Error nacking message: %s", str(e))
             raise
+
+    async def term(self, msg: Msg) -> bool:
+        """Stop redelivery of a message with resilient error handling.
+
+        Returns whether the termination was sent; ``False`` means it was skipped
+        because no responders were available.
+        """
+        try:
+            await msg.term()
+        except nats.errors.NoRespondersError:
+            self.logger.warning(
+                "No responders available for term (likely during shutdown), ignoring"
+            )
+            return False
+        except Exception as e:
+            self.logger.error("Error terminating message: %s", str(e))
+            raise
+        return True
 
     async def main(self) -> None:
         """Connect to NATS and start the pull consumer loop."""
@@ -227,6 +366,7 @@ class PullConsumer:
             self.logger.warning("NATS connection disconnected.")
 
         async def reconnected_cb() -> None:
+            CONSUMER_NATS_RECONNECTS.labels(*self._metric_labels).inc()
             self.logger.warning("NATS connection reconnected.")
 
         self.nats_conn = await nats_connection(
@@ -254,7 +394,13 @@ class PullConsumer:
         self.logger.error(message, *args)
 
     async def _run_pull_consumer(self) -> None:
-        """Run the pull consumer with automatic recreation if needed."""
+        """Run the pull consumer with automatic recreation if needed.
+
+        Raises once cycles keep failing past the liveness budget, so the process
+        exits and is restarted instead of retrying on a connection that is not
+        coming back. A loop that is blocked, or a handler that never returns,
+        does not reach this check.
+        """
         if self.nats_conn is None or self.jetstream is None:
             self.logger.error("NATS connection or JetStream is None, cannot run consumer")
             return
@@ -273,7 +419,22 @@ class PullConsumer:
                     self.logger.warning(
                         "Consumer %s cycle failed, recreating: %s", self.queue, str(e)
                     )
-                    if isinstance(e, NotFoundError) and e.err_code == STREAM_NOT_FOUND_ERR_CODE:
+                    CONSUMER_NATS_FAILURES.labels(*self._metric_labels, NATS_FAILURE_CYCLE).inc()
+                    stream_missing = (
+                        isinstance(e, NotFoundError) and e.err_code == STREAM_NOT_FOUND_ERR_CODE
+                    )
+                    if stream_missing and self.local_nats:
+                        # The server answered, so the connection works. Recover in
+                        # this process: a restart would forget which stream it last
+                        # consumed, and its new durable would skip events already
+                        # stored in the re-created stream.
+                        self._record_round_trip()
+                    live, detail = self.liveness()
+                    if not live:
+                        raise RuntimeError(
+                            f"Consumer {self.queue} is exiting to be restarted: {detail}"
+                        ) from e
+                    if stream_missing:
                         await self._recreate_missing_stream()
                     await asyncio.sleep(self.error_backoff)
         finally:
@@ -332,12 +493,20 @@ class PullConsumer:
         while self.running and self.nats_conn and not self.nats_conn.is_closed:
             try:
                 consumer_info = await self.jetstream.consumer_info(self.stream, self.queue)
+                CONSUMER_LAST_NATS_SUCCESS.labels(*self._metric_labels).set_to_current_time()
+                if self._handler_started is not None:
+                    self._record_round_trip()
                 self._record_consumer_metrics(consumer_info)
+                # Administrators can edit the limit without restarting the consumer.
+                self._cache_max_deliver(consumer_info)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 # Metrics collection must never interrupt message processing.
                 self._remove_consumer_metrics()
+                CONSUMER_NATS_FAILURES.labels(
+                    *self._metric_labels, NATS_FAILURE_CONSUMER_INFO
+                ).inc()
                 if is_nats_permissions_error(e):
                     if not self._metrics_permission_warning_logged:
                         self.logger.error(
@@ -380,12 +549,14 @@ class PullConsumer:
                     # raise an exception after missing heartbeats. Any exception
                     # during fetch indicates we should recreate the consumer.
                     msgs = await pull_subscription.fetch(batch=1, heartbeat=self.heartbeat_interval)
+                    self._record_fetch()
                     if msgs:
                         await self._resilient_message_handler(msgs[0])
                     else:
                         await asyncio.sleep(self.idle_wait)
                 except FetchTimeoutError:
                     # Heartbeats were fine, but no messages were received
+                    self._record_fetch()
                     await asyncio.sleep(self.idle_wait)
                 except Exception as e:
                     # Any exception during fetch (timeouts, heartbeat failures,
@@ -431,6 +602,7 @@ class PullConsumer:
                         ),
                     )
                 raise
+            self.max_deliver = CONSUMER_MAX_DELIVER
             self.logger.info("Consumer %s created successfully", self.queue)
         except Exception as e:
             if is_nats_permissions_error(e) or self._last_permission_error is not None:
@@ -443,6 +615,7 @@ class PullConsumer:
                 )
             raise
         else:
+            self._cache_max_deliver(existing)
             mismatches = self._consumer_configuration_mismatches(existing)
             if mismatches:
                 self.logger.warning(
@@ -501,18 +674,66 @@ class PullConsumer:
             mismatches.append(f"max_deliver={config.max_deliver!r} expected {CONSUMER_MAX_DELIVER}")
         return mismatches
 
+    def _cache_max_deliver(self, consumer_info: ConsumerInfo) -> None:
+        """Track the durable's delivery limit, which is what JetStream enforces."""
+        max_deliver = consumer_info.config.max_deliver
+        if max_deliver is None:
+            self.max_deliver = -1
+        elif isinstance(max_deliver, int):
+            self.max_deliver = max_deliver
+
     async def _resilient_message_handler(self, msg: Msg) -> None:
         """Wrapper around message_handler with additional error handling."""
+        self._handler_started = time.monotonic()
+        CONSUMER_PROCESSING_STARTED.labels(*self._metric_labels).set_to_current_time()
         try:
             await self.message_handler(msg)
         except Exception as e:
             self.logger.error("Error in message handler: %s", str(e), exc_info=e)
-            # For message handler errors, try to nak the message
             # Don't bubble up since these are processing errors, not consumer errors
             try:
-                await self.nak(msg)
+                await self._retry_or_give_up(
+                    msg, f"message on consumer {self.queue}", "every delivery failed"
+                )
             except Exception as nak_error:
                 self.logger.error("Failed to nak message after handler error: %s", str(nak_error))
+        finally:
+            CONSUMER_PROCESSING_DURATION.labels(*self._metric_labels).observe(
+                time.monotonic() - self._handler_started
+            )
+            CONSUMER_PROCESSING_STARTED.labels(*self._metric_labels).set(0)
+            CONSUMER_LAST_PROGRESS.labels(*self._metric_labels).set_to_current_time()
+            self._handler_started = None
+
+    async def _retry_or_give_up(self, msg: Msg, subject: str, reason: str) -> None:
+        """Redeliver a failed message with backoff, or drop it on its last delivery."""
+        if _is_last_delivery(msg, self.max_deliver):
+            await self._give_up(msg, subject, reason, GIVE_UP_FAILED)
+        else:
+            await self.nak(msg, delay=_retry_delay(msg))
+
+    async def _give_up(self, msg: Msg, subject: str, reason: str, metric_reason: str) -> None:
+        """Drop a message JetStream will not redeliver.
+
+        A failed termination is logged rather than raised: JetStream will not
+        redeliver the message anyway, and raising would make the caller give up
+        on it again under another reason.
+
+        A device's queued flag needs no cleanup here: it expires within
+        QUEUED_FLAG_TTL_SECONDS, after which the next change queues a new render.
+        """
+        self.logger.error(
+            "Giving up on %s after %d deliveries: %s",
+            subject,
+            self.max_deliver,
+            reason,
+        )
+        try:
+            terminated = await self.term(msg)
+        except Exception:  # pylint: disable=broad-exception-caught
+            return
+        if terminated:
+            CONSUMER_GIVEN_UP.labels(self.queue, self.stream, self.namespace, metric_reason).inc()
 
     def _clean_exit(self) -> None:
         """Cancel all running tasks and close the connection to NATS."""
@@ -582,7 +803,7 @@ class PullDCIMConsumer(PullConsumer):
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing nautobot message", exc_info=e)
-            await self.nak(msg)
+            await self._retry_or_give_up(msg, "DCIM change event", "every delivery failed")
 
 
 class PullNautobotConsumer(PullConsumer):
@@ -610,7 +831,7 @@ class PullNautobotConsumer(PullConsumer):
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing legacy DCIM message", exc_info=e)
-            await self.nak(msg)
+            await self._retry_or_give_up(msg, "legacy DCIM change event", "every delivery failed")
 
 
 class PullDeviceChangeConsumer(PullConsumer):
@@ -636,8 +857,13 @@ class PullDeviceChangeConsumer(PullConsumer):
         lock = await create_lock(device_id, blocking=False)
         acquired = await lock.acquire()
         if not acquired:
+            if _is_last_delivery(msg, self.max_deliver):
+                await self._give_up(
+                    msg, f"render for {device_id}", "it never won the device lock", GIVE_UP_LOCK
+                )
+                return
             self.logger.info("Another process owns the lock for %s, nacking.", device_id)
-            await self.nak(msg, delay=5)
+            await self.nak(msg, delay=_lock_retry_delay(msg))
             return
         try:
             # Clear the queued flag only after successfully acquiring the lock
@@ -650,12 +876,40 @@ class PullDeviceChangeConsumer(PullConsumer):
             await self.ack(msg)
         except Exception as e:
             self.logger.error("Error processing device change message: %s", data, exc_info=e)
-            await self.nak(msg)
+            await self._retry_or_give_up(msg, f"render for {device_id}", "every delivery failed")
         finally:
             try:
                 await lock.release()
             except Exception as e:
                 self.logger.error("Error releasing lock for %s", device_id, exc_info=e)
+
+
+def _num_delivered(msg: Msg) -> int | None:
+    """Return how many times JetStream has delivered this message."""
+    try:
+        delivered = msg.metadata.num_delivered
+    except Exception:  # pylint: disable=broad-exception-caught
+        # Not a JetStream message, so there is no delivery count.
+        return None
+    return delivered if isinstance(delivered, int) else None
+
+
+def _is_last_delivery(msg: Msg, max_deliver: int) -> bool:
+    """Return whether JetStream will not deliver this message again."""
+    delivered = _num_delivered(msg)
+    return max_deliver > 0 and delivered is not None and delivered >= max_deliver
+
+
+def _retry_delay(msg: Msg) -> int:
+    """Return how long to wait before redelivering a message that failed."""
+    attempt = _num_delivered(msg) or 1
+    return min(1 << min(attempt - 1, 6), RETRY_BACKOFF_MAX_SECONDS)
+
+
+def _lock_retry_delay(msg: Msg) -> int:
+    """Return how long to wait before retrying a message that lost the device lock."""
+    attempt = _num_delivered(msg) or 1
+    return min(LOCK_RETRY_INITIAL_SECONDS << min(attempt - 1, 3), LOCK_RETRY_MAX_SECONDS)
 
 
 def main() -> None:
