@@ -196,6 +196,25 @@ The nats-ready binary embeds 20 GiB; the nats CLI path uses streamMaxBytes.
 {{- end -}}
 
 {{/*
+The NATS CLI parses a 32-bit integer before applying its binary unit suffix.
+Scale large stream limits exactly; never round the configured byte count.
+*/}}
+{{- define "nv-config-manager.natsCliStreamMaxBytes" -}}
+{{- $bytes := include "nv-config-manager.localStreamMaxBytes" . | int64 -}}
+{{- $suffix := "" -}}
+{{- range $unit := list "K" "M" "G" "T" -}}
+{{- if gt $bytes 2147483647 -}}
+{{- if ne (mod $bytes 1024) 0 -}}
+{{- fail "nautobotNats.natsReady.streamMaxBytes cannot be expressed exactly by the NATS CLI; choose a size aligned to KiB, MiB, GiB, or TiB" -}}
+{{- end -}}
+{{- $bytes = div $bytes 1024 -}}
+{{- $suffix = $unit -}}
+{{- end -}}
+{{- end -}}
+{{- printf "%d%s" $bytes $suffix -}}
+{{- end -}}
+
+{{/*
 Deployment rollout strategy.
 Pass root and, optionally, strategy. Global strategy wins when set so local
 overrides can switch every Deployment to Recreate in one place.
