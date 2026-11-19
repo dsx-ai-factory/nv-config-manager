@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import stat
 import time
+from math import isfinite
 
 # Default location of the heartbeat file. Lives under /tmp because the sidecar
 # runs with a read-only root filesystem in most deployments and /tmp is an
@@ -98,6 +99,45 @@ def touch_heartbeat(path: str = DEFAULT_HEARTBEAT_FILE) -> None:
         os.utime(fd)
     finally:
         os.close(fd)
+
+
+def record_heartbeat_max_age(max_age: float, path: str = DEFAULT_HEARTBEAT_FILE) -> None:
+    """Store the staleness threshold the running sync loop was started with.
+
+    The INI is mounted live, so a threshold derived from it at probe time can
+    drift from the deadlines the running loop captured at startup. Recording
+    the loop's own value keeps the probe's threshold tied to the process it
+    judges. ``touch_heartbeat`` only updates the mtime, so the value persists.
+    """
+    fd = _open_heartbeat_for_write(path)
+    try:
+        os.fchmod(fd, 0o600)
+        os.ftruncate(fd, 0)
+        os.write(fd, f"{max_age}\n".encode())
+    finally:
+        os.close(fd)
+
+
+def recorded_heartbeat_max_age(path: str = DEFAULT_HEARTBEAT_FILE) -> float | None:
+    """Return the threshold stored by ``record_heartbeat_max_age``, or ``None``.
+
+    Unreadable, unsafe, empty, or non-positive contents all return ``None`` so
+    the liveness check falls back to its default instead of failing on them.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        _validate_heartbeat_file(fd, path)
+        value = float(os.read(fd, 64).decode())
+    except (OSError, ValueError):
+        return None
+    finally:
+        os.close(fd)
+    if not isfinite(value) or value <= 0:
+        return None
+    return value
 
 
 def heartbeat_age_seconds(

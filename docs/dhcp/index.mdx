@@ -114,10 +114,13 @@ applies the configuration anyway. Raise these Helm values under
 
 Both values must be positive numbers of seconds, and invalid values fail the
 Helm render. The `/livez` and `/healthcheck` probes always use a 10-second Kea
-timeout. The config-sync heartbeat probe raises its staleness threshold above
-the default 90 seconds when `configSyncTimeoutSeconds` is large enough that one
-sync iteration could take longer. Setting `CONFIG_SYNC_HEARTBEAT_MAX_AGE` on the
-container overrides that threshold.
+timeout. The config-sync sidecar reads `sync_timeout_seconds` once at startup,
+so restart the DHCP pod after changing it. The sidecar's heartbeat probe raises
+its staleness threshold above the default 90 seconds when the sidecar's timeout
+is large enough that one sync iteration could take longer. The sidecar records
+that threshold when it starts, so the probe keeps judging the running process
+by its own timeout. Setting `CONFIG_SYNC_HEARTBEAT_MAX_AGE` on the container
+overrides that threshold.
 
 ## CLI Usage
 

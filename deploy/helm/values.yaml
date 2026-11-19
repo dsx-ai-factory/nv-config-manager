@@ -1812,7 +1812,8 @@ networkDhcp:
     # config-hash-get call has its own asyncio.wait_for with the same value.
     # The Kea HTTP client also receives this value. Raise it if applying a large
     # config under load takes longer than this, otherwise the sidecar records a
-    # failure and re-sends the full payload on the next pass. When this is
+    # failure and re-sends the full payload on the next pass. The sidecar reads
+    # this at startup, so restart the DHCP pod after changing it. When this is
     # large, the sidecar's heartbeat probe raises its staleness threshold
     # (90 seconds by default) to cover one full sync iteration.
     configSyncTimeoutSeconds: 15

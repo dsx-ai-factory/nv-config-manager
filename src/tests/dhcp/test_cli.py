@@ -639,17 +639,10 @@ async def test_ini_sync_timeout_sets_client_and_apply_deadlines(mocker: Any, kea
     assert apply.await_args.args[3] == 40.0
 
 
-@pytest.mark.parametrize(
-    ("sync_timeout", "expected"),
-    [(None, 90.0), ("15", 90.0), ("60", 220.0)],
-)
-def test_heartbeat_max_age_covers_one_sync_iteration(
-    kea_ini, sync_timeout: str | None, expected: float
-) -> None:
+@pytest.mark.parametrize(("kea_timeout", "expected"), [(15.0, 90.0), (60.0, 220.0)])
+def test_heartbeat_max_age_covers_one_sync_iteration(kea_timeout: float, expected: float) -> None:
     """The threshold keeps 90s by default and grows to cover a long sync iteration."""
-    kea_ini(**({} if sync_timeout is None else {"sync_timeout_seconds": sync_timeout}))
-
-    assert cli._heartbeat_max_age(cli.load_config()) == expected
+    assert cli._heartbeat_max_age(kea_timeout) == expected
 
 
 async def test_startup_survives_a_kea_outage(mocker: Any) -> None:

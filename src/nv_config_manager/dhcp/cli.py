@@ -50,7 +50,9 @@ from nv_config_manager.dhcp.heartbeat import (
     DEFAULT_MAX_AGE_SECONDS,
     age_is_fresh,
     heartbeat_age_seconds,
+    record_heartbeat_max_age,
     record_successful_reconciliation,
+    recorded_heartbeat_max_age,
     touch_heartbeat,
 )
 from nv_config_manager.dhcp.kea import KeaClient, KeaException, timeout_option
@@ -554,7 +556,7 @@ def _kea_op_timeout(config: ConfigParser) -> float:
     return timeout_option(config, SYNC_TIMEOUT_OPTION, KEA_OP_TIMEOUT_SECONDS)
 
 
-def _heartbeat_max_age(config: ConfigParser) -> float:
+def _heartbeat_max_age(kea_timeout: float) -> float:
     """Return a staleness threshold longer than one legitimate sync iteration.
 
     Never below ``DEFAULT_MAX_AGE_SECONDS``, so the default deadline keeps the
@@ -562,7 +564,7 @@ def _heartbeat_max_age(config: ConfigParser) -> float:
     """
     iteration = (
         REDIS_OP_TIMEOUT_SECONDS
-        + _KEA_CALLS_PER_SYNC_ITERATION * _kea_op_timeout(config)
+        + _KEA_CALLS_PER_SYNC_ITERATION * kea_timeout
         + _HEARTBEAT_SLACK_SECONDS
     )
     return max(DEFAULT_MAX_AGE_SECONDS, iteration)
@@ -667,6 +669,7 @@ async def _sync_kea_configuration_async(
         # progress, not a wedged loop, so the probe must not fail during it --
         # otherwise a cold start with no published config restart-loops the
         # sidecar once the probe's grace period expires.
+        record_heartbeat_max_age(_heartbeat_max_age(kea_timeout), heartbeat_file)
         touch_heartbeat(heartbeat_file)
         config = None
         while config is None:
@@ -1018,8 +1021,9 @@ def sync_kea_configuration(
     show_envvar=True,
     help=(
         "maximum allowed heartbeat age in seconds before it is considered stale. "
-        f"Defaults to {DEFAULT_MAX_AGE_SECONDS:.0f}, raised to cover one sync iteration "
-        f"when [dhcp.kea] {SYNC_TIMEOUT_OPTION} is large."
+        "Defaults to the threshold recorded by the running sync loop, which covers "
+        f"one sync iteration at its [dhcp.kea] {SYNC_TIMEOUT_OPTION}, or "
+        f"{DEFAULT_MAX_AGE_SECONDS:.0f} when none is recorded."
     ),
 )
 def check_sync_heartbeat(heartbeat_file: str, max_age_seconds: float | None) -> None:
@@ -1031,7 +1035,7 @@ def check_sync_heartbeat(heartbeat_file: str, max_age_seconds: float | None) -> 
     mere dependency outage (which still advances the heartbeat) is not.
     """
     if max_age_seconds is None:
-        max_age_seconds = _heartbeat_max_age(load_config())
+        max_age_seconds = recorded_heartbeat_max_age(heartbeat_file) or DEFAULT_MAX_AGE_SECONDS
     age = heartbeat_age_seconds(heartbeat_file)
     if age is None:
         click.echo(f"heartbeat missing or unreadable: {heartbeat_file}", err=True)
