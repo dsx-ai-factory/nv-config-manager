@@ -1073,6 +1073,11 @@ def build_values(
         temporal_section["services"] = {"history": {"replicas": config.temporal.history_replicas}}
     if managed_temporal and config.temporal.num_history_shards:
         temporal_section["numHistoryShards"] = config.temporal.num_history_shards
+    if config.temporal.failed_stage_retry_timeout_seconds:
+        # Workers, the workflow API, and the scheduler run with managed or external Temporal.
+        temporal_section["configManagerWorker"] = {
+            "failedStageRetryTimeoutSeconds": config.temporal.failed_stage_retry_timeout_seconds
+        }
     values["temporal"] = temporal_section
     values["rbac"] = _build_rbac(config)
     values["configStore"] = {"enabled": svc.config_store, "client": {"useInternalEndpoint": True}}

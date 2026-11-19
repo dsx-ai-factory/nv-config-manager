@@ -31,6 +31,7 @@ from nv_config_manager_installer.schema import (
     DHCPConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
+    ExternalTemporalConfig,
     ImageSource,
     InfrastructureConfig,
     KeaMultiThreadingConfig,
@@ -185,6 +186,25 @@ async def test_workflows_collects_temporal_server_sizing() -> None:
 
         assert app.config.temporal.history_replicas == 8
         assert app.config.temporal.num_history_shards == 64
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external_temporal", [False, True])
+async def test_workflows_keeps_failed_stage_retry_window(external_temporal: bool) -> None:
+    """The screen edits only sizing, so leaving it must not reset the retry window."""
+    config = NVConfigManagerInstallConfig()
+    config.temporal.failed_stage_retry_timeout_seconds = 7200
+    if external_temporal:
+        config.external_services = ExternalServicesConfig(
+            temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+        )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+        app.collect_config()
+
+        assert app.config.temporal.failed_stage_retry_timeout_seconds == 7200
 
 
 @pytest.mark.asyncio

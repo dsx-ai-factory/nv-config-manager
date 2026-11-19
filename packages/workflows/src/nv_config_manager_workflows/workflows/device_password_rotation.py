@@ -62,6 +62,7 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.workflow_references import DeviceReference
     from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
     from nv_config_manager_workflows.workflows.backup import (
+        BACKUP_CHILD_RESULT_PATCH_ID,
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
@@ -362,7 +363,10 @@ class DevicePasswordRotationWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMi
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched(BACKUP_CHILD_RESULT_PATCH_ID):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
         # TODO: once we have a UI, link out to this workflow.
         return DevicePasswordRotationWorkflow.BackupStageOutput(
             display=(

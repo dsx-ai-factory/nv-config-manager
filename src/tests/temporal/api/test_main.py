@@ -26,6 +26,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.service import RPCError, RPCStatusCode
 
 from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
 from nv_config_manager.temporal import runtime as service_runtime
@@ -1238,6 +1239,119 @@ async def test_approve_workflow_not_found(mock_client):
     )
     assert rsp.status_code == 404
     assert rsp.json() == {"detail": f"Workflow with ID '{workflow_id}' not found"}
+
+
+_SIGNAL_ENDPOINTS = ("approve", "reject", "retry")
+_WORKFLOW_COMPLETED = RPCError("workflow execution already completed", RPCStatusCode.NOT_FOUND, b"")
+
+
+def _signal_handle(workflow_id: str, *descriptions: object) -> MagicMock:
+    """Build a workflow handle whose signal reports NOT_FOUND after authorization."""
+    handle = MagicMock()
+    handle.id = workflow_id
+    handle.describe = AsyncMock(side_effect=descriptions)
+    handle.signal = AsyncMock(side_effect=_WORKFLOW_COMPLETED)
+    return handle
+
+
+def _signal_description(status: WorkflowExecutionStatus | None) -> MagicMock:
+    """Build a workflow description that authorizes the test caller."""
+    description = MagicMock()
+    description.status = status
+    description.search_attributes = {
+        "User": ["test"],
+        "ReadRoles": ["ngc-cfa"],
+        "ExecuteRoles": ["ngc-cfa"],
+    }
+    return description
+
+
+def _post_signal(endpoint: str, workflow_id: str) -> object:
+    """Send one stage signal request as a non-admin caller with execute access."""
+    return TestClient(app).post(
+        f"/v1/workflow/{workflow_id}/{endpoint}/prompt",
+        headers={"X-Auth-Request-Email": "test@nvidia.com", "X-AUTH-REQUEST-GROUPS": "ngc-cfa"},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", _SIGNAL_ENDPOINTS)
+@pytest.mark.parametrize(
+    ("status", "status_name"),
+    [
+        (WorkflowExecutionStatus.FAILED, "FAILED"),
+        (WorkflowExecutionStatus.TERMINATED, "TERMINATED"),
+        (None, "UNKNOWN"),
+    ],
+)
+@patch("nv_config_manager.temporal.api.workflow_v1.invalidate_workflow_stage_query_cache")
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_to_closed_workflow_returns_conflict(
+    mock_client: MagicMock,
+    mock_invalidate: AsyncMock,
+    endpoint: str,
+    status: WorkflowExecutionStatus | None,
+    status_name: str,
+) -> None:
+    """A workflow that closes after authorization yields 409 instead of a server error."""
+    workflow_id = str(uuid4())
+    running = _signal_description(WorkflowExecutionStatus.RUNNING)
+    handle = _signal_handle(workflow_id, running, _signal_description(status))
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    rsp = _post_signal(endpoint, workflow_id)
+
+    assert rsp.status_code == 409
+    assert rsp.json()["detail"].startswith(f"Workflow is not running (status: {status_name})")
+    handle.signal.assert_awaited_once()
+    mock_invalidate.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", _SIGNAL_ENDPOINTS)
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_to_workflow_removed_after_authorization_returns_not_found(
+    mock_client: MagicMock, endpoint: str
+) -> None:
+    workflow_id = str(uuid4())
+    missing = RPCError("sql: no rows in result set", RPCStatusCode.NOT_FOUND, b"")
+    handle = _signal_handle(
+        workflow_id, _signal_description(WorkflowExecutionStatus.RUNNING), missing
+    )
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    rsp = _post_signal(endpoint, workflow_id)
+
+    assert rsp.status_code == 404
+    assert rsp.json() == {"detail": f"Workflow with ID '{workflow_id}' not found"}
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_not_found_on_running_workflow_is_not_hidden(mock_client: MagicMock) -> None:
+    """Only a closed or missing workflow explains NOT_FOUND; anything else stays an error."""
+    workflow_id = str(uuid4())
+    running = _signal_description(WorkflowExecutionStatus.RUNNING)
+    handle = _signal_handle(workflow_id, running, running)
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    with pytest.raises(RPCError, match="workflow execution already completed"):
+        _post_signal("retry", workflow_id)
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_rpc_errors_other_than_not_found_are_not_hidden(
+    mock_client: MagicMock,
+) -> None:
+    workflow_id = str(uuid4())
+    handle = _signal_handle(workflow_id, _signal_description(WorkflowExecutionStatus.RUNNING))
+    handle.signal.side_effect = RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    with pytest.raises(RPCError, match="unavailable"):
+        _post_signal("retry", workflow_id)
+    assert handle.describe.await_count == 1
 
 
 @pytest.mark.asyncio

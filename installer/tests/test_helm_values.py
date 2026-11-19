@@ -382,6 +382,41 @@ class TestGenerateHelmValues:
 
         assert "numHistoryShards" not in temporal
         assert "services" not in temporal
+        assert "configManagerWorker" not in temporal
+
+    def test_failed_stage_retry_window_maps_to_worker_value(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=1209600),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["configManagerWorker"] == {"failedStageRetryTimeoutSeconds": 1209600}
+        assert "numHistoryShards" not in temporal
+        assert "services" not in temporal
+
+    def test_failed_stage_retry_window_maps_with_external_temporal(self) -> None:
+        config = _make_config(
+            external_services=ExternalServicesConfig(
+                temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+            ),
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200),
+        )
+
+        temporal = _gen(config)["temporal"]
+
+        assert temporal["server"]["enabled"] is False
+        assert temporal["configManagerWorker"]["failedStageRetryTimeoutSeconds"] == 7200
+
+    def test_failed_stage_retry_window_keeps_size_profile_worker_values(self) -> None:
+        config = _make_config(
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200),
+        )
+
+        worker = _gen(config, complete=True)["temporal"]["configManagerWorker"]
+
+        assert worker["failedStageRetryTimeoutSeconds"] == 7200
+        assert "resources" in worker
 
     def test_temporal_deployment_maps_history_replicas_and_shards(self) -> None:
         config = _make_config(

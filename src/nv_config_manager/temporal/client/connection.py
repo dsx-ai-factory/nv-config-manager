@@ -23,9 +23,25 @@ from typing import Any
 from temporalio.client import TLSConfig
 
 from nv_config_manager.common.config.loader import load_config
+from nv_config_manager_workflows.retry_timeout import (
+    DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS,
+    validate_retry_timeout_seconds,
+)
 
 _DEFAULT_ADDRESS = "localhost:7233"
 _DEFAULT_NAMESPACE = "default"
+
+
+def failed_stage_retry_timeout_seconds() -> int:
+    """Load the deployment's retry window before recording it in new histories."""
+    raw = (
+        load_config()
+        .get("temporal.worker", "failed_stage_retry_timeout_seconds", fallback="")
+        .strip()
+    )
+    return validate_retry_timeout_seconds(
+        int(raw) if raw else DEFAULT_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
+    )
 
 
 def client_connect_options() -> dict[str, Any]:

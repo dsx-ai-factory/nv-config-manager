@@ -1,3 +1,37 @@
+{{- define "nv-config-manager.failedStageRetryTimeoutSeconds" -}}
+{{- $seconds := .Values.temporal.configManagerWorker.failedStageRetryTimeoutSeconds -}}
+{{- /*
+Missing or null, e.g. after helm upgrade --reuse-values from a release that predates
+this key: use the three-hour default, as the services do for an unset INI value.
+*/ -}}
+{{- if kindIs "invalid" $seconds -}}
+{{- $seconds = 10800 -}}
+{{- end -}}
+{{- /*
+Values files decode numbers as float64, which toString renders in exponent form
+from 1e+06 upward. Convert whole floats within the exactly representable integer
+range (2^53) to int64 so they render as decimal digits; fractional and larger
+floats stay floats and fail the check below.
+*/ -}}
+{{- if kindIs "float64" $seconds -}}
+{{- if and (eq $seconds (floor $seconds)) (le $seconds 9007199254740992.0) -}}
+{{- $seconds = int64 $seconds -}}
+{{- end -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" (toString $seconds)) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must be a positive integer" -}}
+{{- end -}}
+{{- /*
+365 days, matching MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS in the workflows package.
+The value is decimal digits here; more than eight digits always exceeds the limit.
+*/ -}}
+{{- $digits := toString $seconds -}}
+{{- if or (gt (len $digits) 8) (gt (int64 $digits) 31536000) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must not exceed 31536000 seconds (365 days)" -}}
+{{- end -}}
+{{- $seconds -}}
+{{- end -}}
+
 {{/*
 Expand the name of the chart.
 */}}

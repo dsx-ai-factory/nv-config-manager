@@ -10,6 +10,36 @@ version before the selected release candidate is promoted.
 
 ### Changed
 
+- Cable validation now allows five minutes per ARP collection attempt, up from
+  two, to accommodate switches with large interface inventories and slow NVUE
+  responses. New site validations allow thirty minutes per device, up from ten,
+  so the ARP retries and remaining validation stages fit within the child
+  workflow deadline. Already-started child workflows keep their existing deadline.
+- A render consumer whose NATS fetches keep failing now exits, and Kubernetes
+  restarts the pod, once no round trip to NATS has completed for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
+  on a connection that was not coming back while the pod stayed `Running`.
+  Expect a container restart where a consumer used to stall. The render
+  consumers also export progress metrics for stalls the exit cannot catch,
+  such as a handler that never returns. See
+  [Render service](docs/render/render-service.mdx).
+- Retryable failed workflow stages now wait for a manual retry for a configurable
+  window (three hours by default) after automatic activity or child retries are
+  exhausted, instead of indefinitely. An unanswered retry wait closes the
+  workflow as Failed with a non-retryable `StageRetryTimeout` cause. The durable
+  timer survives worker restarts and does not limit healthy work or approval
+  waits. Existing histories that already took the indefinite failure-wait path
+  retain it for replay compatibility.
+- Helm `temporal.configManagerWorker.failedStageRetryTimeoutSeconds` configures
+  the failed-stage manual retry window in positive integer seconds (default
+  10800, maximum 31536000, or 365 days). It is rendered for every secrets
+  method and recorded in new workflow histories and schedule actions so replay
+  and child runs keep their original value across worker restarts and later
+  configuration changes. An unset key, such as after `helm upgrade
+  --reuse-values` from an earlier release, renders the default. Installer
+  deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
+  `nv-config-manager-install.yaml`. See
+  [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
@@ -40,9 +70,30 @@ version before the selected release candidate is promoted.
   which can pass ten minutes when one change fans out to many devices, and the
   old 600-second top bucket left everything beyond that in `+Inf`. Existing
   bucket boundaries are unchanged, so queries on them keep working.
+- `nv_config_manager_workflows.workflows` now imports each exported name from
+  its defining module when the name is accessed. Importing one workflow module no longer
+  imports all of them, so each workflow run's sandbox re-imports only the
+  modules that run uses instead of all 29 workflow modules. The package's
+  public names are unchanged.
 
 ### Fixed
 
+- Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
+  NVLink firmware upgrade, and reprovisioning now await the backup child's result
+  so failures and timeouts reach stage failure handling. Previously a failed or
+  timed-out backup was reported as backed up and the workflow continued. These
+  workflows now stop at the backup stage even when the configuration change was
+  already applied: retry the stage to start a new backup, or the workflow closes
+  as **Failed** after the failed-stage retry window. A backup child keeps its own
+  stage retry until the earlier of the failed-stage retry window or its 10-minute
+  run timeout, so the parent stage then reports a failure or timeout; the backup
+  workflow's page shows the underlying error. Histories that already used the old
+  child-completion check retain that path for replay compatibility.
+- Workflow API approve, reject, and retry requests for a workflow that closed
+  before the signal arrived now return `409 Conflict` with the workflow status
+  instead of `500`, and return `404` if the workflow no longer exists. The UI
+  no longer offers Retry for a failed stage once its workflow has closed, and on
+  a `409` it reports that the workflow is no longer running and refreshes it.
 - `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
   anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
   and CloudNativePG then enabled preferred anti-affinity by default.
@@ -67,6 +118,11 @@ version before the selected release candidate is promoted.
   the workflows package README documents the pattern for plugin workflows. The
   worker also passes through `annotated_types`, which Pydantic imports lazily
   after those blocks have closed.
+- `workflow-cli` now sends the default of a list option as a list when the
+  option is omitted. Before, it sent the default's text split on commas, for
+  example `["['Active'", "'Provisioned']"]` for `--status`, so commands such as
+  `site-cable-validation` failed at their first stage unless every list option
+  was passed explicitly.
 
 ## 1.4.2
 

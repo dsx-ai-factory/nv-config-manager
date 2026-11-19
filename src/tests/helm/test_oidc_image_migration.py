@@ -12,10 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Old proxy defaults migrate while intentional image and pull overrides survive."""
+"""OIDC proxy image migration and configurable session refresh preserve defaults."""
 
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,64 @@ def proxies(documents: list[dict]) -> list[dict]:
             str(arg).startswith("--config=/etc/oauth2-proxy/") for arg in container.get("args", [])
         )
     ]
+
+
+def proxy_resource(documents: list[dict], kind: str) -> dict:
+    """Find the shared proxy resource without depending on its release name."""
+    return next(
+        document
+        for document in documents
+        if document.get("kind") == kind
+        and document["metadata"].get("labels", {}).get("app.kubernetes.io/component")
+        == "oidc-proxy"
+    )
+
+
+def test_cookie_refresh_default_preserves_one_hour() -> None:
+    """Keep existing chart consumers' refresh interval when no override is set."""
+    values = yaml.safe_load((CHART / "values.yaml").read_text())
+    assert values["oidc"]["proxy"].get("cookieRefresh") == "1h"
+    documents = render()
+    configuration = proxy_resource(documents, "ConfigMap")["data"]
+    assert len(configuration) == len(proxies(documents)) > 0
+    assert all(tomllib.loads(text)["cookie_refresh"] == "1h" for text in configuration.values())
+
+
+@pytest.mark.parametrize("interval", ["2m", "30s", "0"])
+def test_cookie_refresh_override_reaches_every_proxy(interval: str) -> None:
+    """Pass duration strings, including an explicit zero, to every proxy config."""
+    baseline = proxy_resource(render(), "ConfigMap")["data"]
+    documents = render(f"oidc.proxy.cookieRefresh={interval}")
+    overridden = proxy_resource(documents, "ConfigMap")["data"]
+    assert overridden.keys() == baseline.keys()
+    assert len(overridden) == len(proxies(documents)) > 0
+    for name, text in overridden.items():
+        old_config = tomllib.loads(baseline[name])
+        new_config = tomllib.loads(text)
+        assert old_config.pop("cookie_refresh") == "1h"
+        assert new_config.pop("cookie_refresh") == interval
+        assert new_config == old_config
+
+
+def test_cookie_refresh_override_updates_only_proxy_config_and_rollout_checksum() -> None:
+    """Roll out the changed config while preserving the rest of the rendered chart."""
+    baseline = render()
+    overridden = render("oidc.proxy.cookieRefresh=2m")
+    old_map = proxy_resource(baseline, "ConfigMap")
+    new_map = proxy_resource(overridden, "ConfigMap")
+    assert new_map["data"] != old_map["data"]
+    for name, text in new_map["data"].items():
+        assert (
+            text.replace('cookie_refresh = "2m"', 'cookie_refresh = "1h"') == old_map["data"][name]
+        )
+    new_map["data"] = old_map["data"]
+    old_pod = proxy_resource(baseline, "Deployment")["spec"]["template"]
+    new_pod = proxy_resource(overridden, "Deployment")["spec"]["template"]
+    old_checksum = old_pod["metadata"]["annotations"]["checksum/config"]
+    new_checksum = new_pod["metadata"]["annotations"]["checksum/config"]
+    assert new_checksum != old_checksum
+    new_pod["metadata"]["annotations"]["checksum/config"] = old_checksum
+    assert overridden == baseline
 
 
 def test_old_upstream_defaults_select_the_wrapper() -> None:

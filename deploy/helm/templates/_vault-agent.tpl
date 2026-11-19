@@ -464,6 +464,7 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           [temporal.worker]
           max_cached_workflows = {{ $root.Values.temporal.configManagerWorker.maxCachedWorkflows }}
           max_concurrent_workflow_tasks = {{ $root.Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks }}
+          failed_stage_retry_timeout_seconds = {{ include "nv-config-manager.failedStageRetryTimeoutSeconds" $root }}
 
           # -----------------------------------------------------------------
           # Device Credentials (for Temporal workflows)
