@@ -3,6 +3,9 @@
 #   helm upgrade nv-config-manager deploy/helm -n nv-config-manager --reuse-values \
 #     -f deploy/helm/values-template-preview.yaml
 #
+# The Template Preview chart is not a dependency of the checked-in Chart.yaml (it is private). Add it
+# first: see "Template Preview Chart Dependency" in .gitlab/ci/README.md (a file:// checkout works).
+#
 # It expects the two images to be loaded into kind first: nvcm-template-preview-backend:dev and
 # nvcm-template-preview-frontend:dev (built from the nvcm-template-preview repository; see the implementation doc).
 # With no token Secret configured (below), artifact fetches are unauthenticated: local development only.

@@ -14,8 +14,5 @@ dependencies:
 - name: tempo
   repository: https://grafana.github.io/helm-charts
   version: 1.24.4
-- name: nvcm-template-preview
-  repository: file://../../../kiwi_repos/nvcm-template-preview/deploy/helm
-  version: 0.7.0
-digest: sha256:a056944aa105edb53bb7d5b4d476c35b791ed95d6d32407f86a5c8acb098a9d8
-generated: "2026-11-18T12:36:33.897667-06:00"
+digest: sha256:61b31288f7613c66b6af3d3509c301bd893ef1411e60a8c85e80e18725f5b60b
+generated: "2026-07-01T10:11:59.223889-06:00"

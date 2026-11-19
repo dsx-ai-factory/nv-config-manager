@@ -28,6 +28,20 @@ HELM_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 
 
+def _has_template_preview_subchart() -> bool:
+    chart = yaml.safe_load((HELM_DIR / "Chart.yaml").read_text())
+    return "nvcm-template-preview" in {d["name"] for d in chart.get("dependencies", [])}
+
+
+# The Template Preview chart is private, so the checked-in Chart.yaml does not depend on it: trusted
+# CI jobs, or a developer, add it with .gitlab/ci/scripts/build_chart_dependencies.sh. The tests that
+# render its Deployments run only when it has been added.
+needs_subchart = pytest.mark.skipif(
+    not _has_template_preview_subchart(),
+    reason="Template Preview subchart not added (see .gitlab/ci/README.md, Template Preview Chart Dependency)",
+)
+
+
 def _render(*sets: str) -> list[dict]:
     command = ["helm", "template", "test", ".", "--values", "values-ci.yaml"]
     for value in sets:
@@ -111,6 +125,7 @@ def _backend_env(docs: list[dict], container: str = "backend") -> dict[str, dict
     return {e["name"]: e for c in containers if c["name"] == container for e in c["env"]}
 
 
+@needs_subchart
 def test_template_preview_connects_with_a_username_and_password_from_the_secret():
     env = _backend_env(_render(*GATE_ON))
 
@@ -122,6 +137,7 @@ def test_template_preview_connects_with_a_username_and_password_from_the_secret(
     assert "KIWI_RENDER_CONTROL_PLANE_DATABASE_URL" not in env  # no SQLite URL, no `uri` key needed
 
 
+@needs_subchart
 def test_the_migration_step_uses_the_same_connection():
     env = _backend_env(_render(*GATE_ON), container="migrate-control-plane-db")
 
@@ -132,6 +148,7 @@ def test_the_migration_step_uses_the_same_connection():
     } <= set(env)
 
 
+@needs_subchart
 def test_archives_are_kept_in_the_database_and_no_artifacts_volume_is_created():
     docs = _render(*GATE_ON)
 
@@ -140,6 +157,7 @@ def test_archives_are_kept_in_the_database_and_no_artifacts_volume_is_created():
     assert "template-preview-artifacts" not in claims
 
 
+@needs_subchart
 def test_a_volume_for_archives_can_still_be_asked_for():
     docs = _render(*GATE_ON, "templatePreview.controlPlane.artifacts.storage=volume")
 
@@ -158,6 +176,7 @@ def _render_error(*sets: str) -> str:
     return done.stderr
 
 
+@needs_subchart
 def test_the_install_is_refused_if_the_plugin_control_plane_would_silently_use_sqlite():
     error = _render_error(*GATE_ON, "templatePreview.controlPlane.database.existingSecret=")
 
@@ -165,6 +184,7 @@ def test_the_install_is_refused_if_the_plugin_control_plane_would_silently_use_s
     assert "SQLite" in error
 
 
+@needs_subchart
 def test_sqlite_is_allowed_only_when_asked_for_explicitly():
     docs = _render(
         *GATE_ON,

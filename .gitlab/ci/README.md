@@ -45,6 +45,10 @@ the public repository.
 | `NVCM_NGC_TEAM` | Registry team used by tag existence checks |
 | `NVCM_CHART_TARGETS` | Newline-delimited chart targets, one `type\|repository\|token_variable\|options` record per target |
 | Token variables referenced by target records | Registry credentials used for configured image and chart targets |
+| `NVCM_TEMPLATE_PREVIEW_CHART_REPOSITORY` | Optional, protected. Helm repository holding the private Template Preview chart; when set, the release and main chart jobs add it as the `templatePreview` dependency (see below) |
+| `NVCM_TEMPLATE_PREVIEW_CHART_VERSION` | Optional, protected. Template Preview chart version to depend on; required with the repository variable |
+| `NVCM_TEMPLATE_PREVIEW_CHART_TOKEN_VAR` | Optional. Name of the masked, protected variable holding the repository password |
+| `NVCM_TEMPLATE_PREVIEW_CHART_USERNAME` | Optional. Repository user; defaults to `$oauthtoken` |
 | `CI_PUSH_TOKEN` | Token allowed to push CI-generated commits, chart branches, and package uploads |
 | `CI_PUSH_EMAIL` | Commit email used by CI-generated commits |
 
@@ -435,3 +439,28 @@ bash .gitlab/ci/scripts/test_installer_bundle.sh /tmp/nvcm-installer-dist
 
 The full bundle builder remains available for deployments that need local
 image archives. CI no longer bundles images or uploads full bundles to S3.
+
+## Template Preview Chart Dependency
+
+Template Preview's Helm chart is published to a private registry, so the checked-in
+`deploy/helm/Chart.yaml` and `Chart.lock` do not list it (a test fails if they do). Two trusted jobs,
+the release tag chart job in `release.yml` and the main chart build in `deploy-main-test-envs.yml`,
+run `.gitlab/ci/scripts/build_chart_dependencies.sh` instead of `helm dependency build`. When
+`NVCM_TEMPLATE_PREVIEW_CHART_REPOSITORY` is set the script adds the chart as the `templatePreview`
+dependency (off unless `templatePreview.enabled`), then runs `helm dependency update`. It refuses to run
+on an unprotected ref or in a merge request pipeline, and it refuses if the shipped `values.yaml`
+turns on `templatePreview.unsafeDynamicTemplatePlugins`: internal deployments run with that gate off.
+
+Merge request builds, the public pipeline and forks do not set the variables and build the chart
+without Template Preview. Charts promoted to test environments are built from the merge request
+build, so they do not include it either.
+
+For local development, point the repository at a checkout and build:
+
+```bash
+NVCM_TEMPLATE_PREVIEW_CHART_REPOSITORY=file://../../../nvcm-template-preview/deploy/helm \
+NVCM_TEMPLATE_PREVIEW_CHART_VERSION=0.7.0 \
+  bash .gitlab/ci/scripts/build_chart_dependencies.sh deploy/helm
+```
+
+This edits `Chart.yaml` and `Chart.lock` in your working tree; do not commit those changes.
