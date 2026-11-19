@@ -56,6 +56,7 @@ def _render_result(
     *set_args: str,
     set_string: tuple[str, ...] = (),
     template: str = _TEMPLATE,
+    extra_values: tuple[Path, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     """Render one chart template, preserving a non-zero exit for negative tests."""
     if shutil.which("helm") is None:
@@ -77,12 +78,21 @@ def _render_result(
         cmd += ["--set", pair]
     for pair in set_string:
         cmd += ["--set-string", pair]
+    for path in extra_values:
+        cmd += ["--values", str(path)]
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def _render(*set_args: str, set_string: tuple[str, ...] = (), template: str = _TEMPLATE) -> str:
+def _render(
+    *set_args: str,
+    set_string: tuple[str, ...] = (),
+    template: str = _TEMPLATE,
+    extra_values: tuple[Path, ...] = (),
+) -> str:
     """Render one chart template with values-ci.yaml, or skip if unrenderable."""
-    result = _render_result(*set_args, set_string=set_string, template=template)
+    result = _render_result(
+        *set_args, set_string=set_string, template=template, extra_values=extra_values
+    )
     if result.returncode != 0:
         # Both environment preconditions are checked above, so a non-zero exit
         # here is a template regression -- the thing this file exists to catch.
@@ -91,9 +101,15 @@ def _render(*set_args: str, set_string: tuple[str, ...] = (), template: str = _T
     return result.stdout
 
 
-def _kea_threading(*set_args: str, set_string: tuple[str, ...] = ()) -> dict[str, str]:
+def _kea_threading(
+    *set_args: str,
+    set_string: tuple[str, ...] = (),
+    extra_values: tuple[Path, ...] = (),
+) -> dict[str, str]:
     """Return thread_pool_size and packet_queue_size from the rendered [dhcp.kea] INI."""
-    rendered = _render(*set_args, set_string=set_string, template=_INI_TEMPLATE)
+    rendered = _render(
+        *set_args, set_string=set_string, template=_INI_TEMPLATE, extra_values=extra_values
+    )
     settings: dict[str, str] = {}
     for key in ("thread_pool_size", "packet_queue_size"):
         match = re.search(rf"^\s*{re.escape(key)} = (\S+)\s*$", rendered, re.MULTILINE)
@@ -375,6 +391,56 @@ def test_invalid_kea_threading_input_fails_rendering(
 
 def _probe_path(container: dict[str, Any], probe: str) -> str:
     return container[probe]["httpGet"]["path"]
+
+
+def test_large_whole_number_overrides_from_a_values_file(tmp_path: Path) -> None:
+    """A values-file integer of 1000000 or more must render the same as --set.
+
+    Helm decodes values-file numbers as float64, and toString prints 1000000
+    as 1e+06. --set keeps the same number as an integer.
+    """
+    values = tmp_path / "queue.yaml"
+    values.write_text(
+        "networkDhcp:\n"
+        "  kea:\n"
+        "    multiThreading:\n"
+        "      threadPoolSize: 1000000\n"
+        "      packetQueueSize: 1000000\n"
+    )
+
+    assert _kea_threading(extra_values=(values,)) == {
+        "thread_pool_size": "1000000",
+        "packet_queue_size": "1000000",
+    }
+
+
+def test_null_cpu_requests_name_the_missing_quantity(tmp_path: Path) -> None:
+    """A null requests map must fail with the CPU request in the message."""
+    values = tmp_path / "requests.yaml"
+    values.write_text(
+        "networkDhcp:\n"
+        "  kea:\n"
+        "    multiThreading:\n"
+        "      sizeFromCpuRequest: true\n"
+        "  resources:\n"
+        "    dhcp:\n"
+        "      requests: null\n"
+    )
+
+    result = _render_result(template=_INI_TEMPLATE, extra_values=(values,))
+
+    assert result.returncode != 0
+    assert "networkDhcp.resources.dhcp.requests.cpu" in result.stderr
+
+
+def test_null_cpu_requests_are_ignored_when_cpu_sizing_is_off(tmp_path: Path) -> None:
+    values = tmp_path / "requests.yaml"
+    values.write_text("networkDhcp:\n  resources:\n    dhcp:\n      requests: null\n")
+
+    assert _kea_threading(extra_values=(values,)) == {
+        "thread_pool_size": "0",
+        "packet_queue_size": "64",
+    }
 
 
 def test_liveness_uses_livez_and_readiness_uses_healthcheck() -> None:

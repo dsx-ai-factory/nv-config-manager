@@ -2342,7 +2342,17 @@ Context: (dict "root" . "name" "threadPoolSize|packetQueueSize" "allowZero" true
 {{- $threading := $kea.multiThreading | default dict -}}
 {{- $raw := "" -}}
 {{- if hasKey $threading .name -}}
-{{- $raw = index $threading .name | toString | trim -}}
+{{- $value := index $threading .name -}}
+{{- /* Values files decode numbers as float64. toString then prints 1000000 as 1e+06, which is not an integer. --set keeps the same number as an int and prints it in decimal. */ -}}
+{{- if or (kindIs "float64" $value) (kindIs "int" $value) (kindIs "int64" $value) -}}
+{{- $number := $value | float64 -}}
+{{- if ne $number (floor $number) -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.%s must be %s" .name (ternary "zero or a positive integer" "a positive integer" .allowZero)) -}}
+{{- end -}}
+{{- $raw = printf "%.0f" $number -}}
+{{- else -}}
+{{- $raw = $value | toString | trim -}}
+{{- end -}}
 {{- end -}}
 {{- if or (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
 {{- "" -}}
@@ -2394,7 +2404,14 @@ explicit threadPoolSize of 0 counts as set.
 {{- else if ne $override "" -}}
 {{- $override -}}
 {{- else if $sizeFromCpu -}}
-{{- $millis := include "nv-config-manager.dhcp.cpuMillicores" .Values.networkDhcp.resources.dhcp.requests.cpu | int -}}
+{{- $resources := .Values.networkDhcp.resources | default dict -}}
+{{- $dhcpResources := index $resources "dhcp" | default dict -}}
+{{- $requests := index $dhcpResources "requests" | default dict -}}
+{{- $cpu := index $requests "cpu" -}}
+{{- if or (not (hasKey $requests "cpu")) (kindIs "invalid" $cpu) (eq ($cpu | toString | trim) "") (eq ($cpu | toString | trim) "<nil>") (eq ($cpu | toString | trim) "<no value>") -}}
+{{- fail "networkDhcp.resources.dhcp.requests.cpu is required when networkDhcp.kea.multiThreading.sizeFromCpuRequest is true" -}}
+{{- end -}}
+{{- $millis := include "nv-config-manager.dhcp.cpuMillicores" $cpu | int -}}
 {{- div (add $millis 999) 1000 -}}
 {{- else -}}
 {{- 0 -}}

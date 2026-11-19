@@ -386,6 +386,7 @@ When Nautobot is disabled, configure an external Nautobot URL in the
 | Field | Description |
 |-------|-------------|
 | Size threads from DHCP CPU request | Toggle — sizes the Kea thread pool from the DHCP CPU request |
+| DHCP CPU request | Optional Kubernetes quantity. Blank keeps the size profile, which requests 1 CPU |
 | Thread pool size | Optional; `0` keeps Kea auto-detection. Cannot be combined with CPU sizing |
 | Packet queue size | Optional positive integer; defaults to 64, or eight packets per thread |
 
@@ -886,12 +887,14 @@ Size the pool from the DHCP CPU request:
 
 ```yaml
 dhcp:
+  cpu_request: "2"                # networkDhcp.resources.dhcp.requests.cpu
   kea_multi_threading:
-    size_from_cpu_request: true   # size the pool from networkDhcp.resources.dhcp.requests.cpu
+    size_from_cpu_request: true   # size the pool from that CPU request
 ```
 
 The CPU request is rounded up to whole cores (at least one thread) and the queue
-defaults to eight packets per thread.
+defaults to eight packets per thread. Every size profile requests 1 CPU, so
+leaving `cpu_request` blank makes this setting one thread and an 8-packet queue.
 
 Or set the sizes explicitly. `thread_pool_size` cannot be combined with
 `size_from_cpu_request`, and the installer and chart both reject that pair:

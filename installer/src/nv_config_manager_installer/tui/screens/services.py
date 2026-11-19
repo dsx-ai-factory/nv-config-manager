@@ -21,6 +21,7 @@ from textual.containers import Container
 from textual.widgets import Input, Label
 
 from nv_config_manager_installer.schema import (
+    DHCPConfig,
     KeaMultiThreadingConfig,
     NVConfigManagerInstallConfig,
 )
@@ -72,12 +73,22 @@ class ServicesScreen(Container):
             "With CPU sizing off, leave the fields blank to keep Kea's auto-detected "
             "worker count and 64-packet queue. With CPU sizing on, a blank pool follows "
             "the DHCP CPU request and a blank queue is eight packets per thread. "
-            "An explicit pool of 0 keeps the queue at 64."
+            "The size profiles request 1 CPU, so set a CPU request to get more than "
+            "one thread. An explicit pool of 0 keeps the queue at 64."
         )
         yield LabeledSwitch(
             "Size threads from DHCP CPU request",
             value=kea.size_from_cpu_request,
             id="kea-size-from-cpu",
+        )
+        yield Label(
+            "DHCP CPU request (blank keeps the size profile, which requests 1 CPU)",
+            classes="field-label",
+        )
+        yield Input(
+            value=self._config.dhcp.cpu_request,
+            placeholder="1",
+            id="dhcp-cpu-request",
         )
         yield Label(
             "Thread pool size (0 = auto-detect; not with CPU sizing)", classes="field-label"
@@ -102,12 +113,21 @@ class ServicesScreen(Container):
                 self.query_one("#kea-packet-queue-size", Input).value, "Packet queue size"
             ),
         )
+        # Validate the CPU quantity before any service toggle is saved.
+        # model_copy does not run validators, so build the model instead.
+        cpu_request = DHCPConfig.model_validate(
+            {
+                "kea_multi_threading": kea.model_dump(),
+                "cpu_request": self.query_one("#dhcp-cpu-request", Input).value,
+            }
+        ).cpu_request
         config.services.render = self.query_one("#svc-render", LabeledSwitch).value
         config.services.ztp = self.query_one("#svc-ztp", LabeledSwitch).value
         config.services.dhcp = self.query_one("#svc-dhcp", LabeledSwitch).value
         config.services.temporal = self.query_one("#svc-temporal", LabeledSwitch).value
         config.services.config_store = self.query_one("#svc-config-store", LabeledSwitch).value
         config.dhcp.kea_multi_threading = kea
+        config.dhcp.cpu_request = cpu_request
 
     def sync_from_config(self, config: NVConfigManagerInstallConfig) -> None:
         svc = config.services
@@ -118,6 +138,7 @@ class ServicesScreen(Container):
         self.query_one("#svc-config-store", LabeledSwitch).value = svc.config_store
         kea = config.dhcp.kea_multi_threading
         self.query_one("#kea-size-from-cpu", LabeledSwitch).value = kea.size_from_cpu_request
+        self.query_one("#dhcp-cpu-request", Input).value = config.dhcp.cpu_request
         self.query_one("#kea-thread-pool-size", Input).value = _int_text(kea.thread_pool_size)
         self.query_one("#kea-packet-queue-size", Input).value = _int_text(kea.packet_queue_size)
 

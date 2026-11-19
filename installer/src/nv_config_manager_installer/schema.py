@@ -38,6 +38,7 @@ from pydantic import (
 )
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_CPU_QUANTITY_RE = re.compile(r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
@@ -588,9 +589,27 @@ class KeaMultiThreadingConfig(BaseModel):
 
 
 class DHCPConfig(BaseModel):
-    """DHCP service tuning."""
+    """DHCP service tuning.
+
+    ``cpu_request`` overrides ``networkDhcp.resources.dhcp.requests.cpu``. Leave
+    it blank to keep the size profile, which requests 1 CPU, so sizing Kea
+    threads from that request yields one thread and an 8-packet queue.
+    """
 
     kea_multi_threading: KeaMultiThreadingConfig = Field(default_factory=KeaMultiThreadingConfig)
+    cpu_request: str = ""
+
+    @field_validator("cpu_request")
+    @classmethod
+    def _validate_cpu_request(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        if _CPU_QUANTITY_RE.fullmatch(value) is None:
+            raise ValueError(
+                "cpu_request must be a Kubernetes CPU quantity such as 1, 500m, or 1.5"
+            )
+        return value
 
 
 class TemporalDeploymentConfig(BaseModel):

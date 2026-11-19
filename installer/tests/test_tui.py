@@ -782,6 +782,7 @@ async def test_services_screen_collects_kea_multi_threading() -> None:
         app.switch_section("services")
         screen = app._screens["services"]
         screen.query_one("#kea-size-from-cpu", LabeledSwitch).value = True
+        screen.query_one("#dhcp-cpu-request", Input).value = " 2 "
         screen.query_one("#kea-packet-queue-size", Input).value = " 32 "
         await pilot.pause()
 
@@ -791,6 +792,7 @@ async def test_services_screen_collects_kea_multi_threading() -> None:
         assert kea.size_from_cpu_request is True
         assert kea.thread_pool_size is None
         assert kea.packet_queue_size == 32
+        assert config.dhcp.cpu_request == "2"
 
 
 @pytest.mark.asyncio
@@ -818,6 +820,7 @@ async def test_services_screen_blank_kea_fields_mean_unset() -> None:
         ("#kea-thread-pool-size", "-1"),
         ("#kea-thread-pool-size", "auto"),
         ("#kea-packet-queue-size", "0"),
+        ("#dhcp-cpu-request", "lots"),
     ],
 )
 async def test_invalid_kea_multi_threading_blocks_navigation(input_id: str, value: str) -> None:
@@ -834,6 +837,7 @@ async def test_invalid_kea_multi_threading_blocks_navigation(input_id: str, valu
 
         assert app.active_section == "services"
         assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()
+        assert config.dhcp.cpu_request == ""
 
 
 @pytest.mark.asyncio

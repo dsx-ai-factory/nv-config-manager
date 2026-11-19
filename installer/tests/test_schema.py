@@ -928,12 +928,18 @@ class TestKeaMultiThreadingConfig:
         with pytest.raises(ValidationError, match="mutually exclusive"):
             KeaMultiThreadingConfig(size_from_cpu_request=True, thread_pool_size=pool_size)
 
+    def test_cpu_request_accepts_a_quantity_and_rejects_other_text(self) -> None:
+        assert DHCPConfig(cpu_request=" 1500m ").cpu_request == "1500m"
+        with pytest.raises(ValidationError, match="cpu_request"):
+            DHCPConfig(cpu_request="lots")
+
     def test_yaml_round_trip(self, tmp_path: Path) -> None:
         config = NVConfigManagerInstallConfig(
             dhcp=DHCPConfig(
                 kea_multi_threading=KeaMultiThreadingConfig(
                     size_from_cpu_request=True, packet_queue_size=32
-                )
+                ),
+                cpu_request="2",
             )
         )
         path = tmp_path / "config.yaml"

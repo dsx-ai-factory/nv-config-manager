@@ -863,6 +863,8 @@ def _build_lb_ingress(
     multi_threading = _build_kea_multi_threading(config)
     if multi_threading:
         dhcp["kea"] = {"multiThreading": multi_threading}
+    if config.dhcp.cpu_request:
+        dhcp["resources"] = {"dhcp": {"requests": {"cpu": config.dhcp.cpu_request}}}
 
     if lb.provider == LBProvider.NLB:
         ztp_nlb = _build_nlb_service_values(lb.nlb_ztp)

@@ -803,6 +803,20 @@ class TestGenerateHelmValues:
         values = _gen(config)
 
         assert values["networkDhcp"]["kea"]["multiThreading"] == {"sizeFromCpuRequest": True}
+        assert "resources" not in values["networkDhcp"]
+
+    def test_kea_cpu_request_overrides_the_size_profile(self) -> None:
+        config = _make_config(
+            dhcp=DHCPConfig(
+                cpu_request="2",
+                kea_multi_threading=KeaMultiThreadingConfig(size_from_cpu_request=True),
+            )
+        )
+
+        values = _gen(config)
+
+        assert values["networkDhcp"]["resources"]["dhcp"]["requests"]["cpu"] == "2"
+        assert values["networkDhcp"]["kea"]["multiThreading"] == {"sizeFromCpuRequest": True}
 
     def test_kea_multi_threading_explicit_overrides(self) -> None:
         config = _make_config(
