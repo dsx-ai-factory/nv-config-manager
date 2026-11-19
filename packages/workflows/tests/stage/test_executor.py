@@ -15,11 +15,12 @@
 """How the stage decorator reacts to a stage body that returns or raises."""
 
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 from typing import Any
 
 import pytest
 from temporalio import workflow
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError, RetryState
 
 from nv_config_manager_workflows.stage import (
     StageMixin,
@@ -158,6 +159,81 @@ class TestFailure:
 
 
 class TestRetry:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ApplicationError("transient"),
+            ActivityError(
+                "activity retries exhausted",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="worker",
+                activity_type="test_activity",
+                activity_id="activity-1",
+                retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
+            ),
+            ChildWorkflowError(
+                "child retries exhausted",
+                namespace="default",
+                workflow_id="child-1",
+                run_id="run-1",
+                workflow_type="TestChild",
+                initiated_event_id=1,
+                started_event_id=2,
+                retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
+            ),
+        ],
+    )
+    async def test_unretried_failure_closes_workflow_after_three_hours(
+        self,
+        error: Exception,
+        clock: Any,
+        patched_history: Any,
+        upserted: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Exhausted activity/child failures get a bounded manual retry window."""
+        state = Workflow(failing(error))
+
+        async def expires(_condition: Any, *, timeout: timedelta) -> None:
+            assert state.get_stage_state("render") == StateEnum.FAILED
+            assert timeout == timedelta(hours=3)
+            clock.advance(timeout.total_seconds())
+            raise TimeoutError
+
+        monkeypatch.setattr(workflow, "wait_condition", expires)
+        with pytest.raises(
+            StageRuntimeFailure, match="not retried within 10800 seconds"
+        ) as failure:
+            await state.render()
+
+        assert failure.value.type == "StageRetryTimeout"
+        assert failure.value.non_retryable is True
+        assert failure.value.__cause__ is error
+        assert state.get_stage_state("render") == StateEnum.FAILED
+        assert state.get_stage_by_name("render").retry_count == 0
+        assert state.attempts == 1
+
+    async def test_manual_retry_can_recover_within_the_window(
+        self,
+        clock: Any,
+        patched_history: Any,
+        upserted: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A retry signal before the deadline still resumes the failed stage."""
+        state = Workflow(failing_once(ApplicationError("transient")))
+
+        async def retry_signal(_condition: Any, *, timeout: timedelta) -> None:
+            assert timeout == timedelta(hours=3)
+            clock.advance(timedelta(hours=2).total_seconds())
+            state.set_stage_state("render", StateEnum.IN_PROGRESS)
+
+        monkeypatch.setattr(workflow, "wait_condition", retry_signal)
+        assert await state.render() == StageOutput(display="rendered")
+        assert state.get_stage_state("render") == StateEnum.COMPLETE
+        assert state.get_stage_by_name("render").retry_count == 1
+
     async def test_a_retryable_failure_waits_for_the_retry_signal(
         self, clock: Any, legacy_history: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -23,6 +23,7 @@ import pytest
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from nv_config_manager.temporal import runtime
+from nv_config_manager_workflows.retry_timeout import FailedStageRetryTimeoutInterceptor
 
 
 @pytest.fixture
@@ -170,6 +171,8 @@ async def test_temporal_client_connects_anew_on_every_call_with_service_settings
         assert kwargs["namespace"] == "example"
         assert kwargs["data_converter"] is converter
         assert kwargs["runtime"] is temporal_runtime
-        (interceptor,) = kwargs["interceptors"]
+        interceptor, retry_timeout_interceptor = kwargs["interceptors"]
         assert isinstance(interceptor, TracingInterceptor)
         assert interceptor._always_create_workflow_spans is True
+        assert isinstance(retry_timeout_interceptor, FailedStageRetryTimeoutInterceptor)
+        assert retry_timeout_interceptor.seconds == 10800
