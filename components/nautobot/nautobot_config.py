@@ -210,7 +210,6 @@ JOBS_ROOT = os.getenv("NAUTOBOT_JOBS_ROOT", "/opt/nautobot/jobs")
 PLUGINS = [
     "nautobot_fsus",
     "nv_config_manager",
-    "nautobot_firewall_models",
     "nautobot_design_builder",
     "nautobot_nvdatamodels",
     "nautobot_bgp_models",
