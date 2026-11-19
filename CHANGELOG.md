@@ -127,7 +127,7 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ## 1.4.2
 
-Changes since 1.4.1, prepared against `1.4.2-rc.2`. Release promotion is pending.
+Changes since 1.4.1. Released November 16, 2026.
 
 ### Added
 
