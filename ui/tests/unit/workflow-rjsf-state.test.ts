@@ -762,6 +762,36 @@ describe("mapServerErrors", () => {
     });
   });
 
+  it("routes hidden and unknown paths to the form while keeping whole-value errors on their field", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        secret: { type: "string" },
+        ports: { type: "array", items: { type: "string" } },
+      },
+    };
+    const uiSchema = {
+      secret: { "ui:widget": "hidden" },
+      ports: { "ui:field": "apiOptions" },
+    };
+    expect(
+      mapServerErrors(schema, uiSchema, buildLayout(schema, uiSchema), [
+        { loc: ["secret"], msg: "Invalid secret" },
+        { loc: ["body", "unknown", 0], msg: "Unknown field" },
+        { loc: [], msg: "Invalid request" },
+        { loc: ["ports", "name"], msg: "Unknown port" },
+        { loc: ["ports", 0], msg: "Unavailable port" },
+      ])
+    ).toEqual({
+      __errors: [
+        "secret: Invalid secret",
+        "unknown.0: Unknown field",
+        "Invalid request",
+      ],
+      ports: { __errors: ["name: Unknown port", "Item 1: Unavailable port"] },
+    });
+  });
+
   it("keeps nested locations of standard fields", () => {
     const nested = {
       type: "object",
