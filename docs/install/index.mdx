@@ -370,7 +370,9 @@ kubectl logs -n <namespace> deployment/<refresh-deployment> -c config-refresh-v4
 
 ### Run Tests Against an Existing Deployment
 
-After loading site data, run the deployed integration suite without redeploying:
+After loading site data, check the
+[suite's prerequisites](install-airgapped.mdx#test-prerequisites-and-results)
+before running it against the existing deployment:
 
 ```bash
 nvcm-installer test nv-config-manager-install.yaml
@@ -378,8 +380,14 @@ nvcm-installer test nv-config-manager-install.yaml
 
 The runner requires bundled Nautobot, a ready ZTP `sftp` container, and the
 bundled chart's default resource names. It does not support external DCIM
-providers. Tests run inside the deployed image and use internal service
-addresses. They do not validate browser login through the external gateway.
+providers. Some checks assume the bundled mock topology: SMN DHCP testing
+expects `10.240.164.64/31` when SMN uplink `/31` subnets are present. Other valid site
+addressing can fail that check.
+
+Tests run inside the deployed image. Several fixtures still use gateway URLs
+under the default `config-manager.local` hostname, including MCP tests when
+sign-in is disabled. A different deployment hostname can cause failures.
+The suite does not validate browser login through the external gateway.
 Refer to [test prerequisites and authentication](install-airgapped.mdx#run-integration-tests-after-deployment)
 for Kubernetes permissions, SSO credentials, token files, and deployments
 without an installer config. For an installed CLI, use `nvcm-installer` in
