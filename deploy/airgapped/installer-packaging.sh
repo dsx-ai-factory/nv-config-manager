@@ -6,6 +6,7 @@
 pip_download() {
     # The project enforces tool.uv.required-version before uv can access the network.
     uv run --project "$REPO_ROOT/installer" --no-sync --with "$NVCM_PIP_REQUIREMENT" python -m pip download "$@"
+    return
 }
 
 # Digests are pinned from the immutable upstream release, not fetched with the archive.

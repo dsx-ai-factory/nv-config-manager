@@ -11,7 +11,8 @@
 # - ISC kea-admin package requires apt/dpkg installation
 # - Entrypoint shell script requires bash
 
-FROM nvcr.io/nvidia/base/ubuntu:noble-20260917@sha256:7e0f726d635d440d28a7f18e6498d3bdb76c7038bd4c90a090c21eb7c9f40686
+# Upstream tag: nvcr.io/nvidia/base/ubuntu:noble-20260917
+FROM nvcr.io/nvidia/base/ubuntu@sha256:7e0f726d635d440d28a7f18e6498d3bdb76c7038bd4c90a090c21eb7c9f40686
 
 ARG APT_MIRROR=""
 ARG APT_MIRROR_GPG_KEY_URL=""

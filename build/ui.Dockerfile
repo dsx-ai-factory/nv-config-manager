@@ -7,7 +7,8 @@
 # =============================================================================
 # Dependencies stage - install npm packages
 # =============================================================================
-FROM docker.io/library/node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
+# Upstream tag: docker.io/library/node:24.22.1-bookworm-slim
+FROM docker.io/library/node@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
 
 WORKDIR /app
 
@@ -33,7 +34,8 @@ RUN npm run build
 # =============================================================================
 # Runtime stage - NVIDIA distroless Node.js
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/node:24-v4.2.1@sha256:51d7d06cba96c09730909a5209f9f9c6657d2474b0fea62efeadf0e43e4430c2 AS runner
+# Upstream tag: nvcr.io/nvidia/distroless/node:24-v4.2.1
+FROM nvcr.io/nvidia/distroless/node@sha256:51d7d06cba96c09730909a5209f9f9c6657d2474b0fea62efeadf0e43e4430c2 AS runner
 
 WORKDIR /app
 

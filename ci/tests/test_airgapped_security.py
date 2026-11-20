@@ -154,20 +154,31 @@ def test_python_download_fails_closed(tmp_path: Path, failure: str) -> None:
         assert not (tmp_path / "url").exists()
 
 
-def test_pip_download_keeps_project_version_enforcement(tmp_path: Path) -> None:
+@pytest.mark.parametrize("download_status", [0, 1, 23])
+def test_pip_download_keeps_project_version_enforcement_and_status(
+    tmp_path: Path, download_status: int
+) -> None:
     log = tmp_path / "uv-calls"
     driver = r"""
 set -eu
-uv() { printf '%s\n' "$*" > "$UV_TEST_CALLS"; }
+uv() {
+    printf '%s\n' "$*" > "$UV_TEST_CALLS"
+    return "$UV_TEST_STATUS"
+}
 """
     driver += _POLICY.read_text() + "\n" + _shell_function("pip_download")
     result = subprocess.run(
-        ["bash", "-c", driver + "\npip_download fixture.whl\n"],
-        env={**os.environ, "REPO_ROOT": str(tmp_path), "UV_TEST_CALLS": str(log)},
+        ["bash", "-c", driver + "\nif pip_download fixture.whl; then exit 0; else exit $?; fi\n"],
+        env={
+            **os.environ,
+            "REPO_ROOT": str(tmp_path),
+            "UV_TEST_CALLS": str(log),
+            "UV_TEST_STATUS": str(download_status),
+        },
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == download_status, result.stderr
     pip_requirement = next(
         line.split("=", 1)[1].strip("'")
         for line in _POLICY.read_text().splitlines()

@@ -9,7 +9,8 @@
 # =============================================================================
 # Builder stage - use official uv image with Python
 # =============================================================================
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim@sha256:531f855bda2c73cd6ef67d56b733b357cea384185b3022bd09f05e002cd144ca AS builder
+# Upstream tag: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+FROM ghcr.io/astral-sh/uv@sha256:531f855bda2c73cd6ef67d56b733b357cea384185b3022bd09f05e002cd144ca AS builder
 
 # Use the emSign remediation release instead of the base image's bundled uv.
 COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /usr/local/bin/
@@ -93,7 +94,8 @@ RUN --mount=type=cache,id=nvcm-uv-cache,target=/root/.cache/uv \
 # =============================================================================
 # Runtime stage - NVIDIA distroless Python
 # =============================================================================
-FROM nvcr.io/nvidia/distroless/python:3.13-v4.2.1@sha256:794a5902c6b41c4e38088d6ad0c838e198c11f59497ca82b723a8f8f24ba5e4b
+# Upstream tag: nvcr.io/nvidia/distroless/python:3.13-v4.2.1
+FROM nvcr.io/nvidia/distroless/python@sha256:794a5902c6b41c4e38088d6ad0c838e198c11f59497ca82b723a8f8f24ba5e4b
 
 # Replace the pinned runtime's trust store, including hashed certificate paths.
 # Copying only the bundle would leave distrusted roots reachable through capath.

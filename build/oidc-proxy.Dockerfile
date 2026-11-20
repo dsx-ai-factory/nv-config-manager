@@ -3,7 +3,8 @@
 # Refresh OAuth2 Proxy's public CA bundle while awaiting a patched upstream
 # release: https://github.com/oauth2-proxy/oauth2-proxy/issues/3578.
 # Version 7.15.6 also updates the Go toolchain and golang.org/x/net.
-FROM debian:13.7@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1 AS trust-source
+# Upstream tag: debian:13.7
+FROM debian@sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1 AS trust-source
 ARG APT_MIRROR_DEBIAN=""
 ARG APT_MIRROR_GPG_KEY_URL=""
 COPY build/python-ca.py /tmp/python-ca.py
@@ -16,7 +17,8 @@ RUN /tmp/configure-apt-mirror.sh "$APT_MIRROR_DEBIAN" "$APT_MIRROR_GPG_KEY_URL" 
 
 # This exact upstream image has only the combined CA bundle. The existing
 # final-image trust audit checks the resulting image before publication.
-FROM quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
+# Upstream tag: quay.io/oauth2-proxy/oauth2-proxy:v7.15.6
+FROM quay.io/oauth2-proxy/oauth2-proxy@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
 COPY --from=trust-source /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 # Match the non-root runtime identity enforced by the Helm deployment.
 USER 65532:65532
