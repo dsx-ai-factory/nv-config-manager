@@ -26,7 +26,7 @@ from nv_config_manager.temporal.api.workflow_authorization import require_workfl
 
 
 @pytest.fixture
-def reader_request(monkeypatch):
+def reader_request(monkeypatch: pytest.MonkeyPatch) -> Request:
     monkeypatch.setattr(
         auth,
         "_auth_config",
@@ -52,7 +52,9 @@ def reader_request(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stored_roles", [[], ["old-role"]])
-async def test_reader_can_inspect_historical_workflow(reader_request, stored_roles):
+async def test_reader_can_inspect_historical_workflow(
+    reader_request: Request, stored_roles: list[str]
+) -> None:
     handle = MagicMock()
     handle.describe = AsyncMock(
         return_value=MagicMock(
@@ -65,7 +67,9 @@ async def test_reader_can_inspect_historical_workflow(reader_request, stored_rol
 @pytest.mark.asyncio
 @pytest.mark.parametrize("workflow_type", ["RestrictedWorkflow", "UnknownWorkflow"])
 @pytest.mark.parametrize("other_roles", [set(), {"administrator"}])
-async def test_reader_needs_current_workflow_read_grant(reader_request, workflow_type, other_roles):
+async def test_reader_needs_current_workflow_read_grant(
+    reader_request: Request, workflow_type: str, other_roles: set[str]
+) -> None:
     reader_request.state.roles.update(other_roles)
     handle = MagicMock()
     handle.describe = AsyncMock(
@@ -77,7 +81,7 @@ async def test_reader_needs_current_workflow_read_grant(reader_request, workflow
 
 
 @pytest.mark.asyncio
-async def test_reader_gets_not_found_for_missing_workflow(reader_request):
+async def test_reader_gets_not_found_for_missing_workflow(reader_request: Request) -> None:
     handle = MagicMock()
     handle.describe = AsyncMock(side_effect=RPCError("missing", RPCStatusCode.NOT_FOUND, b""))
     with pytest.raises(HTTPException) as error:
@@ -87,14 +91,16 @@ async def test_reader_gets_not_found_for_missing_workflow(reader_request):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("other_roles", [set(), {"administrator"}])
-async def test_reader_cannot_execute_workflow(reader_request, other_roles):
+async def test_reader_cannot_execute_workflow(
+    reader_request: Request, other_roles: set[str]
+) -> None:
     reader_request.state.roles.update(other_roles)
     handle = MagicMock()
     handle.describe = AsyncMock(return_value=MagicMock(search_attributes={"ExecuteRoles": ["all"]}))
     assert not await workflow_v1.is_authorized(reader_request, handle, "execute")
 
 
-def test_reader_cannot_start_public_workflow(reader_request):
+def test_reader_cannot_start_public_workflow(reader_request: Request) -> None:
     config = MagicMock()
     config.get_workflow_roles.return_value = {"read_roles": {"all"}, "execute_roles": {"all"}}
     with pytest.raises(HTTPException) as error:
@@ -111,11 +117,11 @@ def test_reader_cannot_start_public_workflow(reader_request):
     ],
 )
 async def test_historical_list_keeps_filters_and_requires_current_read_grants(
-    reader_request,
-    monkeypatch,
-    site,
-    expected,
-):
+    reader_request: Request,
+    monkeypatch: pytest.MonkeyPatch,
+    site: str | None,
+    expected: str,
+) -> None:
     client = MagicMock()
     client.count_workflows = AsyncMock(return_value=MagicMock(count=1))
     monkeypatch.setattr(workflow_v1, "get_client", AsyncMock(return_value=client))
@@ -129,7 +135,9 @@ async def test_historical_list_keeps_filters_and_requires_current_read_grants(
 
 
 @pytest.mark.asyncio
-async def test_reader_without_workflow_grants_gets_empty_list(reader_request, monkeypatch):
+async def test_reader_without_workflow_grants_gets_empty_list(
+    reader_request: Request, monkeypatch: pytest.MonkeyPatch
+) -> None:
     reader_request.state.roles = {"all", "different-reader"}
     monkeypatch.setattr(
         auth, "_auth_config", auth.AuthConfig(read_only_groups=("different-reader",))

@@ -1116,17 +1116,9 @@ def install_identity_probe(
             request.state.user = identity.user
             request.state.roles = identity.groups
             request.state.auth_source = identity.source
-            if has_read_only_role(identity.groups) and request.method not in {
-                "GET",
-                "HEAD",
-                "OPTIONS",
-            }:
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Read-only identities cannot perform this operation."},
-                )
         elif not auth_required():
-            request.state.identity = ANONYMOUS_IDENTITY
+            identity = ANONYMOUS_IDENTITY
+            request.state.identity = identity
             request.state.user = ANONYMOUS_IDENTITY.user
             request.state.roles = ANONYMOUS_IDENTITY.groups
             request.state.auth_source = ANONYMOUS_IDENTITY.source
@@ -1135,6 +1127,21 @@ def install_identity_probe(
             request.state.user = "unknown"
             request.state.roles = {"all"}
             request.state.auth_source = "unknown"
+
+        if (
+            identity is not None
+            and has_read_only_role(identity.groups)
+            and request.method
+            not in {
+                "GET",
+                "HEAD",
+                "OPTIONS",
+            }
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Read-only identities cannot perform this operation."},
+            )
 
         response: Response = await call_next(request)
         return response

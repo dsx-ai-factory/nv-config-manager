@@ -24,7 +24,7 @@ from nv_config_manager.common import auth
 
 
 @pytest.fixture
-def reader_api(monkeypatch):
+def reader_api(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, list[bool]]:
     monkeypatch.setattr(
         auth,
         "_auth_config",
@@ -36,13 +36,13 @@ def reader_api(monkeypatch):
     )
     monkeypatch.setattr(auth, "_auth_config_tracks_file", False)
     app = FastAPI()
-    called = []
+    called: list[bool] = []
 
     @app.api_route(
         "/resource", methods=["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
     )
     @app.post("/healthcheck")
-    def resource():
+    def resource() -> dict[str, bool]:
         called.append(True)
         return {"ok": True}
 
@@ -50,11 +50,11 @@ def reader_api(monkeypatch):
     return TestClient(app), called
 
 
-def headers(groups="api-reader"):
+def headers(groups: str = "api-reader") -> dict[str, str]:
     return {"X-Auth-Request-Email": "reader@example.com", "X-Auth-Request-Groups": groups}
 
 
-def test_read_only_groups_parsed(monkeypatch):
+def test_read_only_groups_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = ConfigParser()
     cfg.read_dict({"auth": {"read_only_groups": "api-reader, audit-reader, "}})
     monkeypatch.setattr(auth, "_auth_config", None)
@@ -63,7 +63,7 @@ def test_read_only_groups_parsed(monkeypatch):
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
-def test_reader_can_read(reader_api, method):
+def test_reader_can_read(reader_api: tuple[TestClient, list[bool]], method: str) -> None:
     client, called = reader_api
     assert client.request(method, "/resource", headers=headers()).status_code == 200
     assert called == [True]
@@ -71,26 +71,32 @@ def test_reader_can_read(reader_api, method):
 
 @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE"])
 @pytest.mark.parametrize("groups", ["api-reader", "api-reader,administrator"])
-def test_reader_cannot_mutate_even_with_other_roles(reader_api, method, groups):
+def test_reader_cannot_mutate_even_with_other_roles(
+    reader_api: tuple[TestClient, list[bool]], method: str, groups: str
+) -> None:
     client, called = reader_api
     response = client.request(method, "/resource", headers=headers(groups))
     assert response.status_code == 403
     assert called == []
 
 
-def test_public_path_does_not_bypass_reader_restriction(reader_api):
+def test_public_path_does_not_bypass_reader_restriction(
+    reader_api: tuple[TestClient, list[bool]],
+) -> None:
     client, called = reader_api
     assert client.post("/healthcheck", headers=headers()).status_code == 403
     assert called == []
 
 
-def test_existing_writer_is_unchanged(reader_api):
+def test_existing_writer_is_unchanged(reader_api: tuple[TestClient, list[bool]]) -> None:
     client, called = reader_api
     assert client.post("/resource", headers=headers("administrator")).status_code == 200
     assert called == [True]
 
 
-def test_default_empty_group_list_does_not_restrict_existing_group(reader_api, monkeypatch):
+def test_default_empty_group_list_does_not_restrict_existing_group(
+    reader_api: tuple[TestClient, list[bool]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         auth,
         "_auth_config",
@@ -101,7 +107,26 @@ def test_default_empty_group_list_does_not_restrict_existing_group(reader_api, m
     assert called == [True]
 
 
-def test_read_only_role_does_not_bypass_service_admission(reader_api, monkeypatch):
+@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"])
+@pytest.mark.parametrize("read_only_groups", [(), ("all",)])
+def test_anonymous_methods_respect_opt_in_read_only_groups(
+    reader_api: tuple[TestClient, list[bool]],
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    read_only_groups: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(
+        auth, "_auth_config", auth.AuthConfig(required=False, read_only_groups=read_only_groups)
+    )
+    client, called = reader_api
+    denied = bool(read_only_groups) and method not in {"GET", "HEAD", "OPTIONS"}
+    assert client.request(method, "/resource").status_code == (403 if denied else 200)
+    assert called == ([] if denied else [True])
+
+
+def test_read_only_role_does_not_bypass_service_admission(
+    reader_api: tuple[TestClient, list[bool]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(
         auth,
         "_auth_config",
