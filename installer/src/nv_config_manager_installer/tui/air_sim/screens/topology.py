@@ -31,6 +31,7 @@ from nv_config_manager_installer.air_sim.prebuilt_configs import (
     load_prebuilt_config,
 )
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
+from nv_config_manager_installer.tui.air_sim.screens.custom_jobs import CustomJobsPanel
 from nv_config_manager_installer.tui.widgets import LabeledSwitch
 
 
@@ -54,7 +55,7 @@ class PopulationPanel(Container):
 
 
 class NautobotPopulationPanel(PopulationPanel):
-    """Configure the bundled Nautobot mock-topology population job."""
+    """Configure bundled Nautobot population and custom topology jobs."""
 
     def compose(self) -> ComposeResult:
         yield Label("Nautobot", classes="subsection-label")
@@ -70,6 +71,7 @@ class NautobotPopulationPanel(PopulationPanel):
                 placeholder="development/mock_topology",
                 id="mock-topology-path",
             )
+        yield CustomJobsPanel(self._config, id="custom-jobs-panel")
 
     def on_mount(self) -> None:
         self._toggle_fields()
@@ -86,15 +88,19 @@ class NautobotPopulationPanel(PopulationPanel):
     def write_to_config(self, config: SimConfig) -> None:
         config.run_mock_topology_job = self.query_one("#run-mock-topology-job", LabeledSwitch).value
         config.mock_topology_path = self.query_one("#mock-topology-path", Input).value.strip()
+        self.query_one(CustomJobsPanel).write_to_config(config)
 
     def sync_from_config(self, config: SimConfig) -> None:
         super().sync_from_config(config)
         self.query_one("#run-mock-topology-job", LabeledSwitch).value = config.run_mock_topology_job
         self.query_one("#mock-topology-path", Input).value = config.mock_topology_path
+        self.query_one(CustomJobsPanel).sync_from_config(config)
         self._toggle_fields()
 
     def get_status(self, config: SimConfig) -> str:
         if config.run_mock_topology_job and not config.mock_topology_path:
+            return "[!]"
+        if config.custom_jobs_error():
             return "[!]"
         return "[*]"
 

@@ -22,7 +22,7 @@ from types import SimpleNamespace
 
 import pytest
 from textual.app import ComposeResult
-from textual.widgets import Input, Label, Static
+from textual.widgets import Button, Input, Label, Static
 
 import nv_config_manager_installer.air_sim.sim_manager as sim_manager_module
 from nv_config_manager_installer.air_sim.orchestrator import (
@@ -299,14 +299,18 @@ async def test_stream_tabs_follow_and_end_controls() -> None:
     app = ClipboardAirSimApp(config=SimConfig(ngc_api_key="nvapi-test"))
 
     async with app.run_test(size=(180, 70)) as pilot:
+        await pilot.pause()
         app.switch_section("launch")
-        await pilot.pause(0.1)
+        await pilot.pause()
 
         launch = app.query_one("#screen-launch", LaunchScreen)
         viewer = launch.query_one("#stream-viewer", _StreamTabsWidget)
 
-        await pilot.click("#btn-stream-follow")
-        await pilot.pause(0.1)
+        follow = viewer.query_one("#btn-stream-follow", Button)
+        follow.scroll_visible(animate=False)
+        await pilot.pause()
+        assert await pilot.click(follow)
+        await pilot.pause()
         assert viewer._follow_streams["deploy"] is False
         assert str(viewer.query_one("#btn-stream-follow").label) == "Follow: Off"
 
@@ -314,8 +318,11 @@ async def test_stream_tabs_follow_and_end_controls() -> None:
         await pilot.pause(0.1)
         assert viewer.active_lines[-1] == "deploy line 4"
 
-        await pilot.click("#btn-stream-end")
-        await pilot.pause(0.1)
+        end = viewer.query_one("#btn-stream-end", Button)
+        end.scroll_visible(animate=False)
+        await pilot.pause()
+        assert await pilot.click(end)
+        await pilot.pause()
         assert viewer._follow_streams["deploy"] is True
         assert str(viewer.query_one("#btn-stream-follow").label) == "Follow: On"
 

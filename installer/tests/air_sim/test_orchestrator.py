@@ -62,6 +62,19 @@ def test_resolve_topology_prefers_direct_path() -> None:
     assert orchestrator._resolve_topology_path(cfg) == "/tmp/direct.yaml"
 
 
+@pytest.mark.parametrize("inputs", ["{", "[]", '""', "null", "false", [], '{"value": NaN}'])
+def test_invalid_custom_job_inputs_fail_before_air_calls(monkeypatch, inputs) -> None:
+    cfg = SimConfig(extra_run_after_deploy=[{"job": "custom.example.jobs.Design", "input": inputs}])
+    orchestrator = SimOrchestrator(cfg, _Callback())
+    factory = Mock()
+    monkeypatch.setattr(orchestrator, "_create_simulation_manager", factory)
+
+    with pytest.raises(ValueError, match="Custom job 1 inputs"):
+        orchestrator._run_impl()
+
+    factory.assert_not_called()
+
+
 @pytest.mark.parametrize("invalid_network", [None, "missing-exit", "static-ip"])
 def test_superpod_lldp_is_attached_before_boot_without_touching_spx_hosts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalid_network: str | None

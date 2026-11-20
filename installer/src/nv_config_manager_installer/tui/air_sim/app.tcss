@@ -91,6 +91,11 @@ LabeledSwitch .labeled-switch--label {
 .field-row Button { width: auto; margin-left: 1; }
 
 /* Topology screen */
+#population-panel,
+#nautobot-population-fields {
+    height: auto;
+}
+
 #attach-fields,
 #mock-topology-fields,
 #direct-topology-fields {

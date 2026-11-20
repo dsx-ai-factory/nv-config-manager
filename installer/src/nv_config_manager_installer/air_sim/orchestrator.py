@@ -449,6 +449,8 @@ class SimOrchestrator:
         )
         self._step("parse-topology", StepStatus.RUNNING)
         try:
+            if error := cfg.custom_jobs_error():
+                raise ValueError(error)
             if cfg.wait_timeout < 0:
                 raise ValueError("wait_timeout must be zero or greater")
             local_repo = self._local_repository_path(cfg.config_manager_repo)
