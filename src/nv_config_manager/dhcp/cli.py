@@ -23,6 +23,7 @@ import re
 import sys
 import time
 from collections.abc import Awaitable
+from configparser import ConfigParser
 from traceback import format_tb
 from types import TracebackType
 from typing import Any
@@ -49,10 +50,12 @@ from nv_config_manager.dhcp.heartbeat import (
     DEFAULT_MAX_AGE_SECONDS,
     age_is_fresh,
     heartbeat_age_seconds,
+    record_heartbeat_max_age,
     record_successful_reconciliation,
+    recorded_heartbeat_max_age,
     touch_heartbeat,
 )
-from nv_config_manager.dhcp.kea import KeaClient, KeaException
+from nv_config_manager.dhcp.kea import KeaClient, KeaException, timeout_option
 from nv_config_manager.dhcp.kea_dhcp_confgen import generate_config, inject_lease_db_config
 from nv_config_manager.dhcp.metrics import (
     DHCP_CACHE_REFRESH_ERRORS,
@@ -89,9 +92,19 @@ CONFGEN_METRICS_PORT = 9091
 # Kea request can never suspend the event loop indefinitely (which would freeze
 # the heartbeat). On timeout the call raises TimeoutError, which the loop treats
 # as a recoverable error: it is logged/counted but the heartbeat still advances.
-# Overridable via env for operational tuning; read once at import.
+# Overridable via env for operational tuning; read once at import. The Kea
+# deadline is normally set by [dhcp.kea] sync_timeout_seconds (see
+# _kea_op_timeout); CONFIG_SYNC_KEA_TIMEOUT only supplies its default.
 REDIS_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_REDIS_TIMEOUT", "10"))
 KEA_OP_TIMEOUT_SECONDS = float(os.environ.get("CONFIG_SYNC_KEA_TIMEOUT", "15"))
+SYNC_TIMEOUT_OPTION = "sync_timeout_seconds"
+
+# One monitoring iteration runs a Redis read and up to three Kea calls (drift
+# hash check, apply, verify), each under its own deadline, then sleeps for the
+# refresh interval before the next touch. The slack covers that sleep (10s in
+# the chart) plus scheduling jitter.
+_KEA_CALLS_PER_SYNC_ITERATION = 3
+_HEARTBEAT_SLACK_SECONDS = 30.0
 
 # The client already retries each cancelled request. A cycle-level attempt
 # re-reads the whole inventory, so one extra is the useful maximum: it usually
@@ -538,6 +551,25 @@ def refresh_kea_configuration(
     asyncio.run(_refresh_loop_async(ip_version, check, refresh_interval))
 
 
+def _kea_op_timeout(config: ConfigParser) -> float:
+    """Return the config-sync deadline for each bounded Kea operation."""
+    return timeout_option(config, SYNC_TIMEOUT_OPTION, KEA_OP_TIMEOUT_SECONDS)
+
+
+def _heartbeat_max_age(kea_timeout: float) -> float:
+    """Return a staleness threshold longer than one legitimate sync iteration.
+
+    Never below ``DEFAULT_MAX_AGE_SECONDS``, so the default deadline keeps the
+    historical threshold.
+    """
+    iteration = (
+        REDIS_OP_TIMEOUT_SECONDS
+        + _KEA_CALLS_PER_SYNC_ITERATION * kea_timeout
+        + _HEARTBEAT_SLACK_SECONDS
+    )
+    return max(DEFAULT_MAX_AGE_SECONDS, iteration)
+
+
 async def _load_kea_config_with_timeout(
     redis_client: RedisClient, ip_version: int
 ) -> dict[str, Any] | None:
@@ -551,6 +583,7 @@ async def _apply_and_verify_kea_config(
     kea_client: KeaClient,
     config: dict[str, Any],
     ip_version: int,
+    timeout: float | None = None,
 ) -> tuple[str | None, bool]:
     """Apply the desired configuration to KEA and return its hash and verification.
 
@@ -565,19 +598,20 @@ async def _apply_and_verify_kea_config(
     KEA versions without ``config-hash-get`` support report no digest at all, so
     they verify trivially and drift detection degrades to a no-op for them.
 
-    Both Kea calls are bounded so a hung control channel cannot freeze the
-    heartbeat (and therefore the exec livenessProbe).
+    Both Kea calls are bounded by ``timeout`` (default ``KEA_OP_TIMEOUT_SECONDS``)
+    so a hung control channel cannot freeze the heartbeat (and therefore the
+    exec livenessProbe).
     """
+    if timeout is None:
+        timeout = KEA_OP_TIMEOUT_SECONDS
     applied_hash = await _track_sync_operation(
         SyncOperation.CONFIG_SET,
         ip_version,
-        asyncio.wait_for(
-            kea_client.set_config(config, version=ip_version), timeout=KEA_OP_TIMEOUT_SECONDS
-        ),
+        asyncio.wait_for(kea_client.set_config(config, version=ip_version), timeout=timeout),
     )
     try:
         effective_hash = await asyncio.wait_for(
-            kea_client.get_config_hash(version=ip_version), timeout=KEA_OP_TIMEOUT_SECONDS
+            kea_client.get_config_hash(version=ip_version), timeout=timeout
         )
     except (KeaException, TimeoutError, ClientError) as exc:
         # config-set already succeeded, so the desired config is applied and
@@ -623,7 +657,10 @@ async def _sync_kea_configuration_async(
     """Async implementation of sync configuration."""
     # Connect to the KEA server running in the same pod
     ini_config = load_config()
-    kea_client = KeaClient.from_config(ini_config, attached=True)
+    kea_timeout = _kea_op_timeout(ini_config)
+    # The client's own HTTP timeout must not undercut the asyncio.wait_for
+    # deadlines below, or sync_timeout_seconds would have no effect.
+    kea_client = KeaClient.from_config(ini_config, attached=True, timeout_seconds=kea_timeout)
     redis_client = RedisClient.from_config(ini_config)
 
     try:
@@ -632,6 +669,7 @@ async def _sync_kea_configuration_async(
         # progress, not a wedged loop, so the probe must not fail during it --
         # otherwise a cold start with no published config restart-loops the
         # sidecar once the probe's grace period expires.
+        record_heartbeat_max_age(_heartbeat_max_age(kea_timeout), heartbeat_file)
         touch_heartbeat(heartbeat_file)
         config = None
         while config is None:
@@ -681,7 +719,7 @@ async def _sync_kea_configuration_async(
         for attempt in range(1, STARTUP_APPLY_ATTEMPTS + 1):
             try:
                 expected_hash, verified = await _apply_and_verify_kea_config(
-                    kea_client, config, ip_version
+                    kea_client, config, ip_version, kea_timeout
                 )
                 applied_config = config
                 break
@@ -803,7 +841,7 @@ async def _sync_kea_configuration_async(
                             desired_hash=desired_hash,
                         )
                         expected_hash, verified = await _apply_and_verify_kea_config(
-                            kea_client, published_config, ip_version
+                            kea_client, published_config, ip_version, kea_timeout
                         )
                         previous_config = published_config
                         if verified and expected_hash is not None:
@@ -831,7 +869,7 @@ async def _sync_kea_configuration_async(
                             ip_version,
                             asyncio.wait_for(
                                 kea_client.get_config_hash(version=ip_version),
-                                timeout=KEA_OP_TIMEOUT_SECONDS,
+                                timeout=kea_timeout,
                             ),
                         )
                         if kea_running_hash != expected_hash:
@@ -871,7 +909,7 @@ async def _sync_kea_configuration_async(
                                     desired_hash=expected_hash,
                                 )
                             expected_hash, verified = await _apply_and_verify_kea_config(
-                                kea_client, previous_config, ip_version
+                                kea_client, previous_config, ip_version, kea_timeout
                             )
                             if verified and expected_hash is not None:
                                 _mark_verified_sync(ip_version, expected_hash, recovered=True)
@@ -978,13 +1016,17 @@ def sync_kea_configuration(
     "--max-age",
     "max_age_seconds",
     type=float,
-    default=DEFAULT_MAX_AGE_SECONDS,
+    default=None,
     envvar="CONFIG_SYNC_HEARTBEAT_MAX_AGE",
     show_envvar=True,
-    show_default=True,
-    help="maximum allowed heartbeat age in seconds before it is considered stale.",
+    help=(
+        "maximum allowed heartbeat age in seconds before it is considered stale. "
+        "Defaults to the threshold recorded by the running sync loop, which covers "
+        f"one sync iteration at its [dhcp.kea] {SYNC_TIMEOUT_OPTION}, or "
+        f"{DEFAULT_MAX_AGE_SECONDS:.0f} when none is recorded."
+    ),
 )
-def check_sync_heartbeat(heartbeat_file: str, max_age_seconds: float) -> None:
+def check_sync_heartbeat(heartbeat_file: str, max_age_seconds: float | None) -> None:
     """Liveness check for the config-sync loop.
 
     Exits 0 only when the heartbeat file exists and its age is below the
@@ -992,6 +1034,8 @@ def check_sync_heartbeat(heartbeat_file: str, max_age_seconds: float) -> None:
     to back an exec livenessProbe so a wedged reconcile loop is recycled while a
     mere dependency outage (which still advances the heartbeat) is not.
     """
+    if max_age_seconds is None:
+        max_age_seconds = recorded_heartbeat_max_age(heartbeat_file) or DEFAULT_MAX_AGE_SECONDS
     age = heartbeat_age_seconds(heartbeat_file)
     if age is None:
         click.echo(f"heartbeat missing or unreadable: {heartbeat_file}", err=True)

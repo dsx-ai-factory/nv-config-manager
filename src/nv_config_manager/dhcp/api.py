@@ -42,7 +42,12 @@ from nv_config_manager.common.telemetry import (
     setup_tracing,
 )
 from nv_config_manager.dhcp.config_hash import read_expected_config_hash
-from nv_config_manager.dhcp.kea import IpVersion, KeaClient, KeaException
+from nv_config_manager.dhcp.kea import (
+    DEFAULT_TIMEOUT_SECONDS,
+    IpVersion,
+    KeaClient,
+    KeaException,
+)
 from nv_config_manager.dhcp.lease_dashboard import (
     DhcpSummaryResponse,
     LeasePageResponse,
@@ -641,6 +646,17 @@ def _assert_desired_config_applied(
         )
 
 
+def _probe_kea_client() -> KeaClient:
+    """Return the co-located Kea client used by the liveness and readiness probes.
+
+    Probes keep the fixed default timeout rather than ``[dhcp.kea]
+    client_timeout_seconds``: that setting is sized for large config requests,
+    and a value below Kea's status latency would fail the probes and restart a
+    responsive Kea.
+    """
+    return KeaClient.from_config(attached=True, timeout_seconds=DEFAULT_TIMEOUT_SECONDS)
+
+
 @app.get("/livez")
 async def livez() -> str:
     """Liveness probe for the Kea container.
@@ -650,7 +666,7 @@ async def livez() -> str:
     liveness failures recycle the Kea container; config correctness is enforced
     separately by the readiness probe (``/healthcheck``).
     """
-    client = KeaClient.from_config(attached=True)
+    client = _probe_kea_client()
     try:
         await _assert_kea_online(client)
         return "OK"
@@ -674,7 +690,7 @@ async def healthcheck() -> str:
     A config mismatch makes the pod UNREADY (triggering reconciliation) but does
     NOT restart a live Kea; the readiness path never recycles the Kea container.
     """
-    client = KeaClient.from_config(attached=True)
+    client = _probe_kea_client()
     try:
         await _assert_kea_online(client)
         running_hash = await client.get_config_hash(4)

@@ -37,7 +37,7 @@ from nv_config_manager.dhcp.api import (
     _install_cors,
     app,
 )
-from nv_config_manager.dhcp.kea import KeaClient, KeaException
+from nv_config_manager.dhcp.kea import DEFAULT_TIMEOUT_SECONDS, KeaClient, KeaException
 
 _HEADERS_TRUSTED = AuthConfig(accept_request_headers=True)
 _AUTH_DISABLED = AuthConfig(required=False)
@@ -540,6 +540,45 @@ def test_livez_reports_timeout():
 
     assert rsp.status_code == 500
     assert rsp.json() == {"detail": "KEA Request timed out"}
+
+
+def test_probes_ignore_the_configured_client_timeout(kea_ini) -> None:
+    """Probe clients keep the default timeout; other routes use client_timeout_seconds."""
+    kea_ini(client_timeout_seconds="0.5")
+    created: list[KeaClient] = []
+    real_from_config = KeaClient.from_config
+
+    def record(*args, **kwargs) -> KeaClient:
+        kea_client = real_from_config(*args, **kwargs)
+        created.append(kea_client)
+        return kea_client
+
+    client = TestClient(app)
+    with (
+        patch("nv_config_manager.dhcp.api.KeaClient.from_config", side_effect=record),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.status",
+            new_callable=AsyncMock,
+            return_value=[{"arguments": {"pid": 9}, "result": 0}],
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config_hash",
+            new_callable=AsyncMock,
+            return_value=None,
+        ),
+        patch(
+            "nv_config_manager.dhcp.api.KeaClient.get_config",
+            new_callable=AsyncMock,
+            return_value=MIN_READY_CONFIG,
+        ),
+        patch("nv_config_manager.common.auth._auth_config", _HEADERS_TRUSTED),
+    ):
+        assert client.get("/livez").status_code == 200
+        client.get("/healthcheck")
+        rsp = client.get("/config", headers={"X-Auth-Request-Email": "test@example.com"})
+        assert rsp.status_code == 200
+
+    assert [c.timeout_seconds for c in created] == [DEFAULT_TIMEOUT_SECONDS] * 2 + [0.5]
 
 
 def test_metrics():

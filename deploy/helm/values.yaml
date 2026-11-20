@@ -1805,6 +1805,24 @@ networkDhcp:
   # Kea configuration
   kea:
     storkAgentPort: 9457
+    # Deadline (seconds) for each config-sync apply, rendered into the shared
+    # [dhcp.kea] INI section as sync_timeout_seconds. The sidecar wraps the
+    # whole set_config() call (config-set followed by config-write) in one
+    # asyncio.wait_for. Those two requests share this deadline. The
+    # config-hash-get call has its own asyncio.wait_for with the same value.
+    # The Kea HTTP client also receives this value. Raise it if applying a large
+    # config under load takes longer than this, otherwise the sidecar records a
+    # failure and re-sends the full payload on the next pass. The sidecar reads
+    # this at startup, so restart the DHCP pod after changing it. When this is
+    # large, the sidecar's heartbeat probe raises its staleness threshold
+    # (90 seconds by default) to cover one full sync iteration.
+    configSyncTimeoutSeconds: 15
+    # Total HTTP timeout (seconds) for Kea control requests made by the api and
+    # config-refresh containers (e.g. config-test of a large config), rendered
+    # into [dhcp.kea] as client_timeout_seconds. config-sync uses
+    # configSyncTimeoutSeconds above instead, and the /livez and /healthcheck
+    # probes keep a fixed 10-second timeout.
+    clientTimeoutSeconds: 10
     # Empty values keep Kea's current settings: thread-pool-size 0 and
     # packet-queue-size 64. Set sizeFromCpuRequest to size the pool from
     # networkDhcp.resources.dhcp.requests.cpu, rounding fractional requests up
