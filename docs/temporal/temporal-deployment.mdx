@@ -144,6 +144,60 @@ and approval waits. When an unanswered failure wait expires, the workflow closes
 as **Failed** with a `StageRetryTimeout` cause. Existing shorter run or execution
 deadlines continue to apply. See [Workflow Lifecycle](../user-guides/workflow-lifecycle/index.mdx#retry).
 
+## Worker Cache and Task Limits
+
+The Config Manager worker limits its sticky workflow cache and concurrent
+workflow tasks to bound memory use during large workflow batches. Configure
+the limits directly in Helm values:
+
+```yaml
+temporal:
+  configManagerWorker:
+    maxCachedWorkflows: 200
+    maxConcurrentWorkflowTasks: 10
+```
+
+These are the Config Manager defaults, replacing the Temporal SDK defaults
+of 1,000 cached workflows and 100 concurrent workflow tasks. Each worker
+process reads the values at startup. Helm rolls the worker pods when these
+settings change; existing workflow histories stay in Temporal. For deployments
+outside Helm, restart workers after changing their configuration.
+
+For deployments outside Helm, set `max_cached_workflows` and
+`max_concurrent_workflow_tasks` in the `[temporal.worker]` INI section.
+The cache must be a nonnegative integer; `0` disables it. Task concurrency
+must be a positive integer and at least `2` while the cache is enabled.
+Invalid values stop worker startup. Size the cache against each worker's
+memory limit. Workflow-task slots limit workflow execution tasks, rather
+than the number of open workflows or activity executions.
+
+Custom workflow plugins should follow the
+[workflow module import pattern](https://github.com/dsx-ai-factory/nv-config-manager/blob/main/packages/workflows/README.md#workflow-module-imports)
+to share deterministic dependencies with the worker instead of re-importing
+them in every cached sandbox.
+
+## Server Dynamic Configuration
+
+For the managed Temporal server, `temporal.dynamicConfig` uses Temporal's
+native map of configuration keys to lists of values. For example:
+
+```yaml
+temporal:
+  dynamicConfig:
+    frontend.namespaceRPS.visibility:
+      - value: 50
+      - value: 25
+        constraints:
+          namespace: example-namespace
+```
+
+The chart writes this structure directly to `dynamic_config.yaml`, preserving
+each value and its constraints. Do not wrap the map in another `value` key.
+The example sets a default visibility request limit and a namespace-specific
+override. The namespace is a **Temporal namespace**, not a Kubernetes
+namespace; replace it with the namespace used by your workflows. When using
+an external Temporal server, configure dynamic settings on that server.
+
 ## Temporal Images
 
 The managed Temporal deployment uses three independently scoped distroless

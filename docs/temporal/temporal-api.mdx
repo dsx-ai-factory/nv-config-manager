@@ -351,6 +351,26 @@ This representation adds `group`, `form_id`, and `has_form` to each workflow.
 The request without `include=form` omits those keys so clients generated from
 earlier versions of the API can continue decoding the response.
 
+## Stage Action Responses
+
+The workflow API accepts these stage actions for running workflows:
+
+```http
+POST /v1/workflow/{workflow_id}/approve/{stage_name}
+POST /v1/workflow/{workflow_id}/reject/{stage_name}
+POST /v1/workflow/{workflow_id}/retry/{stage_name}
+```
+
+If the workflow closes before the signal arrives, the API returns
+`409 Conflict` with its status in the `detail` message. Refresh the workflow
+before offering another action. If the workflow no longer exists, the API
+returns `404 Not Found`. These outcomes previously produced `500` responses.
+
+The UI hides **Retry** after a failed stage's workflow closes and refreshes
+its state after a `409`. An expired
+[failed-stage retry window](temporal-deployment.mdx#failed-stage-retry-window)
+closes the workflow; sending another retry signal does not reopen it.
+
 ## Testing
 
 ### Unit Tests
