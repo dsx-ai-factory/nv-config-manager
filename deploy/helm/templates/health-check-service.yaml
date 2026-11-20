@@ -53,5 +53,5 @@ spec:
         - containerPort: 8080
           name: http
         resources:
-          {{- toYaml .Values.global.healthCheckResources | nindent 10 }}
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "healthCheckResources") | nindent 10 }}
 {{- end }}

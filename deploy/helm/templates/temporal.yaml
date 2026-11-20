@@ -96,7 +96,7 @@ spec:
       # shell into the Temporal server runtime.
       - name: render-config
         resources:
-          {{- toYaml $.Values.global.initContainerResources | nindent 10 }}
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ include "nv-config-manager.image" (dict "root" $ "image" $.Values.global.images.temporalServer) }}"
         imagePullPolicy: {{ $.Values.global.images.temporalServer.pullPolicy }}
         command: ["/usr/local/bin/dockerize", "-template", "/etc/temporal/config-template/config_template.yaml:/etc/temporal/config/docker.yaml"]
@@ -144,7 +144,7 @@ spec:
       # Wait for both PostgreSQL clusters to be ready (temporal and visibility)
       - name: wait-for-postgres
         resources:
-          {{- toYaml $.Values.global.initContainerResources | nindent 10 }}
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ $.Values.global.images.busybox.repository }}:{{ $.Values.global.images.busybox.tag }}"
         command:
         - sh
@@ -167,7 +167,7 @@ spec:
       # Frontend runs schema setup before starting (other services wait for frontend)
       - name: schema-setup
         resources:
-          {{- toYaml $.Values.global.initContainerResources | nindent 10 }}
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ include "nv-config-manager.image" (dict "root" $ "image" $.Values.global.images.temporalBootstrap) }}"
         imagePullPolicy: {{ $.Values.global.images.temporalBootstrap.pullPolicy }}
         command: ["/usr/local/bin/temporal-bootstrap", "setup-schema"]
@@ -209,7 +209,7 @@ spec:
       # Non-frontend services wait for frontend to be ready (which implies schema is set up)
       - name: wait-for-frontend
         resources:
-          {{- toYaml $.Values.global.initContainerResources | nindent 10 }}
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ $.Values.global.images.busybox.repository }}:{{ $.Values.global.images.busybox.tag }}"
         command: ['sh', '-c', 'until nc -z {{ $temporalName }}-frontend-service.{{ $.Values.global.namespace }}.svc.cluster.local {{ (index $.Values.temporal.services "frontend").port }}; do echo "waiting for {{ $temporalName }}-frontend-service.{{ $.Values.global.namespace }}.svc.cluster.local"; sleep 2; done; echo "frontend is ready"']
       {{- end }}

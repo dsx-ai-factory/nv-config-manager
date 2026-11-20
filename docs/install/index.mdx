@@ -411,8 +411,10 @@ global:
 This applies to chart-owned application Deployments and hook Jobs.
 `global.runtimeClassOverrides` selects a class per component; an empty string
 uses the node default. Set CPU/memory limits for all containers and sidecars,
-and tune `global.initContainerResources` and `global.migrationResources` for
-your plugins and migrations. Runtime installation, scheduling/overhead, and
+and tune `global.initContainerResources` for init and plugin-install steps.
+For migrations, use `global.migrationResources` for Config Store and
+`nautobot.server.migrations.resources` for Nautobot (default memory limit: 2Gi).
+Runtime installation, scheduling/overhead, and
 operator-managed dependencies such as CNPG databases and the ingress gateway
 are configured separately. Qualify your runtime profile, storage, identity,
 and real DHCP/ZTP ingress paths before production use.

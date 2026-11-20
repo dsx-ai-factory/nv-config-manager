@@ -532,7 +532,7 @@ spec:
         # Wait for Redis to be ready
         - name: wait-redis
           resources:
-            {{- toYaml $.Values.global.initContainerResources | nindent 12 }}
+            {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 12 }}
           image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
           command:
@@ -548,7 +548,7 @@ spec:
         # Wait for PostgreSQL to be ready
         - name: wait-postgres
           resources:
-            {{- toYaml $.Values.global.initContainerResources | nindent 12 }}
+            {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 12 }}
           image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
           command:
@@ -945,7 +945,7 @@ spec:
       initContainers:
         - name: wait-redis
           resources:
-            {{- toYaml $.Values.global.initContainerResources | nindent 12 }}
+            {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 12 }}
           image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
           imagePullPolicy: {{ .Values.global.imagePullPolicy | default "IfNotPresent" }}
           command:

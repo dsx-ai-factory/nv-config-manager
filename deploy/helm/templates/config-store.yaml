@@ -171,7 +171,7 @@ spec:
       # Wait for config-store postgres to be ready
       - name: wait-for-postgres
         resources:
-          {{- toYaml $.Values.global.initContainerResources | nindent 10 }}
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
         command:
         - sh
@@ -186,7 +186,7 @@ spec:
       containers:
       - name: db-init
         resources:
-          {{- toYaml .Values.global.migrationResources | nindent 10 }}
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "migrationResources") | nindent 10 }}
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
         imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
         {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
