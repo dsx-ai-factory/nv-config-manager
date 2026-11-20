@@ -1204,6 +1204,39 @@ async def test_consumer_monitor_survives_a_durable_it_cannot_recreate():
     jetstream.add_consumer.assert_awaited_once()
 
 
+async def _never_returns(*_args: object, **_kwargs: object) -> None:
+    await asyncio.Event().wait()
+
+
+@pytest.mark.asyncio
+async def test_consumer_monitor_reaches_the_stall_check_when_a_poll_never_returns():
+    """A request stuck before its reply wait has no timeout of its own, and must not hide a stall."""
+    consumer = _liveness_consumer()
+    consumer._last_progress -= 601
+    jetstream = MagicMock(consumer_info=_never_returns)
+
+    with (
+        patch("nv_config_manager_infrastructure.nats.consumer.LIVENESS_API_TIMEOUT_SECONDS", 0.01),
+        pytest.raises(RuntimeError, match="is exiting to be restarted"),
+    ):
+        await asyncio.wait_for(_poll_once(consumer, jetstream), timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_consumer_monitor_reaches_the_stall_check_when_recreation_never_returns():
+    """Re-creating a deleted durable is bounded the same way as the poll."""
+    consumer = _liveness_consumer()
+    consumer._last_progress -= 601
+    gone = NotFoundError(code=404, err_code=10014, description="consumer not found")
+    jetstream = MagicMock(consumer_info=AsyncMock(side_effect=gone), add_consumer=_never_returns)
+
+    with (
+        patch("nv_config_manager_infrastructure.nats.consumer.LIVENESS_API_TIMEOUT_SECONDS", 0.01),
+        pytest.raises(RuntimeError, match="is exiting to be restarted"),
+    ):
+        await asyncio.wait_for(_poll_once(consumer, jetstream), timeout=5)
+
+
 @pytest.mark.asyncio
 async def test_consumer_main_exits_when_the_durable_stalls():
     """A stall raises out of main(), after handlers drain and the connection closes."""

@@ -47,6 +47,10 @@ logger = get_logger(__name__, category=LogCategory.NATS)
 HANDLER_DRAIN_SECONDS = 20
 
 LIVENESS_CHECK_INTERVAL_SECONDS = 15.0
+# Bound on each JetStream call the liveness monitor makes. The client's own
+# request timeout covers only the wait for a reply, not a publish held up
+# behind a full outbound buffer, and a monitor stuck there never checks for a stall.
+LIVENESS_API_TIMEOUT_SECONDS = 30.0
 
 # JetStream error code for "consumer not found".
 CONSUMER_NOT_FOUND_ERR_CODE = 10014
@@ -308,7 +312,10 @@ class NatsConsumer(NatsClient):
         """
         while self.conn is not None and not self.conn.is_closed:
             try:
-                consumer_info = await jetstream.consumer_info(self.stream, self.full_queue_name)
+                consumer_info = await asyncio.wait_for(
+                    jetstream.consumer_info(self.stream, self.full_queue_name),
+                    LIVENESS_API_TIMEOUT_SECONDS,
+                )
             except NotFoundError as e:
                 if e.err_code == CONSUMER_NOT_FOUND_ERR_CODE:
                     await self._recreate_durable(jetstream)
@@ -388,7 +395,10 @@ class NatsConsumer(NatsClient):
                 opt_start_time=self._bound_at,
             )
         try:
-            consumer_info = await jetstream.add_consumer(stream=self.stream, config=config)
+            consumer_info = await asyncio.wait_for(
+                jetstream.add_consumer(stream=self.stream, config=config),
+                LIVENESS_API_TIMEOUT_SECONDS,
+            )
         except Exception as e:
             # Another replica may have re-created it first, or creation is left
             # to an administrator. The next poll shows which.
