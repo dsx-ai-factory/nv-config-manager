@@ -90,11 +90,14 @@ the release tags there, `publish-images-release` copies all ten project images
 to the other configured image targets. Copies preserve every architecture and
 the source digests, with separate credentials for each destination. Stable
 releases then run `publish-latest-release` under a shared resource lock. That
-job rechecks all versioned image digests before updating any `latest` tag,
-including the build source. It fetches Git tags inside the lock and skips older
-stable versions, preventing overlapping or retried pipelines from moving
-`latest` backward. RCs never update `latest`. Chart publishing waits for image
-copies and, for stable releases, the latest-tag phase to succeed.
+job rechecks all versioned image digests before updating `latest` and
+`major.minor-latest` tags, including the build source. It fetches Git tags inside
+the lock: only the newest stable release updates `latest`, and only the newest
+stable patch in each minor updates its alias (for example, `1.3-latest`).
+Maintenance releases can advance their minor alias while `latest` stays on a
+newer minor. Older retries cannot move either alias backward. RCs update neither
+alias. Chart publishing waits for image copies and, for stable releases, the
+latest-tag phase to succeed.
 Adding a chart destination alone does not configure an image destination: add
 its image target and `image_target` mapping together. Use masked, protected
 service-key variables for CI publishing.
