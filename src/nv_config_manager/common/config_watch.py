@@ -50,6 +50,13 @@ DEFAULT_POLL_INTERVAL_SECONDS = 30.0
 # Deployment rollout would otherwise have arranged.
 DEFAULT_MAX_JITTER_SECONDS = 20.0
 
+# How long a process gets to shut down cleanly before it is stopped outright.
+# This is the grace period Kubernetes gives a container by default.
+DEFAULT_SHUTDOWN_GRACE_SECONDS = 30.0
+
+# Distinguishes a forced stop from the clean exit a SIGTERM handler produces.
+FORCED_EXIT_CODE = 1
+
 _watch_started = threading.Lock()
 
 
@@ -98,6 +105,7 @@ def _watch(
     max_jitter: float,
     stop: threading.Event,
     baseline: tuple[str, str] | None = None,
+    shutdown_grace: float = DEFAULT_SHUTDOWN_GRACE_SECONDS,
 ) -> None:
     """Poll until the file's contents change, then signal a shutdown.
 
@@ -109,6 +117,7 @@ def _watch(
         baseline: Digest and text already parsed at startup. A later read of
             the file is not a safe baseline: the process is still using the
             earlier copy, so a change in between would never restart it.
+        shutdown_grace: Seconds the process gets to exit after the signal
     """
     if baseline is None:
         digest = file_digest(path)
@@ -136,12 +145,25 @@ def _watch(
         # would if Kubernetes had replaced the pod, so reuse that path instead
         # of adding a second kind of exit.
         os.kill(os.getpid(), signal.SIGTERM)
+
+        # A container's main process is PID 1, and the kernel drops a signal
+        # sent to PID 1 unless the process installed a handler for it. A
+        # service without one would log the change and carry on with the old
+        # configuration, so stop it the way Kubernetes stops a container that
+        # outlives its grace period.
+        if stop.wait(shutdown_grace):
+            return
+        logger.warning(
+            "Still running %.0fs after SIGTERM, exiting without a clean shutdown", shutdown_grace
+        )
+        os._exit(FORCED_EXIT_CODE)
         return
 
 
 def restart_on_config_change(
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
     max_jitter: float = DEFAULT_MAX_JITTER_SECONDS,
+    shutdown_grace: float = DEFAULT_SHUTDOWN_GRACE_SECONDS,
 ) -> bool:
     """Watch the unified INI file and stop this process when it changes.
 
@@ -152,6 +174,8 @@ def restart_on_config_change(
     Args:
         poll_interval: Seconds between checks of the file
         max_jitter: Upper bound on the delay before shutting down
+        shutdown_grace: Seconds the process gets to exit cleanly before it is
+            stopped outright
 
     Returns:
         True when a watch was started, False when one was already running
@@ -166,7 +190,7 @@ def restart_on_config_change(
     baseline = loaded_config_snapshot(path) or read_config_snapshot(path)
     threading.Thread(
         target=_watch,
-        args=(path, poll_interval, max_jitter, threading.Event(), baseline),
+        args=(path, poll_interval, max_jitter, threading.Event(), baseline, shutdown_grace),
         name="config-watch",
         daemon=True,
     ).start()

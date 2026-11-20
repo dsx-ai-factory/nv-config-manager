@@ -184,6 +184,44 @@ def test_the_restart_is_spread_across_replicas(ini: Path) -> None:
     uniform.assert_called_once_with(0, 20.0)
 
 
+def test_a_process_that_ignores_the_signal_is_stopped_outright(ini: Path) -> None:
+    """A container's PID 1 drops SIGTERM unless it installed a handler for it."""
+    exited = threading.Event()
+    exit_codes: list[int] = []
+
+    def record_exit(code: int) -> None:
+        exit_codes.append(code)
+        exited.set()
+
+    with (
+        patch("nv_config_manager.common.config_watch.os.kill") as kill,
+        patch("nv_config_manager.common.config_watch.os._exit", side_effect=record_exit),
+    ):
+        watcher = threading.Thread(
+            target=_watch,
+            args=(str(ini), POLL_INTERVAL, 0.0, threading.Event(), None, 0.0),
+            daemon=True,
+        )
+        watcher.start()
+        deadline = time.monotonic() + 5.0
+        while not exited.is_set() and time.monotonic() < deadline:
+            ini.write_text(ROTATED)
+            time.sleep(POLL_INTERVAL)
+        watcher.join(timeout=5.0)
+
+    kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
+    assert exit_codes == [config_watch.FORCED_EXIT_CODE]
+
+
+def test_a_process_that_shuts_down_in_time_is_not_forced(ini: Path) -> None:
+    """A service with a SIGTERM handler keeps its clean exit."""
+    with patch("nv_config_manager.common.config_watch.os._exit") as forced_exit:
+        signals = _watch_while(ini, change=lambda: ini.write_text(ROTATED))
+
+    assert signals == [(os.getpid(), signal.SIGTERM)]
+    forced_exit.assert_not_called()
+
+
 def test_changed_keys_names_the_settings_that_moved() -> None:
     """An operator needs to know why a service restarted."""
     assert changed_keys(ORIGINAL, RENAMED_STREAM) == ["nats.config_manager_stream"]

@@ -15,8 +15,10 @@ The promotion workflow extracts GitHub release notes from that commit.
   of `nv-config-manager.ini` change, so a rotated credential or renamed NATS
   stream takes effect without a manual rollout. Each replica waits a random
   delay of up to 20 seconds first, and the log line names the settings that
-  changed, never their values. Expect container restarts shortly after the
-  mounted Secret updates. This covers the DHCP configuration refresh and sync
+  changed, never their values. A process still running 30 seconds after the
+  restart request is stopped outright, so a service without a SIGTERM handler
+  restarts too. Expect container restarts shortly after the mounted Secret
+  updates. This covers the DHCP configuration refresh and sync
   loops as well as the API, consumer, worker, and scheduler services.
 - A workflow whose result cannot be published to NATS after three attempts now
   logs a warning and completes, instead of failing after its work is done.
