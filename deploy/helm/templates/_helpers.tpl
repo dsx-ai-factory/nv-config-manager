@@ -1,3 +1,37 @@
+{{- define "nv-config-manager.failedStageRetryTimeoutSeconds" -}}
+{{- $seconds := .Values.temporal.configManagerWorker.failedStageRetryTimeoutSeconds -}}
+{{- /*
+Missing or null, e.g. after helm upgrade --reuse-values from a release that predates
+this key: use the three-hour default, as the services do for an unset INI value.
+*/ -}}
+{{- if kindIs "invalid" $seconds -}}
+{{- $seconds = 10800 -}}
+{{- end -}}
+{{- /*
+Values files decode numbers as float64, which toString renders in exponent form
+from 1e+06 upward. Convert whole floats within the exactly representable integer
+range (2^53) to int64 so they render as decimal digits; fractional and larger
+floats stay floats and fail the check below.
+*/ -}}
+{{- if kindIs "float64" $seconds -}}
+{{- if and (eq $seconds (floor $seconds)) (le $seconds 9007199254740992.0) -}}
+{{- $seconds = int64 $seconds -}}
+{{- end -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" (toString $seconds)) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must be a positive integer" -}}
+{{- end -}}
+{{- /*
+365 days, matching MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS in the workflows package.
+The value is decimal digits here; more than eight digits always exceeds the limit.
+*/ -}}
+{{- $digits := toString $seconds -}}
+{{- if or (gt (len $digits) 8) (gt (int64 $digits) 31536000) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must not exceed 31536000 seconds (365 days)" -}}
+{{- end -}}
+{{- $seconds -}}
+{{- end -}}
+
 {{/*
 Expand the name of the chart.
 */}}
@@ -159,6 +193,34 @@ The nats-ready binary embeds 20 GiB; the nats CLI path uses streamMaxBytes.
 {{- else -}}
 21474836480
 {{- end -}}
+{{- end -}}
+
+{{/*
+The NATS CLI parses a 32-bit integer before applying its binary unit suffix.
+Scale large stream limits exactly; never round the configured byte count.
+*/}}
+{{- define "nv-config-manager.natsCliStreamMaxBytes" -}}
+{{- $limit := include "nv-config-manager.localStreamMaxBytes" . | int64 -}}
+{{- $bytes := $limit -}}
+{{- $scale := int64 1 -}}
+{{- $suffix := "" -}}
+{{- range $unit := list "K" "M" "G" "T" -}}
+{{- if gt $bytes 2147483647 -}}
+{{- $bytes = div $bytes 1024 -}}
+{{- $scale = mul $scale 1024 -}}
+{{- $suffix = $unit -}}
+{{- end -}}
+{{- end -}}
+{{- $remainder := mod $limit $scale -}}
+{{- if ne $remainder 0 -}}
+{{- $suggestion := sub $limit $remainder -}}
+{{- $increase := sub $scale $remainder -}}
+{{- if le $limit (sub 9223372036854775807 $increase) -}}
+{{- $suggestion = add $limit $increase -}}
+{{- end -}}
+{{- fail (printf "nautobotNats.natsReady.streamMaxBytes=%d cannot be expressed exactly by the NATS CLI; try nautobotNats.natsReady.streamMaxBytes=%d" $limit $suggestion) -}}
+{{- end -}}
+{{- printf "%d%s" $bytes $suffix -}}
 {{- end -}}
 
 {{/*
@@ -2267,6 +2329,139 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
   value: {{ $endpoint | quote }}
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | quote }}
+{{- end -}}
+
+{{/*
+Convert a Kubernetes CPU quantity to whole millicores.
+
+Accepts decimal cores ("1", "1.5", "+1"), exponent cores ("1e0", "1.5e0"), and
+millicore quantities ("500m", "1500m"). An exponent and a suffix together,
+such as "1e3m", are not a valid quantity.
+*/}}
+{{- define "nv-config-manager.dhcp.cpuMillicores" -}}
+{{- $raw := . | toString | trim -}}
+{{- if not (regexMatch `^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$` $raw) -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q is not a valid CPU quantity" $raw) -}}
+{{- end -}}
+{{- if hasSuffix "m" $raw -}}
+{{- $millis := trimSuffix "m" $raw | float64 | ceil | int -}}
+{{- if le $millis 0 -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q must request a positive amount of CPU" $raw) -}}
+{{- end -}}
+{{- $millis -}}
+{{- else -}}
+{{- $millis := mulf ($raw | float64) 1000.0 | ceil | int -}}
+{{- if le $millis 0 -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q must request a positive amount of CPU" $raw) -}}
+{{- end -}}
+{{- $millis -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Return an explicit multi-threading override, or an empty value when unset.
+
+The chart default is an empty string. A missing key or a null override is
+treated the same way. threadPoolSize may be zero; packetQueueSize may not.
+Context: (dict "root" . "name" "threadPoolSize|packetQueueSize" "allowZero" true)
+*/}}
+{{- define "nv-config-manager.dhcp.threadingOverride" -}}
+{{- $kea := .root.Values.networkDhcp.kea | default dict -}}
+{{- $threading := $kea.multiThreading | default dict -}}
+{{- $raw := "" -}}
+{{- if hasKey $threading .name -}}
+{{- $value := index $threading .name -}}
+{{- /* Values files decode numbers as float64. toString then prints 1000000 as 1e+06, which is not an integer. --set keeps the same number as an int and prints it in decimal. */ -}}
+{{- if or (kindIs "float64" $value) (kindIs "int" $value) (kindIs "int64" $value) -}}
+{{- $number := $value | float64 -}}
+{{- if ne $number (floor $number) -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.%s must be %s" .name (ternary "zero or a positive integer" "a positive integer" .allowZero)) -}}
+{{- end -}}
+{{- $raw = printf "%.0f" $number -}}
+{{- else -}}
+{{- $raw = $value | toString | trim -}}
+{{- end -}}
+{{- end -}}
+{{- if or (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
+{{- "" -}}
+{{- else if not (regexMatch (ternary `^(0|[1-9][0-9]*)$` `^[1-9][0-9]*$` .allowZero) $raw) -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.%s must be %s" .name (ternary "zero or a positive integer" "a positive integer" .allowZero)) -}}
+{{- else -}}
+{{- $raw -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+True when the chart should size workers from the DHCP CPU request.
+
+Accepts a boolean or the strings "true" and "false". A quoted "false" must
+stay off; any other type or string fails the render.
+*/}}
+{{- define "nv-config-manager.dhcp.sizeFromCpuRequest" -}}
+{{- $kea := .Values.networkDhcp.kea | default dict -}}
+{{- $threading := $kea.multiThreading | default dict -}}
+{{- if hasKey $threading "sizeFromCpuRequest" -}}
+{{- $flag := index $threading "sizeFromCpuRequest" -}}
+{{- if or (kindIs "invalid" $flag) (eq ($flag | toString | trim) "<nil>") (eq ($flag | toString | trim) "<no value>") -}}
+{{- else if kindIs "bool" $flag -}}
+{{- if $flag }}true{{ end -}}
+{{- else if kindIs "string" $flag -}}
+{{- $normalized := $flag | trim | lower -}}
+{{- if eq $normalized "true" -}}
+true
+{{- else if ne $normalized "false" -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.sizeFromCpuRequest must be a boolean, got %q" $flag) -}}
+{{- end -}}
+{{- else -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.sizeFromCpuRequest must be a boolean, got %q" ($flag | toString)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Kea worker count. An empty threadPoolSize keeps Kea auto-detection (0) unless
+sizeFromCpuRequest is set, in which case the DHCP CPU request is rounded up
+to at least one thread. Setting both is ambiguous, so the render fails; an
+explicit threadPoolSize of 0 counts as set.
+*/}}
+{{- define "nv-config-manager.dhcp.threadPoolSize" -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "threadPoolSize" "allowZero" true) -}}
+{{- $sizeFromCpu := include "nv-config-manager.dhcp.sizeFromCpuRequest" . -}}
+{{- if and (ne $override "") $sizeFromCpu -}}
+{{- fail "networkDhcp.kea.multiThreading.sizeFromCpuRequest and threadPoolSize are mutually exclusive; set only one" -}}
+{{- else if ne $override "" -}}
+{{- $override -}}
+{{- else if $sizeFromCpu -}}
+{{- $resources := .Values.networkDhcp.resources | default dict -}}
+{{- $dhcpResources := index $resources "dhcp" | default dict -}}
+{{- $requests := index $dhcpResources "requests" | default dict -}}
+{{- $cpu := index $requests "cpu" -}}
+{{- if or (not (hasKey $requests "cpu")) (kindIs "invalid" $cpu) (eq ($cpu | toString | trim) "") (eq ($cpu | toString | trim) "<nil>") (eq ($cpu | toString | trim) "<no value>") -}}
+{{- fail "networkDhcp.resources.dhcp.requests.cpu is required when networkDhcp.kea.multiThreading.sizeFromCpuRequest is true" -}}
+{{- end -}}
+{{- $millis := include "nv-config-manager.dhcp.cpuMillicores" $cpu | int -}}
+{{- div (add $millis 999) 1000 -}}
+{{- else -}}
+{{- 0 -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Kea packet queue. An empty packetQueueSize keeps 64 while the pool is
+auto-detected, and otherwise defaults to eight packets per worker.
+*/}}
+{{- define "nv-config-manager.dhcp.packetQueueSize" -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "packetQueueSize" "allowZero" false) -}}
+{{- if ne $override "" -}}
+{{- $override -}}
+{{- else -}}
+{{- $threads := include "nv-config-manager.dhcp.threadPoolSize" . | int -}}
+{{- if eq $threads 0 -}}
+{{- 64 -}}
+{{- else -}}
+{{- mul $threads 8 -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

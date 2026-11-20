@@ -324,24 +324,93 @@ test.describe("Workflow Detail Page", () => {
     await expect(page.getByText("initial stage output")).toHaveCount(0);
   });
 
-  test("does not show retry as an action for non-retryable failed stages", async ({
+  for (const { retryable, status } of [
+    { retryable: false, status: "RUNNING" },
+    { retryable: false, status: "FAILED" },
+    { retryable: true, status: "FAILED" },
+    { retryable: true, status: "TERMINATED" },
+    { retryable: true, status: "CANCELED" },
+    { retryable: true, status: "TIMED_OUT" },
+  ]) {
+    test(`does not show retry for a failed stage with retryable=${retryable} and workflow status=${status}`, async ({
+      page,
+    }) => {
+      const workflowId = `failed-stage-${retryable}-${status}`;
+      const workflow = createWorkflowWithStage({
+        id: workflowId,
+        retryable,
+        stageName: "apply_config",
+        stageState: "FAILED",
+        status,
+      });
+
+      await page.route(`**/v1/workflow/${workflowId}`, async (route) => {
+        await route.fulfill({ status: 200, json: workflow });
+      });
+
+      await page.goto(`/workflows/${workflowId}`);
+
+      await expect(
+        page.getByText("This failed stage cannot be retried.")
+      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+    });
+  }
+
+  test("refreshes the workflow when retry finds it already closed", async ({
     page,
   }) => {
-    const workflowId = "non-retryable-failed-workflow";
-    const workflow = createWorkflowWithStage({
-      id: workflowId,
-      retryable: false,
-      stageName: "apply_config",
-      stageState: "FAILED",
-      status: "FAILED",
-    });
+    const workflowId = "closed-before-retry";
+    let status = "RUNNING";
+    let retryCalled = false;
+    let fetches = 0;
+
+    // Freeze page timers so SWR's periodic refresh never runs; any later fetch must
+    // come from the 409 handler.
+    const frozenAt = new Date("2026-01-01T00:00:00Z");
+    await page.clock.install({ time: frozenAt });
+    await page.clock.pauseAt(frozenAt);
 
     await page.route(`**/v1/workflow/${workflowId}`, async (route) => {
-      await route.fulfill({ status: 200, json: workflow });
+      fetches += 1;
+      await route.fulfill({
+        status: 200,
+        json: createWorkflowWithStage({
+          id: workflowId,
+          retryable: true,
+          stageName: "apply_config",
+          stageState: "FAILED",
+          status,
+        }),
+      });
     });
+    await page.route(
+      `**/v1/workflow/${workflowId}/retry/apply_config`,
+      async (route) => {
+        retryCalled = true;
+        // The retry window expired after the page loaded.
+        status = "FAILED";
+        await route.fulfill({
+          status: 409,
+          json: {
+            detail:
+              "Workflow is not running (status: FAILED); refresh to see its current state",
+          },
+        });
+      }
+    );
 
     await page.goto(`/workflows/${workflowId}`);
+    const retry = page.getByRole("button", { name: "Retry" });
+    await expect(retry).toBeVisible();
+    const fetchesBeforeRetry = fetches;
+    await retry.click();
 
+    await expect.poll(() => retryCalled).toBe(true);
+    await expect.poll(() => fetches).toBeGreaterThan(fetchesBeforeRetry);
+    await expect(
+      page.getByText("Retry: Unavailable", { exact: true })
+    ).toBeVisible();
     await expect(
       page.getByText("This failed stage cannot be retried.")
     ).toBeVisible();

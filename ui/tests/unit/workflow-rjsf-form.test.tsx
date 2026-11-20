@@ -1239,6 +1239,79 @@ describe("form-only minItems on an optional list", () => {
     expect(posts).toEqual([]);
   });
 
+  it("shares selections across groups and selects or clears each value once", async () => {
+    const groupedStatusForm = structuredClone(statusForm);
+    const statusUi = groupedStatusForm.ui_schema.status as {
+      "ui:options": Record<string, unknown>;
+    };
+    statusUi["ui:options"] = {
+      presentation: "grouped-checkboxes",
+      selectAll: true,
+      showDescriptions: true,
+      metaText: { key: "matching_device_count", label: "Matching devices" },
+      source: {
+        endpoint: "/v1/parameter/status",
+        response: "options-v1",
+        label_key: "label",
+        value_key: "value",
+      },
+    };
+    override = (url) =>
+      url.pathname === "/v1/parameter/status"
+        ? {
+            status: 200,
+            body: {
+              items: [
+                {
+                  value: "Active",
+                  label: "Active",
+                  group: "Current",
+                  description: "In use",
+                },
+                { value: "Active", label: "Active", group: "All statuses" },
+                { value: "Planned", label: "Planned", group: "All statuses" },
+              ],
+              meta: {
+                matching_device_count: 2,
+                warnings: ["Check device status"],
+              },
+            },
+          }
+        : undefined;
+    await renderForm(groupedStatusForm);
+
+    const active = await screen.findAllByRole("checkbox", { name: "Active" });
+    expect(active).toHaveLength(2);
+    expect(screen.getByRole("group", { name: "Current" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "All statuses" })).toBeTruthy();
+    expect(screen.getByText("In use")).toBeTruthy();
+    expect(screen.getByText("Matching devices: 2")).toBeTruthy();
+    expect(screen.getByText("Check device status")).toBeTruthy();
+
+    fireEvent.click(active[0]);
+    await waitFor(() => expect(formData().status).toEqual([]));
+    for (const checkbox of active) {
+      expect(checkbox.getAttribute("aria-checked")).toBe("false");
+    }
+
+    fireEvent.click(active[1]);
+    await waitFor(() => expect(formData().status).toEqual(["Active"]));
+    for (const checkbox of active) {
+      expect(checkbox.getAttribute("aria-checked")).toBe("true");
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await waitFor(() => expect(formData().status).toEqual(["Active", "Planned"]));
+    for (const checkbox of screen.getAllByRole("checkbox")) {
+      expect(checkbox.getAttribute("aria-checked")).toBe("true");
+    }
+    const selectAll = screen.getByRole("button", { name: "Select all" });
+    expect((selectAll as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    await waitFor(() => expect(formData().status).toEqual([]));
+  });
+
   it("associates grouped checkboxes with their label and validation error", async () => {
     const groupedStatusForm = structuredClone(statusForm);
     const statusUi = groupedStatusForm.ui_schema.status as {

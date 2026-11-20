@@ -4,12 +4,26 @@ Notable user-facing changes for NVIDIA Config Manager should be recorded here.
 
 This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
-version before the selected release candidate is promoted.
+version before creating the release candidate tag selected for promotion.
+The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
 ### Changed
 
+- Bundled Nautobot now assigns the MCP read-only token to the dedicated
+  `nvcm-mcp-read-only` inventory account. Before upgrading, ensure
+  `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
+  belongs to another user, the `run-migrations` init container stops. Prefer a
+  fresh token of exactly 40 lowercase hexadecimal characters in the
+  [configured Nautobot secret](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
+  Wait for secret synchronization, then rerun the migration init container.
+  Registration deletes other tokens owned by `nvcm-mcp-read-only`; MCP clients
+  using those Nautobot tokens lose access. Update every affected consumer to use
+  the configured token, then reload the MCP server configuration.
+  Reassign an existing token only if it is dedicated to MCP, since initialization
+  disables writes and restricts its access to inventory. Create `nvcm-mcp-read-only`
+  if needed before reassigning.
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
@@ -23,6 +37,23 @@ version before the selected release candidate is promoted.
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. See
   [Render service](docs/render/render-service.mdx).
+- Retryable failed workflow stages now wait for a manual retry for a configurable
+  window (three hours by default) after automatic activity or child retries are
+  exhausted, instead of indefinitely. An unanswered retry wait closes the
+  workflow as Failed with a non-retryable `StageRetryTimeout` cause. The durable
+  timer survives worker restarts and does not limit healthy work or approval
+  waits. Existing histories that already took the indefinite failure-wait path
+  retain it for replay compatibility.
+- Helm `temporal.configManagerWorker.failedStageRetryTimeoutSeconds` configures
+  the failed-stage manual retry window in positive integer seconds (default
+  10800, maximum 31536000, or 365 days). It is rendered for every secrets
+  method and recorded in new workflow histories and schedule actions so replay
+  and child runs keep their original value across worker restarts and later
+  configuration changes. An unset key, such as after `helm upgrade
+  --reuse-values` from an earlier release, renders the default. Installer
+  deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
+  `nv-config-manager-install.yaml`. See
+  [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
@@ -61,6 +92,22 @@ version before the selected release candidate is promoted.
 
 ### Fixed
 
+- Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
+  NVLink firmware upgrade, and reprovisioning now await the backup child's result
+  so failures and timeouts reach stage failure handling. Previously a failed or
+  timed-out backup was reported as backed up and the workflow continued. These
+  workflows now stop at the backup stage even when the configuration change was
+  already applied: retry the stage to start a new backup, or the workflow closes
+  as **Failed** after the failed-stage retry window. A backup child keeps its own
+  stage retry until the earlier of the failed-stage retry window or its 10-minute
+  run timeout, so the parent stage then reports a failure or timeout; the backup
+  workflow's page shows the underlying error. Histories that already used the old
+  child-completion check retain that path for replay compatibility.
+- Workflow API approve, reject, and retry requests for a workflow that closed
+  before the signal arrived now return `409 Conflict` with the workflow status
+  instead of `500`, and return `404` if the workflow no longer exists. The UI
+  no longer offers Retry for a failed stage once its workflow has closed, and on
+  a `409` it reports that the workflow is no longer running and refreshes it.
 - `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
   anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
   and CloudNativePG then enabled preferred anti-affinity by default.
@@ -93,7 +140,7 @@ version before the selected release candidate is promoted.
 
 ## 1.4.2
 
-Changes since 1.4.1, prepared against `1.4.2-rc.2`. Release promotion is pending.
+Changes since 1.4.1. Released November 16, 2026.
 
 ### Added
 

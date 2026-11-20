@@ -7,6 +7,10 @@ NVIDIA Config Manager (NVCM) is an open-source network automation and configurat
 
 NVCM is currently in Developer Preview and is not recommended for production use.
 
+NVCM is for network engineers and datacenter operators who provision and manage
+network devices at scale, and for developers building DCIM integrations,
+configuration templates, and network automation workflows.
+
 [Hosted documentation](https://docs.nvidia.com/switch-infrastructure/config-manager/)
 · [AI Builders community](https://inviter.co/dsx-ai-factory)
 · [Issue tracker](https://github.com/dsx-ai-factory/nv-config-manager/issues)

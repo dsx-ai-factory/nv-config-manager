@@ -403,6 +403,17 @@ Toggle individual NVIDIA Config Manager services on or off.
 When Nautobot is disabled, configure an external Nautobot URL in the
 [External Services](#3-external-services) section.
 
+**Kea DHCP multi-threading** (below the service toggles)
+
+| Field | Description |
+|-------|-------------|
+| Size threads from DHCP CPU request | Toggle — sizes the Kea thread pool from the DHCP CPU request |
+| DHCP CPU request | Optional Kubernetes quantity. Blank keeps the size profile, which requests 1 CPU |
+| Thread pool size | Optional; `0` keeps Kea auto-detection. Cannot be combined with CPU sizing |
+| Packet queue size | Optional positive integer; defaults to 64, or eight packets per thread |
+
+Blank fields keep Kea's defaults. Invalid values block navigation until corrected.
+
 For an independently packaged DCIM provider, set `dcim.provider`,
 `dcim.server`, and `services.nautobot: false` in the installer YAML. Provider
 wheel images are configured with `dcim.provider_packages`, and
@@ -887,6 +898,36 @@ services:
   nautobot: true
 ```
 
+### Kea DHCP Multi-Threading
+
+By default Kea auto-detects its worker count and keeps a 64-packet queue. The
+optional `dhcp.kea_multi_threading` block tunes this and maps to
+`networkDhcp.kea.multiThreading` in the Helm values. Nothing is emitted unless
+a field is set.
+
+Size the pool from the DHCP CPU request:
+
+```yaml
+dhcp:
+  cpu_request: "2"                # networkDhcp.resources.dhcp.requests.cpu
+  kea_multi_threading:
+    size_from_cpu_request: true   # size the pool from that CPU request
+```
+
+The CPU request is rounded up to whole cores (at least one thread) and the queue
+defaults to eight packets per thread. Every size profile requests 1 CPU, so
+leaving `cpu_request` blank makes this setting one thread and an 8-packet queue.
+
+Or set the sizes explicitly. `thread_pool_size` cannot be combined with
+`size_from_cpu_request`, and the installer and chart both reject that pair:
+
+```yaml
+dhcp:
+  kea_multi_threading:
+    thread_pool_size: 4           # 0 keeps Kea auto-detection
+    packet_queue_size: 32         # positive integer
+```
+
 ### Managed Temporal Sizing
 
 Both fields are optional. Omit them or set them to `0` to use the deployment
@@ -909,6 +950,23 @@ ignored after Temporal's first run. If an initialized deployment still derives
 shards from replicas, confirm and pin its persisted shard count before changing
 `history_replicas`. Changing the persisted count requires a separate-cluster
 migration.
+
+### Failed-Stage Retry Window
+
+`temporal.failed_stage_retry_timeout_seconds` sets how long a failed, retryable
+workflow stage waits for a manual retry before the workflow closes as Failed.
+Omit it or set it to `0` to keep the three-hour chart default; the maximum is
+`31536000` (365 days). Unlike the sizing fields, it also applies when Temporal is
+external:
+
+```yaml
+temporal:
+  failed_stage_retry_timeout_seconds: 7200 # Two hours
+```
+
+The installer maps it to the Helm value
+`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`. See
+[Failed-stage retry window](../docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 
 ### File Storage Example (on-prem with OS images)
 

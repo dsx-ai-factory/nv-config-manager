@@ -49,6 +49,7 @@ from nv_config_manager.common.lock import token_lock_backend
 from nv_config_manager.dcim.registry import create_dcim_client
 from nv_config_manager.temporal.client.connection import (
     client_connect_options,
+    failed_stage_retry_timeout_seconds,
     temporal_address,
 )
 from nv_config_manager.temporal.client.device.factory import from_device_data
@@ -74,6 +75,7 @@ from nv_config_manager_workflows.clients.ticketing.registry import (
     get_ticketing_provider as build_ticketing_provider,
 )
 from nv_config_manager_workflows.clients.ufm import UFMClient as WorkflowUFMClient
+from nv_config_manager_workflows.retry_timeout import FailedStageRetryTimeoutInterceptor
 from nv_config_manager_workflows.runtime import (
     ConfigStoreRuntime,
     FirmwareStorage,
@@ -241,7 +243,10 @@ async def _scheduler_temporal_client() -> Client:
         temporal_address(),
         **client_connect_options(),
         data_converter=get_data_converter(),
-        interceptors=[TracingInterceptor(always_create_workflow_spans=True)],
+        interceptors=[
+            TracingInterceptor(always_create_workflow_spans=True),
+            FailedStageRetryTimeoutInterceptor(failed_stage_retry_timeout_seconds()),
+        ],
         runtime=get_runtime(),
     )
 

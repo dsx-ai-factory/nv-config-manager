@@ -77,10 +77,22 @@ export interface ShellFormContext extends FormContext {
   layout: FormLayout;
 }
 
+const buildScopeHosts = (
+  schema: unknown,
+  uiSchema: unknown
+): Record<string, string> => {
+  const scopeHosts: Record<string, string> = {};
+  for (const name of effectiveOrder(schema, uiSchema)) {
+    if (coreFieldOf(uiSchema, name) !== "device") continue;
+    const { filterScope } = deviceOptionsOf(uiSchema, name);
+    if (!(filterScope in scopeHosts)) scopeHosts[filterScope] = name;
+  }
+  return scopeHosts;
+};
+
 export const buildLayout = (schema: unknown, uiSchema: unknown): FormLayout => {
   const owners: Record<string, Owner> = {};
   const typeFields: Record<string, string> = {};
-  const scopeHosts: Record<string, string> = {};
   for (const name of Object.keys(propertiesOf(schema))) {
     const coreField = coreFieldOf(uiSchema, name);
     if (coreField) owners[name] = `field:${name}`;
@@ -98,15 +110,10 @@ export const buildLayout = (schema: unknown, uiSchema: unknown): FormLayout => {
       }
     }
   }
-  for (const name of effectiveOrder(schema, uiSchema)) {
-    if (coreFieldOf(uiSchema, name) !== "device") continue;
-    const { filterScope } = deviceOptionsOf(uiSchema, name);
-    if (!(filterScope in scopeHosts)) scopeHosts[filterScope] = name;
-  }
   return {
     owners,
     typeFields,
-    scopeHosts,
+    scopeHosts: buildScopeHosts(schema, uiSchema),
     exclusiveGroups: exclusiveGroupsOf(uiSchema),
   };
 };

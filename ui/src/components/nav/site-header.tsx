@@ -76,7 +76,7 @@ const WorkflowLauncherEntry = ({
       onNavigate={() => {
         const formId = item.metadata?.form_id;
         if (workflowApiUrl && formId) {
-          void preloadWorkflowForm(workflowApiUrl, formId);
+          preloadWorkflowForm(workflowApiUrl, formId);
         }
       }}
     >

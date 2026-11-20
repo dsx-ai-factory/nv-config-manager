@@ -17,7 +17,7 @@
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -237,6 +237,32 @@ async def test_worker_registers_the_frozen_temporal_type_names(
 def _worker_ini(**options: str) -> str:
     """Return an INI with only a [temporal.worker] section holding the given options."""
     return "[temporal.worker]\n" + "".join(f"{key} = {value}\n" for key, value in options.items())
+
+
+async def test_worker_records_configured_failed_stage_retry_window(
+    mocker: MockerFixture, custom_ini: Callable[[str], None]
+) -> None:
+    custom_ini(_worker_ini(failed_stage_retry_timeout_seconds="7200"))
+    _mock_worker_startup(mocker)
+    await worker_main.main()
+    connect = cast(AsyncMock, worker_main.Client.connect)
+    assert connect.await_args is not None
+    (interceptor,) = [
+        interceptor
+        for interceptor in connect.await_args.kwargs["interceptors"]
+        if isinstance(interceptor, worker_main.FailedStageRetryTimeoutInterceptor)
+    ]
+    assert interceptor.seconds == 7200
+
+
+async def test_invalid_failed_stage_retry_window_prevents_worker_start(
+    mocker: MockerFixture, custom_ini: Callable[[str], None]
+) -> None:
+    custom_ini(_worker_ini(failed_stage_retry_timeout_seconds="0"))
+    worker = _mock_worker_startup(mocker)
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        await worker_main.main()
+    worker.assert_not_called()
 
 
 async def test_worker_uses_bounded_cache_and_task_slots(mocker: MockerFixture) -> None:
