@@ -157,6 +157,11 @@ temporal:
     maxConcurrentWorkflowTasks: 10
 ```
 
+The installer configuration does not expose these worker limits or
+`temporal.dynamicConfig`. Maintain overrides in a Helm values file applied
+after generated values in your Helm or GitOps workflow. `nvcm-installer
+deploy` regenerates values without that file and can reset these settings.
+
 These are the Config Manager defaults, replacing the Temporal SDK defaults
 of 1,000 cached workflows and 100 concurrent workflow tasks. Each worker
 process reads the values at startup. Helm rolls the worker pods when these
@@ -193,8 +198,9 @@ temporal:
 
 The chart writes this structure directly to `dynamic_config.yaml`, preserving
 each value and its constraints. Do not wrap the map in another `value` key.
-The example sets a default visibility request limit and a namespace-specific
-override. The namespace is a **Temporal namespace**, not a Kubernetes
+The example sets a per-frontend visibility limit of 50 requests per second
+per Temporal namespace, with 25 for `example-namespace`. Other server rate
+limits can also apply. The namespace is a **Temporal namespace**, not a Kubernetes
 namespace; replace it with the namespace used by your workflows. When using
 an external Temporal server, configure dynamic settings on that server.
 
