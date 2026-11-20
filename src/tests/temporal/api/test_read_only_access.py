@@ -18,11 +18,79 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException, Request
+from fastapi.testclient import TestClient
+from pytest_mock import MockerFixture
 from temporalio.service import RPCError, RPCStatusCode
 
 from nv_config_manager.common import auth
 from nv_config_manager.temporal.api import workflow_v1
+from nv_config_manager.temporal.api.main import app as temporal_app
 from nv_config_manager.temporal.api.workflow_authorization import require_workflow_execute_access
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/v1/workflow/ngc/HelloWorld",
+        "/v1/workflow/workflow-1/terminate",
+        "/v1/workflow/workflow-1/approve/stage-1",
+        "/v1/workflow/workflow-1/reject/stage-1",
+        "/v1/workflow/workflow-1/retry/stage-1",
+    ],
+)
+def test_reader_denials_are_audited_by_real_api_middleware(
+    monkeypatch: pytest.MonkeyPatch, mocker: MockerFixture, path: str
+) -> None:
+    monkeypatch.setattr(
+        auth,
+        "_auth_config",
+        auth.AuthConfig(
+            required=True, accept_request_headers=True, read_only_groups=("api-reader",)
+        ),
+    )
+    monkeypatch.setattr(auth, "_auth_config_tracks_file", False)
+    logger = mocker.patch("nv_config_manager.temporal.api.audit.logger")
+
+    response = TestClient(temporal_app).post(
+        path,
+        headers={
+            "X-Auth-Request-Email": "reader@example.com",
+            "X-Auth-Request-Groups": "api-reader",
+        },
+        json={},
+    )
+
+    assert response.status_code == 403
+    logger.info.assert_called_once()
+    fields = logger.info.call_args.kwargs["extra"]
+    assert fields["actor"] == "reader"
+    assert fields["outcome"] == "denied"
+    assert fields["source"] == "sso"
+    assert "api-reader" in fields["roles"]
+    assert fields["detail"] == "HTTP 403"
+
+
+@pytest.mark.parametrize("endpoint", ["decode", "encode"])
+def test_public_codec_works_with_reader_credentials(
+    monkeypatch: pytest.MonkeyPatch, endpoint: str
+) -> None:
+    monkeypatch.setattr(
+        auth,
+        "_auth_config",
+        auth.AuthConfig(
+            required=True, accept_request_headers=True, read_only_groups=("api-reader",)
+        ),
+    )
+    monkeypatch.setattr(auth, "_auth_config_tracks_file", False)
+    response = TestClient(temporal_app).post(
+        f"/v1/codec/{endpoint}",
+        headers={
+            "X-Auth-Request-Email": "reader@example.com",
+            "X-Auth-Request-Groups": "api-reader",
+        },
+        json={"payloads": []},
+    )
+    assert response.status_code == 200
 
 
 @pytest.fixture

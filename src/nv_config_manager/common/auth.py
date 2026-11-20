@@ -203,6 +203,13 @@ class AuthConfig:
     allowed_groups: tuple[str, ...] = ()
     read_only_groups: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        if "all" in self.read_only_groups:
+            raise ValueError(
+                "read_only_groups cannot contain the universal role 'all'; "
+                "use a dedicated reporting group to preserve service and device writes"
+            )
+
 
 # ── Identity container ────────────────────────────────────────────────────
 
@@ -1131,6 +1138,7 @@ def install_identity_probe(
         if (
             identity is not None
             and has_read_only_role(identity.groups)
+            and _normalize_request_path(request.url.path) not in unauthenticated_path_set
             and request.method
             not in {
                 "GET",

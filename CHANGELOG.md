@@ -9,6 +9,18 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
+### Security
+
+- Add opt-in `auth.readOnlyGroups` to reject mutating API requests and workflow
+  execution for dedicated reporting groups, including identities with other
+  administrator or execute roles. Existing behavior is unchanged when the list
+  is empty. The universal `all` role is rejected because services and ZTP devices
+  also carry it. Workflow reads require the workflow type's current `read_roles`,
+  including historical executions. Reader denials remain in the workflow audit log;
+  public codec operations remain available with reader credentials.
+  Temporal Web and direct Temporal interfaces retain their existing behavior;
+  restrict reporting clients to GET-only service-proxy access separately.
+
 ### Changed
 
 - Bundled Nautobot now assigns the MCP read-only token to the dedicated

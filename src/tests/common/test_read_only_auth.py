@@ -42,6 +42,8 @@ def reader_api(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, list[bool]]
         "/resource", methods=["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]
     )
     @app.post("/healthcheck")
+    @app.post("/v1/codec/decode")
+    @app.post("/v1/codec/encode")
     def resource() -> dict[str, bool]:
         called.append(True)
         return {"ok": True}
@@ -80,12 +82,14 @@ def test_reader_cannot_mutate_even_with_other_roles(
     assert called == []
 
 
-def test_public_path_does_not_bypass_reader_restriction(
+@pytest.mark.parametrize("path", ["/healthcheck", "/v1/codec/decode", "/v1/codec/encode"])
+def test_public_operations_work_with_reader_credentials(
     reader_api: tuple[TestClient, list[bool]],
+    path: str,
 ) -> None:
     client, called = reader_api
-    assert client.post("/healthcheck", headers=headers()).status_code == 403
-    assert called == []
+    assert client.post(path, headers=headers()).status_code == 200
+    assert called == [True]
 
 
 def test_existing_writer_is_unchanged(reader_api: tuple[TestClient, list[bool]]) -> None:
@@ -108,20 +112,41 @@ def test_default_empty_group_list_does_not_restrict_existing_group(
 
 
 @pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"])
-@pytest.mark.parametrize("read_only_groups", [(), ("all",)])
-def test_anonymous_methods_respect_opt_in_read_only_groups(
+def test_dedicated_reader_group_preserves_anonymous_methods(
     reader_api: tuple[TestClient, list[bool]],
     monkeypatch: pytest.MonkeyPatch,
     method: str,
-    read_only_groups: tuple[str, ...],
 ) -> None:
     monkeypatch.setattr(
-        auth, "_auth_config", auth.AuthConfig(required=False, read_only_groups=read_only_groups)
+        auth, "_auth_config", auth.AuthConfig(required=False, read_only_groups=("api-reader",))
     )
     client, called = reader_api
-    denied = bool(read_only_groups) and method not in {"GET", "HEAD", "OPTIONS"}
-    assert client.request(method, "/resource").status_code == (403 if denied else 200)
-    assert called == ([] if denied else [True])
+    assert client.request(method, "/resource").status_code == 200
+    assert called == [True]
+
+
+def test_universal_all_role_cannot_be_configured_as_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = ConfigParser()
+    config.read_dict({"auth": {"read_only_groups": "all"}})
+    monkeypatch.setattr(auth, "_auth_config", None)
+    monkeypatch.setattr(auth, "_auth_config_source", None)
+    with pytest.raises(ValueError, match="universal role 'all'"):
+        auth.load_auth_config(config)
+
+
+@pytest.mark.parametrize("source", ["spiffe", "mtls"])
+def test_universal_role_on_service_and_device_preserves_writes(
+    reader_api: tuple[TestClient, list[bool]], monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    identity = auth.SSOIdentity(
+        email="service-or-device", user="service-or-device", groups={"all"}, source=source
+    )
+    monkeypatch.setattr(auth, "extract_identity", lambda *_args, **_kwargs: identity)
+    client, called = reader_api
+    assert client.post("/resource").status_code == 200
+    assert called == [True]
 
 
 def test_read_only_role_does_not_bypass_service_admission(
