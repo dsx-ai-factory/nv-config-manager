@@ -39,6 +39,7 @@ spec:
         app.kubernetes.io/name: health-check
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "healthCheck") | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       containers:
       - name: health-check
@@ -52,10 +53,5 @@ spec:
         - containerPort: 8080
           name: http
         resources:
-          requests:
-            cpu: 10m
-            memory: 16Mi
-          limits:
-            cpu: 50m
-            memory: 32Mi
+          {{- toYaml .Values.global.healthCheckResources | nindent 10 }}
 {{- end }}

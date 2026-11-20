@@ -36,6 +36,7 @@ spec:
         {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "mcp") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:

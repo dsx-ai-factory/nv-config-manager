@@ -55,6 +55,7 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name }}
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "redis") | nindent 6 }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- range .Values.global.imagePullSecrets }}

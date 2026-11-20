@@ -82,6 +82,40 @@ dcim:
 # Global Configuration
 # =============================================================================
 global:
+  # Optional pre-installed Kubernetes RuntimeClass for chart-owned pods/Jobs.
+  # Empty uses the node default. This does not configure operators, CNPG
+  # database pods, gateways, or optional observability subcharts.
+  runtimeClassName: ""
+  # Per-component overrides; an explicit empty string uses the node default.
+  # Keys: configStore, dhcp, healthCheck, mcp, nats, natsSetup, nautobot,
+  # nautobotWorker, nautobotBeat, oidcProxy, redis, render, secretJobs,
+  # temporal, temporalWorker, temporalApi, temporalScheduler, temporalArchive,
+  # temporalUi, ui, ztp.
+  runtimeClassOverrides: {}
+  # Bounds for short-lived waits, config generation and package installation.
+  # Kata sizes its sandbox before running init containers; every container
+  # needs limits. Override for large plugin installs or schema upgrades.
+  initContainerResources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  migrationResources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  healthCheckResources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 50m
+      memory: 32Mi
   # Base domain for all services
   # Services will be accessible at: *.nv-config-manager.{environment}.{baseDomain}
   baseDomain: config-manager.example.com
