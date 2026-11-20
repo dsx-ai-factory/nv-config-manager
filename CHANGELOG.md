@@ -17,7 +17,8 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
 
 - Added a standalone [integration-test command](docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
   for an existing deployment: `nvcm-installer test install.yaml`. It runs the
-  tests bundled in the deployed image without redeploying. SSO deployments can
+  tests bundled in the deployed image without redeploying. The runner requires
+  bundled Nautobot and a ready ZTP SFTP container. SSO deployments can
   use Keycloak client credentials or a supplied access-token file.
 - Added [Kea DHCPv4 thread and queue controls](docs/dhcp/index.mdx#kea-multi-threading)
   through `networkDhcp.kea.multiThreading` and installer
@@ -51,7 +52,7 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   so the ARP retries and remaining validation stages fit within the child
   workflow deadline. Already-started child workflows keep their existing deadline.
 - A render consumer whose NATS fetches keep failing now exits, and Kubernetes
-  restarts the pod, once no round trip to NATS has completed for
+  restarts the container, once no round trip to NATS has completed for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
   on a connection that was not coming back while the pod stayed `Running`.
   Expect a container restart where a consumer used to stall. The render
@@ -70,7 +71,8 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   10800, maximum 31536000, or 365 days). It is rendered for every secrets
   method and recorded in new workflow histories and schedule actions so replay
   and child runs keep their original value across worker restarts and later
-  configuration changes. An unset key, such as after `helm upgrade
+  configuration changes. Recreate existing schedules to apply a changed retry
+  window. An unset key, such as after `helm upgrade
   --reuse-values` from an earlier release, renders the default. Installer
   deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
   `nv-config-manager-install.yaml`. See
