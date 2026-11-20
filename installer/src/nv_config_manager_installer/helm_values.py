@@ -959,9 +959,10 @@ def _build_cnpg(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     section["dhcp"] = _cluster(svc.dhcp)
     section["nautobot"] = _cluster(svc.nautobot)
     tp = config.template_preview
-    if tp.enabled and tp.dynamic_plugins:
-        # Template Preview's plugin control plane keeps its data in this database; the chart reads
-        # the credentials from the cluster-template-preview-app Secret the installer creates.
+    if tp.enabled:
+        # Template Preview keeps its control plane in this database whether or not the plugin gate is
+        # open: the chart points the backend at it and migrates it before the backend starts. The
+        # credentials come from the cluster-template-preview-app Secret the installer creates.
         section["templatePreview"] = _cluster(True)
     return section
 

@@ -1868,7 +1868,13 @@ class TestTemplatePreview:
         gate = values["templatePreview"]["unsafeDynamicTemplatePlugins"]
         assert values["templatePreview"]["enabled"] is True
         assert gate == {"enabled": False, "acknowledgeArbitraryCodeExecution": False}
-        assert "templatePreview" not in values["cnpg"]
+
+    def test_enabled_creates_the_database_even_with_the_plugin_gate_closed(self):
+        # The chart always points the backend at cluster-template-preview (its migration init
+        # container waits for it), so the cluster must exist whenever Template Preview is deployed.
+        values = _gen(_make_config(template_preview=TemplatePreviewConfig(enabled=True)))
+
+        assert values["cnpg"]["templatePreview"]["enabled"] is True
 
     def test_plugins_open_the_gate_and_create_the_database(self):
         config = _make_config(
