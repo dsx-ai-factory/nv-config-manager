@@ -9,11 +9,6 @@ stages:
   - sonar
   - deploy
   - release
-  # Airgapped bundle stages (manual trigger)
-  - prepare-airgapped
-  - build-airgapped
-  - test-airgapped
-  - publish-airgapped
 
 # Run automatic pipelines for the default branch, tags, and vetted copy-pr-bot
 # refs. Public pull requests are validated by GitHub Actions; the mirror does

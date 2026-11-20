@@ -235,7 +235,7 @@ spec:
           {{- else }}
           DCIM_SUBJECTS="{{ join "," .Values.externalServices.nats.streams.nautobot.subjects }}"
           {{- end }}
-          MAX_BYTES="{{ .Values.nautobotNats.natsReady.streamMaxBytes | default 104857600 | int64 }}"
+          MAX_BYTES="{{ include "nv-config-manager.natsCliStreamMaxBytes" . }}"
           
           echo "Waiting for NATS server..."
           until nats rtt -s "$NV_CONFIG_MANAGER_SERVER" >/dev/null 2>&1; do
