@@ -1,4 +1,4 @@
-.PHONY: help install dev test test-root test-ci test-workflow-package test-workflow-wheels lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build \
+.PHONY: help install dev test test-root test-ci test-ci-python test-ci-ui test-workflow-package test-workflow-wheels lint format sort-check sort-fix clean docker-build docker-push ui-install ui-dev ui-build ui-lint ui-sonar \
         local-up local-down local-destroy local-status local-logs deploy kind-up kind-up-sec kind-up-sec-kgateway kind-up-secure kind-down topology install-cert workflow-perf-seed \
         openapi openapi-check go-bindings python-bindings api-generate docs-assets docs-assets-check docs-format docs-lint docs-lint-fern docs-live docs-preview docs-publish docs-publish-in-ci docs-screenshots docs-air-sim-screenshots docs-ui-screenshots \
         obs-grafana obs-prometheus obs-loki obs-alloy obs-port-forward obs-port-forward-stop
@@ -114,6 +114,8 @@ help:
 	@echo "  make test                    - Run root, CI tooling, and isolated workflow package tests"
 	@echo "  make test-root               - Run root project tests (parallel)"
 	@echo "  make test-ci                 - Check build, container, and CI tooling"
+	@echo "  make test-ci-python          - Run Python CI tooling checks"
+	@echo "  make test-ci-ui              - Run UI CI tooling checks (requires npm ci in ui/)"
 	@echo "  make test-cov                - Run root project tests with coverage (parallel)"
 	@echo "  make test-integration        - Run integration tests (requires running cluster)"
 	@echo "  make test-nautobot-plugin    - Run vendored Nautobot plugin's Django suite in one-shot container"
@@ -127,6 +129,7 @@ help:
 	@echo "  make ui-install       - Install UI dependencies"
 	@echo "  make ui-dev           - Run UI development server"
 	@echo "  make ui-build         - Build UI for production"
+	@echo "  make ui-sonar         - Run optional local SonarJS checks (no Sonar account needed)"
 	@echo ""
 	@echo "Documentation:"
 	@echo "  make openapi          - Generate OpenAPI specs for all FastAPI services"
@@ -173,10 +176,15 @@ test: test-root test-ci test-workflow-package
 test-root:
 	uv run pytest -n auto
 
-test-ci:
+test-ci: test-ci-python test-ci-ui
+
+test-ci-python:
 	uv run ruff format --check ci/tests/
 	uv run ruff check ci/tests/
 	uv run pytest ci/tests/
+
+test-ci-ui:
+	cd ui && npm run test:sonar
 
 test-cov:
 	uv run pytest -n auto --cov=src/nv_config_manager --cov-report=html --cov-report=xml
@@ -435,6 +443,9 @@ ui-build:
 
 ui-lint:
 	cd ui && npm run lint
+
+ui-sonar:
+	cd ui && npm run lint:sonar
 
 # =============================================================================
 # Docker Build Targets

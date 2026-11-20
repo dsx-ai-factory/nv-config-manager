@@ -357,6 +357,10 @@ make lint                    # Run linters
 make format                  # Format code
 ```
 
+`make test-ci` runs Python and UI tooling tests. Install the Python development
+dependencies and run `npm ci` in `ui/` first, using Node from `.node-version`.
+Use `make test-ci-python` or `make test-ci-ui` to run either component alone.
+
 `make test` includes `make test-workflow-package`, which creates a temporary,
 non-editable package environment. The package-isolation targets may require
 network access for Python dependencies and, on first use, the Temporal
