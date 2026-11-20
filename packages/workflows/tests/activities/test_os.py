@@ -324,17 +324,17 @@ def test_device_polls_log_connection_errors_and_recover(
 
     if poll_kind == "ztp":
         connection.get_ztp_status.side_effect = [error, "success"]
-        result = poll_ztp_status(PollZTPStatusInput(device_data=_device()))
+        success = poll_ztp_status(PollZTPStatusInput(device_data=_device())).success
     else:
         connection.get_uptime.side_effect = [error, 1]
-        result = wait_reboot(
+        success = wait_reboot(
             WaitRebootInput(
                 device_data=_device(),
                 ztp_execution_timestamp=(start - timedelta(minutes=1)).isoformat(),
             )
-        )
+        ).success
 
-    assert result.success is True
+    assert success is True
     connection.disable_retries.assert_called_once_with()
     assert heartbeat.call_count == 2
     sleep.assert_called_once_with(30)
