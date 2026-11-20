@@ -186,31 +186,24 @@ def test_the_restart_is_spread_across_replicas(ini: Path) -> None:
 
 def test_a_process_that_ignores_the_signal_is_stopped_outright(ini: Path) -> None:
     """A container's PID 1 drops SIGTERM unless it installed a handler for it."""
-    exited = threading.Event()
-    exit_codes: list[int] = []
-
-    def record_exit(code: int) -> None:
-        exit_codes.append(code)
-        exited.set()
+    ini.write_text(ROTATED)
+    baseline = (hashlib.sha256(ORIGINAL.encode()).hexdigest(), ORIGINAL)
 
     with (
         patch("nv_config_manager.common.config_watch.os.kill") as kill,
-        patch("nv_config_manager.common.config_watch.os._exit", side_effect=record_exit),
+        patch("nv_config_manager.common.config_watch.os._exit") as forced_exit,
     ):
         watcher = threading.Thread(
             target=_watch,
-            args=(str(ini), POLL_INTERVAL, 0.0, threading.Event(), None, 0.0),
+            args=(str(ini), POLL_INTERVAL, 0.0, threading.Event(), baseline, 0.0),
             daemon=True,
         )
         watcher.start()
-        deadline = time.monotonic() + 5.0
-        while not exited.is_set() and time.monotonic() < deadline:
-            ini.write_text(ROTATED)
-            time.sleep(POLL_INTERVAL)
         watcher.join(timeout=5.0)
+        assert not watcher.is_alive()
 
     kill.assert_called_once_with(os.getpid(), signal.SIGTERM)
-    assert exit_codes == [config_watch.FORCED_EXIT_CODE]
+    forced_exit.assert_called_once_with(config_watch.FORCED_EXIT_CODE)
 
 
 def test_a_process_that_shuts_down_in_time_is_not_forced(ini: Path) -> None:
