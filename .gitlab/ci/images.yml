@@ -3,7 +3,6 @@
 # can be included by both top-level pipelines and narrow child pipelines.
 variables:
   NVCM_CI_IMAGE_ALPINE: "alpine:3.21"
-  NVCM_CI_IMAGE_AWS_CLI: "amazon/aws-cli:2.36.37"
   NVCM_CI_IMAGE_DOCKER: "docker:27"
   NVCM_CI_IMAGE_DOCKER_DIND: "docker:27-dind"
   NVCM_CI_IMAGE_GO: "golang:1.26.10-alpine@sha256:27f2d3b83cfc5803c8078f8e730af0f7c431bf067afaec8f60a36fb763187cba"
