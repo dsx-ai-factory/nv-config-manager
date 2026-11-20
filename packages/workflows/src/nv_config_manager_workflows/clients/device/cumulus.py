@@ -88,6 +88,13 @@ class CumulusConnection(NetworkConnection):
         self._base_url = f"https://{host}:{port}/nvue_v1/"
         self._authenticated = False
 
+    def disable_retries(self) -> None:
+        """Let the polling loop handle unreachable devices between heartbeats."""
+        if self._session is None:
+            raise NetworkDeviceException(f"NVUE session to {self._host} is closed")
+        adapter = cast(HTTPAdapter, self._session.get_adapter(self._base_url))
+        adapter.max_retries = Retry(total=0)
+
     def close(self) -> None:
         """Close the NVUE HTTP session."""
         session = getattr(self, "_session", None)

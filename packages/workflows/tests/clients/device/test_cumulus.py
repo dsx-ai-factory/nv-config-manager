@@ -80,6 +80,23 @@ def _cumulus_connection() -> CumulusConnection:
     return CumulusConnection(_TEST_HOST, settings=settings)
 
 
+@responses.activate
+def test_disable_retries_leaves_failed_image_check_to_caller() -> None:
+    conn = _cumulus_connection()
+    conn.disable_retries()
+    responses.add(
+        responses.GET,
+        f"https://{_TEST_HOST}:8765/nvue_v1/system",
+        status=503,
+    )
+
+    with pytest.raises(NetworkDeviceException, match="HTTP503"):
+        conn.get_running_image()
+
+    assert len(responses.calls) == 1
+    conn.close()
+
+
 def _add_commit_responses(revision: str, *, apply_state: str) -> None:
     base = f"https://{_TEST_HOST}:8765/nvue_v1"
     responses.add(responses.POST, f"{base}/revision", json={revision: {}})
