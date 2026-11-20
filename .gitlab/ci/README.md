@@ -116,7 +116,6 @@ charts or updating downstream values.
 | `linux/arm64` | Literal GitLab runner architecture tag for native arm64 image builds |
 | `docker` | Literal GitLab runner capability tag for jobs that need Docker-capable runners |
 | `NVCM_CI_IMAGE_ALPINE` | Alpine CI image |
-| `NVCM_CI_IMAGE_AWS_CLI` | AWS CLI CI image |
 | `NVCM_CI_IMAGE_DOCKER` | Docker CLI CI image |
 | `NVCM_CI_IMAGE_DOCKER_DIND` | Docker-in-Docker service image |
 | `NVCM_CI_IMAGE_GO` | Go CI image |
@@ -393,3 +392,46 @@ a repository write deploy key stored as `RELEASE_TAG_SSH_KEY` in the main-only
 `release-tagging` environment. Allow deploy keys in the tag ruleset bypass;
 this applies to every write deploy key on the repository. Keep other deploy
 keys read-only and do not give `GITHUB_TOKEN` a repository-wide tag bypass.
+
+## Offline Installer Resources
+
+`build:installer` builds `nvcm-installer-<version>.tar.gz` and its SHA-256
+sidecar automatically for every release tag, including RCs. Installer changes
+also build on the default branch; other pipelines can build manually.
+`test:installer-offline` verifies the checksum, bootstraps the bundled Python
+and wheels with package-index access disabled, and checks the test and PVC
+updater commands. `publish:installer-ngc` publishes only after those checks pass.
+The archive contains one root directory with `install.sh`, the installer wheel,
+vendor wheels, and runtimes for Linux and macOS on AMD64 and ARM64. It contains
+no charts or container images. Charts and all ten release images use the
+existing destination lists above.
+
+Configure these variables on the internal mirror:
+
+| Variable | Purpose |
+| -------- | ------- |
+| `NVCM_CI_IMAGE_NGC` | Pinned CI image containing Bash, curl, and the NGC CLI |
+| `NVCM_INSTALLER_NGC_PATH` | Resource destination as `org/team` |
+| `NVCM_INSTALLER_NGC_RESOURCE` | Resource name; defaults to `nvcm-installer` |
+| `NVCM_INSTALLER_NGC_TOKEN_VAR` | Name of the masked/protected token variable |
+
+The upload retains versioned filenames and includes the checksum sidecar.
+The publisher reserves each version with an atomic NGC create request before
+uploading. Lookup errors and reservation conflicts fail closed, including an
+existing unfinished upload. A failed reservation or upload needs investigation;
+the job never deletes or resumes a version from an earlier attempt. NGC CLI
+4.8.2 was verified to upload into a newly reserved version and finalize it.
+Existing published versions are never overwritten. Configure image and chart
+destinations using the same service key where its permissions allow, with a
+chart `image_target` mapping to the matching image destination. Destination
+names and service keys belong in GitLab variables, never in this repository.
+
+For a local build, run:
+
+```bash
+bash deploy/airgapped/create-installer.sh 1.2.3 /tmp/nvcm-installer-dist
+bash .gitlab/ci/scripts/test_installer_bundle.sh /tmp/nvcm-installer-dist
+```
+
+The full bundle builder remains available for deployments that need local
+image archives. CI no longer bundles images or uploads full bundles to S3.
