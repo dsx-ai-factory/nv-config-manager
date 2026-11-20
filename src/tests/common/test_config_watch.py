@@ -30,7 +30,6 @@ from nv_config_manager.common import config_watch
 from nv_config_manager.common.config.loader import clear_config_cache, load_config
 from nv_config_manager.common.config_watch import _watch, changed_keys, restart_on_config_change
 from nv_config_manager.common.ini import (
-    file_digest,
     loaded_config_snapshot,
     read_config_snapshot,
     remember_loaded_config,
@@ -55,7 +54,21 @@ password = original
 config_manager_stream = renamed
 """
 
+COMMENTED = """# rendered by a newer template
+[nats]
+queue = nv-config-manager
+server = nats://nats:4222
+
+password = original
+"""
+
+NO_SECTION_HEADER = "password = no section header\n"
+
 POLL_INTERVAL = 0.01
+
+
+def _digest(contents: str) -> str:
+    return hashlib.sha256(contents.encode()).hexdigest()
 
 
 @pytest.fixture
@@ -87,20 +100,20 @@ def _watch_while(
     signals: list[tuple[int, int]] = []
     stop = threading.Event()
     baseline_taken = threading.Event()
-    read_file = config_watch._read
+    read_baseline = config_watch._read_baseline
 
-    def record_baseline(target: str) -> str:
+    def record_baseline(target: str) -> tuple[str, str] | None:
         """Report that the watch has finished reading the file it starts from."""
-        contents = read_file(target)
+        baseline = read_baseline(target)
         baseline_taken.set()
-        return contents
+        return baseline
 
     with (
         patch(
             "nv_config_manager.common.config_watch.os.kill",
             side_effect=lambda pid, sig: signals.append((pid, sig)),
         ),
-        patch("nv_config_manager.common.config_watch._read", side_effect=record_baseline),
+        patch("nv_config_manager.common.config_watch._read_baseline", side_effect=record_baseline),
     ):
         watcher = threading.Thread(
             target=_watch,
@@ -157,10 +170,9 @@ def test_an_identical_rewrite_is_not_a_change(ini: Path, tmp_path: Path) -> None
         replacement.write_text(ORIGINAL)
         os.replace(replacement, ini)
 
-    before = file_digest(str(ini))
     signals = _watch_while(ini, change=rewrite_with_the_same_contents)
 
-    assert file_digest(str(ini)) == before
+    assert ini.read_text() == ORIGINAL
     assert signals == []
 
 
@@ -169,11 +181,39 @@ def test_an_unreadable_file_is_not_a_change(ini: Path) -> None:
     assert _watch_while(ini, change=ini.unlink) == []
 
 
-def test_a_change_that_is_not_valid_utf8_still_stops_the_process(ini: Path) -> None:
-    """Undecodable bytes are still a change, and must not end the watch instead."""
-    signals = _watch_while(ini, change=lambda: ini.write_bytes(b"[nats]\npassword = \xff\xfe\n"))
+def test_a_change_that_only_moves_comments_and_order_is_not_a_change(ini: Path) -> None:
+    """A re-rendered template with the same settings gives a service nothing new."""
+    assert _watch_while(ini, change=lambda: ini.write_text(COMMENTED)) == []
 
-    assert signals == [(os.getpid(), signal.SIGTERM)]
+
+@pytest.mark.parametrize(
+    "broken",
+    [NO_SECTION_HEADER.encode(), b"[nats]\npassword = \xff\xfe\n"],
+    ids=["unparseable", "not-utf8"],
+)
+def test_a_file_a_service_could_not_load_is_not_acted_on(
+    ini: Path, broken: bytes, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Restarting into a broken file would take every service down together."""
+    with caplog.at_level("ERROR", logger=config_watch.logger.name):
+        signals = _watch_while(ini, change=lambda: ini.write_bytes(broken))
+
+    assert signals == []
+    assert [r.getMessage() for r in caplog.records].count(
+        f"Configuration file {ini} changed but cannot be parsed, "
+        "keeping the configuration already loaded"
+    ) == 1
+
+
+def test_a_valid_file_after_a_broken_one_still_stops_the_process(ini: Path) -> None:
+    """The watch has to survive a bad update to act on the fix that follows it."""
+
+    def break_then_fix() -> None:
+        ini.write_text(NO_SECTION_HEADER)
+        time.sleep(POLL_INTERVAL * 10)
+        ini.write_text(ROTATED)
+
+    assert _watch_while(ini, change=break_then_fix) == [(os.getpid(), signal.SIGTERM)]
 
 
 def test_the_restart_is_spread_across_replicas(ini: Path) -> None:
@@ -187,7 +227,7 @@ def test_the_restart_is_spread_across_replicas(ini: Path) -> None:
 def test_a_process_that_ignores_the_signal_is_stopped_outright(ini: Path) -> None:
     """A container's PID 1 drops SIGTERM unless it installed a handler for it."""
     ini.write_text(ROTATED)
-    baseline = (hashlib.sha256(ORIGINAL.encode()).hexdigest(), ORIGINAL)
+    baseline = (_digest(ORIGINAL), ORIGINAL)
 
     with (
         patch("nv_config_manager.common.config_watch.os.kill") as kill,
@@ -227,7 +267,7 @@ def test_a_change_after_startup_load_still_restarts(ini: Path) -> None:
     ini.write_text(ROTATED)
     signals: list[tuple[int, int]] = []
     stop = threading.Event()
-    baseline = (hashlib.sha256(ORIGINAL.encode()).hexdigest(), ORIGINAL)
+    baseline = (_digest(ORIGINAL), ORIGINAL)
 
     with patch(
         "nv_config_manager.common.config_watch.os.kill",
@@ -249,17 +289,17 @@ def test_a_change_after_startup_load_still_restarts(ini: Path) -> None:
 
 
 def test_read_config_snapshot_matches_the_file(ini: Path) -> None:
-    """The digest is the file bytes the watcher will read again later."""
-    assert read_config_snapshot(str(ini)) == (file_digest(str(ini)), ORIGINAL)
+    """The digest and the contents come from one read of the file."""
+    assert read_config_snapshot(str(ini)) == (_digest(ORIGINAL), ORIGINAL.encode())
 
 
 def test_load_config_parses_the_snapshot_it_records(
     ini: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A swap between the snapshot and the parse cannot split the two."""
-    original_digest = file_digest(str(ini))
+    original_digest = _digest(ORIGINAL)
 
-    def snapshot_then_swap(path: str) -> tuple[str, str] | None:
+    def snapshot_then_swap(path: str) -> tuple[str, bytes] | None:
         snapshot = read_config_snapshot(path)
         ini.write_text(ROTATED)
         return snapshot
@@ -275,6 +315,32 @@ def test_load_config_parses_the_snapshot_it_records(
     assert loaded.get("nats", "password") == "original"
     assert loaded_config_snapshot(str(ini)) == (original_digest, ORIGINAL)
     assert changed_keys(ORIGINAL, ini.read_text()) == ["nats.password"]
+
+
+def test_the_first_parse_stays_the_baseline(ini: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Objects built at startup hold the first version, whatever is parsed later."""
+    monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
+    clear_config_cache()
+    load_config()
+
+    ini.write_text(ROTATED)
+
+    assert load_config().get("nats", "password") == "rotated"
+    assert loaded_config_snapshot(str(ini)) == (_digest(ORIGINAL), ORIGINAL)
+
+
+def test_config_with_invalid_bytes_fails_to_load(
+    ini: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A silently replaced byte in a credential would surface as an auth failure."""
+    ini.write_bytes(b"[nats]\npassword = \xff\xfe\n")
+    monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
+    clear_config_cache()
+
+    with pytest.raises(UnicodeDecodeError):
+        load_config()
+
+    assert loaded_config_snapshot(str(ini)) is None
 
 
 def test_unparseable_config_records_no_baseline(ini: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -294,7 +360,8 @@ def test_restart_baselines_on_the_loaded_snapshot(
 ) -> None:
     """The watch starts from the parsed snapshot when one exists."""
     monkeypatch.setenv("NV_CONFIG_MANAGER_INI", str(ini))
-    digest = hashlib.sha256(ORIGINAL.encode()).hexdigest()
+    digest = _digest(ORIGINAL)
+    clear_config_cache()
     remember_loaded_config(str(ini), digest, ORIGINAL)
     captured: dict[str, tuple[object, ...]] = {}
 
@@ -337,7 +404,7 @@ def test_restart_baselines_before_the_service_loads(
         if config_watch._watch_started.locked():
             config_watch._watch_started.release()
 
-    assert captured["args"][4] == (hashlib.sha256(ORIGINAL.encode()).hexdigest(), ORIGINAL)
+    assert captured["args"][4] == (_digest(ORIGINAL), ORIGINAL)
 
 
 def test_changed_keys_does_not_leak_the_values() -> None:

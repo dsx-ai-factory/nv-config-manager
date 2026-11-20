@@ -22,7 +22,7 @@ from datetime import timedelta
 from pydantic import BaseModel
 from temporalio import workflow
 from temporalio.common import RetryPolicy, SearchAttributes
-from temporalio.exceptions import is_cancelled_exception
+from temporalio.exceptions import ActivityError, is_cancelled_exception
 
 from nv_config_manager_workflows.metadata import RequiredActivity
 from nv_config_manager_workflows.mixins.base import BaseMixin
@@ -60,24 +60,23 @@ class ArchiveMixin(BaseMixin):
 
     async def archive_results(self) -> None:
         """Publish the workflow result; a broker failure must not fail the run."""
+        # Built outside the try: a payload or sandbox error is a defect in the
+        # workflow, not a lost notification, and has to fail the task.
+        message = WorkflowResultLog.from_workflow_info(workflow.info()).model_dump_json()
         try:
             await workflow.execute_activity(
                 PUBLISH_NATS_ACTIVITY_NAME,
-                {
-                    "subject": None,
-                    "message": WorkflowResultLog.from_workflow_info(
-                        workflow.info()
-                    ).model_dump_json(),
-                },
+                {"subject": None, "message": message},
                 schedule_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
-        except Exception as exc:  # noqa: BLE001 - a lost notification must not fail the finished run
+        except ActivityError as exc:
             if is_cancelled_exception(exc):
                 raise
             # The run has already finished its work by the time results are
             # published, so a broker problem must not turn it into a failure.
             workflow.logger.warning(
-                "Failed to publish the result for %s; consumers will not see this run",
+                "Failed to publish the result for %s; consumers will not see this run: %s",
                 workflow.info().workflow_id,
+                exc.cause or exc,
             )

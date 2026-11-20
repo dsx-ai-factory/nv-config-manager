@@ -24,6 +24,7 @@ from aiohttp import ClientResponse
 from pytest_mock import MockerFixture
 
 from nv_config_manager.common import auth as auth_mod
+from nv_config_manager.common import config_watch
 from nv_config_manager.common.config.loader import clear_config_cache
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager_workflows import runtime as workflow_runtime
@@ -177,6 +178,19 @@ def _clear_auth_config_cache() -> None:
     auth_mod._auth_config = None
     auth_mod._auth_config_source = None
     auth_mod._auth_config_tracks_file = False
+
+
+@pytest.fixture(autouse=True)
+def no_live_config_watch(mocker: MockerFixture) -> Generator[None]:
+    """Keep service entrypoints under test from starting a real watcher.
+
+    A live watcher would outlast its test and leave the once-only guard held,
+    making later tests depend on which ran first.
+    """
+    mocker.patch.object(config_watch, "_watch")
+    yield
+    if config_watch._watch_started.locked():
+        config_watch._watch_started.release()
 
 
 @pytest.fixture(autouse=True)

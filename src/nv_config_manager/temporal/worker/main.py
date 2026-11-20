@@ -15,8 +15,11 @@
 """Temporal Worker — NVIDIA Config Manager."""
 
 import asyncio
+import logging
 import os
+import signal
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import Any
 
 from temporalio.client import Client
@@ -57,6 +60,14 @@ WORKER_CONFIG_SECTION = "temporal.worker"
 # here covers every workflow module, including plugins, without each one adding an
 # otherwise unused import to its block.
 SANDBOX_PASSTHROUGH_MODULES = ("annotated_types",)
+
+# After a shutdown request the worker stops taking new tasks and gives running
+# activities this long to finish before cancelling them. It sits inside the
+# default Kubernetes grace period, which is also how long the configuration
+# watcher waits before stopping a process outright.
+GRACEFUL_SHUTDOWN_TIMEOUT = timedelta(seconds=25)
+
+logger = logging.getLogger(__name__)
 
 
 def _enabled_env_flag(name: str) -> bool:
@@ -113,6 +124,12 @@ def workflow_runner() -> SandboxedWorkflowRunner:
 
 async def main() -> None:
     """Run the temporal worker."""
+    # Installed before anything slow, so a request that arrives while the
+    # worker is still connecting is kept rather than dropped.
+    shutdown = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for process_signal in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(process_signal, shutdown.set)
     restart_on_config_change()
     max_cached_workflows, max_concurrent_workflow_tasks = _workflow_cache_and_task_limits()
     retry_timeout_seconds = failed_stage_retry_timeout_seconds()
@@ -146,9 +163,29 @@ async def main() -> None:
         workflow_runner=workflow_runner(),
         max_cached_workflows=max_cached_workflows,
         max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+        graceful_shutdown_timeout=GRACEFUL_SHUTDOWN_TIMEOUT,
     )
 
-    await worker.run()
+    await _run_until_shutdown(worker, shutdown)
+
+
+async def _run_until_shutdown(worker: Worker, shutdown: asyncio.Event) -> None:
+    """Run the worker, draining it once a shutdown has been requested.
+
+    The worker is PID 1 in its container, where the kernel drops a SIGTERM
+    that has no handler. Without one, a shutdown request left it polling for
+    new tasks until it was killed with activities still in flight.
+    """
+    run = asyncio.create_task(worker.run())
+    requested = asyncio.create_task(shutdown.wait())
+    try:
+        await asyncio.wait({run, requested}, return_when=asyncio.FIRST_COMPLETED)
+        if not run.done():
+            logger.info("Shutdown requested, draining the worker")
+            await worker.shutdown()
+        await run
+    finally:
+        requested.cancel()
 
 
 def cli_main() -> None:

@@ -79,6 +79,10 @@ shutdown_event = threading.Event()
 # past the pod's termination grace period.
 SHUTDOWN_JOIN_TIMEOUT_SECONDS = 30.0
 
+# A configuration restart has no kubelet deadline behind it, so the watcher's
+# own deadline has to leave room for the session wait above to finish.
+CONFIG_RESTART_GRACE_SECONDS = SHUTDOWN_JOIN_TIMEOUT_SECONDS + 10.0
+
 # SFTP clients normally issue small, sequential reads. Keeping one bounded range
 # in memory avoids a full-object buffer while limiting S3 requests for large files.
 SFTP_OBJECT_STORAGE_READ_AHEAD_BYTES = get_positive_int_config(
@@ -775,6 +779,15 @@ def handle_connection(
         logger.info("Connection from %s closed", addr)
 
 
+def _join_sessions(sessions: list[threading.Thread], timeout: float) -> None:
+    """Wait for open sessions to finish, sharing one deadline between them."""
+    deadline = time.monotonic() + timeout
+    for thread in sessions:
+        if thread.is_alive():
+            logger.info("Waiting for thread %s to complete", thread.name)
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+
+
 def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -> None:  # nosec: B104
     """Start the SFTP server and listen for incoming connections."""
     # Set up signal handlers for graceful shutdown
@@ -803,6 +816,10 @@ def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -
 
     logger.info("SFTP server listening on %s:%d", host, port)
 
+    # Only session threads are waited on at shutdown. The metrics server and
+    # the configuration watcher run for the life of the process and never end.
+    sessions: list[threading.Thread] = []
+
     try:
         while not shutdown_event.is_set():
             # Set a timeout for accept to allow checking shutdown_event
@@ -813,6 +830,8 @@ def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -
                 t = threading.Thread(target=handle_connection, args=(conn, addr, host_keys))
                 t.daemon = True
                 t.start()
+                sessions = [session for session in sessions if session.is_alive()]
+                sessions.append(t)
             except TimeoutError:
                 # Timeout occurred, check if we should shutdown
                 continue
@@ -825,12 +844,7 @@ def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -
         logger.info("Server shutting down gracefully")
 
         # Wait for all active connections to complete
-        active_threads = threading.enumerate()
-        deadline = time.monotonic() + SHUTDOWN_JOIN_TIMEOUT_SECONDS
-        for thread in active_threads:
-            if thread != threading.current_thread() and thread.is_alive():
-                logger.info("Waiting for thread %s to complete", thread.name)
-                thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        _join_sessions(sessions, SHUTDOWN_JOIN_TIMEOUT_SECONDS)
 
     except Exception as e:
         logger.error("Server error: %s", e)
@@ -856,7 +870,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    restart_on_config_change()
+    restart_on_config_change(shutdown_grace=CONFIG_RESTART_GRACE_SECONDS)
     start_server(host=args.host, port=args.port, level=args.level)
 
 

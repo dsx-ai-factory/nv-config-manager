@@ -25,15 +25,14 @@ every service, forever. Restarting replaces all of it at once.
 
 from __future__ import annotations
 
+import configparser
 import os
 import random
 import signal
 import threading
-from configparser import ConfigParser
 
 from nv_config_manager.common.ini import (
     config_path,
-    file_digest,
     loaded_config_snapshot,
     read_config_snapshot,
 )
@@ -47,8 +46,10 @@ DEFAULT_POLL_INTERVAL_SECONDS = 30.0
 
 # Every replica of a service reads the same file and sees the change within the
 # same window. Waiting a random part of this spreads their restarts out, which a
-# Deployment rollout would otherwise have arranged.
-DEFAULT_MAX_JITTER_SECONDS = 20.0
+# Deployment rollout would otherwise have arranged. It has to be long next to
+# the time a replica takes to start and become ready, or the replicas of one
+# service are still likely to be down together.
+DEFAULT_MAX_JITTER_SECONDS = 120.0
 
 # How long a process gets to shut down cleanly before it is stopped outright.
 # This is the grace period Kubernetes gives a container by default.
@@ -58,6 +59,41 @@ DEFAULT_SHUTDOWN_GRACE_SECONDS = 30.0
 FORCED_EXIT_CODE = 1
 
 _watch_started = threading.Lock()
+
+
+def _settings(text: str | None) -> dict[str, str] | None:
+    """Parse INI text the way the loader does, flattened to "section.option".
+
+    Args:
+        text: Contents of an INI file, or None when they could not be decoded
+
+    Returns:
+        The settings, or None when a service could not load this file
+    """
+    if text is None:
+        return None
+    parser = configparser.ConfigParser(interpolation=None, delimiters=("=",))
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return None
+    return {
+        f"{section}.{option}": value
+        for section in parser.sections()
+        for option, value in parser[section].items()
+    }
+
+
+def _decode(raw: bytes) -> str | None:
+    """Decode file contents as strictly as the loader does."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _differing(old: dict[str, str], new: dict[str, str]) -> list[str]:
+    return sorted(name for name in old.keys() | new.keys() if old.get(name) != new.get(name))
 
 
 def changed_keys(before: str, after: str) -> list[str]:
@@ -73,30 +109,7 @@ def changed_keys(before: str, after: str) -> list[str]:
     Returns:
         Sorted "section.option" names whose values differ, added or removed
     """
-
-    def flatten(text: str) -> dict[str, str]:
-        parser = ConfigParser(interpolation=None, delimiters=("=",))
-        try:
-            parser.read_string(text)
-        except Exception:  # pylint: disable=broad-exception-caught
-            # A half-written file should still be reported as a change.
-            return {}
-        return {
-            f"{section}.{option}": value
-            for section in parser.sections()
-            for option, value in parser[section].items()
-        }
-
-    old, new = flatten(before), flatten(after)
-    return sorted(name for name in old.keys() | new.keys() if old.get(name) != new.get(name))
-
-
-def _read(path: str) -> str:
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            return handle.read()
-    except OSError:
-        return ""
+    return _differing(_settings(before) or {}, _settings(after) or {})
 
 
 def _watch(
@@ -107,7 +120,7 @@ def _watch(
     baseline: tuple[str, str] | None = None,
     shutdown_grace: float = DEFAULT_SHUTDOWN_GRACE_SECONDS,
 ) -> None:
-    """Poll until the file's contents change, then signal a shutdown.
+    """Poll until the file's settings change, then signal a shutdown.
 
     Args:
         path: File to watch
@@ -120,23 +133,47 @@ def _watch(
         shutdown_grace: Seconds the process gets to exit after the signal
     """
     if baseline is None:
-        digest = file_digest(path)
-        contents = _read(path)
-    else:
-        digest, contents = baseline
+        baseline = _read_baseline(path)
+    digest, contents = baseline if baseline is not None else (None, "")
+    settings = _settings(contents) or {}
+    rejected: str | None = None
 
     while not stop.wait(poll_interval):
-        current = file_digest(path)
-        if current is None or current == digest:
+        # One read supplies the digest, the parse and the logged names, so they
+        # all describe the same version of the file.
+        snapshot = read_config_snapshot(path)
+        if snapshot is None or snapshot[0] == digest:
             # An unreadable file is treated as a transient mount problem rather
             # than a change, so a service is never restarted for losing sight of
             # its configuration.
             continue
 
+        current, raw = snapshot
+        new_settings = _settings(_decode(raw))
+        if new_settings is None:
+            # Restarting would trade a working process for one that cannot
+            # load its configuration, in every service at once. Keep running on
+            # the last good file until a valid one arrives.
+            if current != rejected:
+                rejected = current
+                logger.error(
+                    "Configuration file %s changed but cannot be parsed, "
+                    "keeping the configuration already loaded",
+                    path,
+                )
+            continue
+
+        changed = _differing(settings, new_settings)
+        if not changed:
+            # Comments, whitespace or ordering moved. Nothing a service reads
+            # is different, so adopt this version and keep watching.
+            digest = current
+            continue
+
         logger.info(
             "Configuration file %s changed, restarting to pick it up. Changed settings: %s",
             path,
-            ", ".join(changed_keys(contents, _read(path))) or "none identified",
+            ", ".join(changed),
         )
         if stop.wait(random.uniform(0, max_jitter)):  # noqa: S311 - spreading load, not crypto
             return
@@ -160,6 +197,17 @@ def _watch(
         return
 
 
+def _read_baseline(path: str) -> tuple[str, str] | None:
+    """Read the file as the baseline for a process that has not parsed it yet."""
+    snapshot = read_config_snapshot(path)
+    if snapshot is None:
+        return None
+    digest, raw = snapshot
+    # Only setting names are ever derived from this text, so a byte the loader
+    # would reject is replaced here rather than ending the watch.
+    return digest, raw.decode("utf-8", errors="replace")
+
+
 def restart_on_config_change(
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
     max_jitter: float = DEFAULT_MAX_JITTER_SECONDS,
@@ -175,7 +223,8 @@ def restart_on_config_change(
         poll_interval: Seconds between checks of the file
         max_jitter: Upper bound on the delay before shutting down
         shutdown_grace: Seconds the process gets to exit cleanly before it is
-            stopped outright
+            stopped outright. Pass more than the default for a service whose
+            own shutdown is allowed to take longer.
 
     Returns:
         True when a watch was started, False when one was already running
@@ -187,7 +236,7 @@ def restart_on_config_change(
     # A service that has not loaded the INI yet reads it after this returns, so
     # the baseline has to be taken here rather than on the watch thread, which
     # could run after that load and adopt a newer file as its starting point.
-    baseline = loaded_config_snapshot(path) or read_config_snapshot(path)
+    baseline = loaded_config_snapshot(path) or _read_baseline(path)
     threading.Thread(
         target=_watch,
         args=(path, poll_interval, max_jitter, threading.Event(), baseline, shutdown_grace),

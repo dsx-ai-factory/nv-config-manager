@@ -30,20 +30,23 @@ from nv_config_manager.common.ini import (
 
 @lru_cache(maxsize=1)
 def _load_config(
-    config_path: str,
+    path: str,
     _fingerprint: FileFingerprint | None,
 ) -> ConfigParser:
     """Parse one version of the unified INI file."""
     config = ConfigParser(interpolation=None, delimiters=("=",))
     # One read supplies both the parse and the watcher baseline. A second read
     # can observe a Secret-volume swap and record a digest the process is not using.
-    snapshot = read_config_snapshot(config_path)
+    snapshot = read_config_snapshot(path)
     if snapshot is None:
-        config.read(config_path)
+        config.read(path)
         return config
-    digest, text = snapshot
-    config.read_string(text, source=config_path)
-    remember_loaded_config(config_path, digest, text)
+    digest, raw = snapshot
+    # Decoded strictly: a replaced byte in a credential would only show up
+    # later as an unexplained authentication failure.
+    text = raw.decode("utf-8")
+    config.read_string(text, source=path)
+    remember_loaded_config(path, digest, text)
     return config
 
 

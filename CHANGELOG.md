@@ -11,17 +11,24 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ### Changed
 
-- Long-lived services now exit, and Kubernetes restarts them, when the contents
-  of `nv-config-manager.ini` change, so a rotated credential or renamed NATS
+- Long-lived services now exit, and Kubernetes restarts them, when a setting in
+  `nv-config-manager.ini` changes, so a rotated credential or renamed NATS
   stream takes effect without a manual rollout. Each replica waits a random
-  delay of up to 20 seconds first, and the log line names the settings that
-  changed, never their values. A process still running 30 seconds after the
-  restart request is stopped outright, so a service without a SIGTERM handler
-  restarts too. Expect container restarts shortly after the mounted Secret
-  updates. This covers the DHCP configuration refresh and sync
-  loops as well as the API, consumer, worker, and scheduler services.
+  delay of up to two minutes first, and the log line names the settings that
+  changed, never their values. Expect container restarts a few minutes after
+  the mounted Secret updates. A file that cannot be parsed is logged as an
+  error and ignored, so running services keep their last good configuration,
+  and a change to comments, whitespace, or ordering alone restarts nothing.
+  A process still running 30 seconds after the restart request is stopped
+  outright. This covers the DHCP configuration refresh and sync loops as well
+  as the API, consumer, worker, and scheduler services.
+- The Config Manager Temporal worker now handles SIGTERM: it stops taking new
+  tasks and gives running activities 25 seconds to finish before cancelling
+  them. Before, it ignored the signal and was killed at the end of the pod's
+  grace period while still polling.
 - A workflow whose result cannot be published to NATS after three attempts now
-  logs a warning and completes, instead of failing after its work is done.
+  logs a warning with the cause and completes, instead of failing after its
+  work is done.
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
