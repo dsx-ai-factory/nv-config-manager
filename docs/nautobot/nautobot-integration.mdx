@@ -37,6 +37,13 @@ and its enabled apps. Config Manager 1.4.2 bundled Firewall Models 2.4.0.
 This change does not migrate firewall objects to a replacement model. It
 does not uninstall the app from an externally managed Nautobot instance.
 
+<Warning>
+Rolling the app's migrations back to zero deletes its database schema and
+data. Keep a verified backup and obtain the data owner's approval before
+cleanup. Do not use this command as a way to preserve firewall records or
+wait until the app has disappeared from the image to run it.
+</Warning>
+
 Before replacing the bundled Nautobot image:
 
 1. Check whether firewall objects, custom jobs, templates, or integrations
@@ -56,13 +63,6 @@ Before replacing the bundled Nautobot image:
    are complete. The image already removes the app configuration and Python
    package; do not run `pip uninstall` inside the new container. Verify core
    inventory, jobs, and Config Manager integrations after deployment.
-
-<Warning>
-Rolling the app's migrations back to zero deletes its database schema and
-data. Keep a verified backup and obtain the data owner's approval before
-cleanup. Do not use this command as a way to preserve firewall records or
-wait until the app has disappeared from the image to run it.
-</Warning>
 
 ## NATS Event Streaming
 

@@ -101,7 +101,7 @@ unreadable payload is terminated without retry. The same applies when
 Temporal confirms that the workflow is missing from the namespace named in
 the event. A namespace mismatch is retried because a misconfigured archive
 namespace reports every workflow as missing. For older events without a
-namespace, the service terminates the event once it exceeds namespace
+namespace, the service terminates the event after it exceeds namespace
 retention or another event's workflow has been found; until then it retries.
 
 The service handles at most two messages concurrently, even if the durable

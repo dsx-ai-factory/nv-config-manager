@@ -395,7 +395,7 @@ Before upgrading from 1.4.2, review the following changes with the owners of
 the affected services. Keep recoverable database backups and test the upgrade
 against a restored copy of the deployment first.
 
-| Area | Upgrade action |
+| Area | Upgrade Action |
 | :--- | :------------- |
 | Bundled Nautobot | Complete the [firewall-app removal checks](../nautobot/nautobot-integration.mdx#firewall-app-removal-in-143) before replacing the old image. There is no automatic migration to another firewall model. |
 | Workflow recovery | Review the three-hour [failed-stage retry window](../temporal/temporal-deployment.mdx#failed-stage-retry-window). Recreate existing schedules if they must use a changed window. |
@@ -429,7 +429,7 @@ Each `cnpg.<cluster>.affinity` accepts `enablePodAntiAffinity` and
 previous effective placement. An explicit `false` now disables anti-affinity;
 earlier charts dropped that value. This changes placement for deployments
 using the small or medium local values files. Choose `required` only when
-enough nodes are available: database instances remain Pending rather than
+enough nodes are available: database instances remain `Pending` rather than
 sharing a node. Apply these settings under the relevant cluster key, such as
 `cnpg.temporal.affinity` or `cnpg.nautobot.affinity`.
 
