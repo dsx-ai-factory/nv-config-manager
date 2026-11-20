@@ -725,6 +725,7 @@ Usage: {{ include "nv-config-manager.authIniSections" . }}
 [auth]
 required = {{ include "nv-config-manager.authRequired" . }}
 accept_request_headers = {{ include "nv-config-manager.acceptRequestHeaders" . }}
+read_only_groups = {{ .Values.auth.readOnlyGroups | default list | join "," }}
 {{- if .Values.oidc.enabled }}
 cookie_name = {{ .Values.oidc.cookieName | default "NVConfigManagerAccessToken" }}
 {{- end }}

@@ -201,6 +201,7 @@ class AuthConfig:
     jwt_providers: tuple[JwtProviderConfig, ...] = ()
     spiffe: SpiffeConfig | None = None
     allowed_groups: tuple[str, ...] = ()
+    read_only_groups: tuple[str, ...] = ()
 
 
 # ── Identity container ────────────────────────────────────────────────────
@@ -375,6 +376,11 @@ def load_auth_config(config: ConfigParser | None = None) -> AuthConfig:
             jwt_providers=tuple(_load_jwt_providers_from_ini(config)),
             spiffe=_load_spiffe_from_ini(config),
             allowed_groups=allowed_groups,
+            read_only_groups=tuple(
+                group.strip()
+                for group in config.get(auth_section, "read_only_groups", fallback="").split(",")
+                if group.strip()
+            ),
         )
         _auth_config_source = config
         _auth_config_tracks_file = tracks_file
@@ -890,6 +896,11 @@ def _install_openapi_auth_schema(
 # ── FastAPI dependencies ──────────────────────────────────────────────────
 
 
+def has_read_only_role(groups: set[str]) -> bool:
+    """Identify API readers, including callers that also hold an execute role."""
+    return bool(groups.intersection(load_auth_config().read_only_groups))
+
+
 def _enforce_allowed_groups(identity: SSOIdentity) -> SSOIdentity:
     """Apply per-service allowed_groups to user/JWT identities."""
     cfg = load_auth_config()
@@ -1105,6 +1116,15 @@ def install_identity_probe(
             request.state.user = identity.user
             request.state.roles = identity.groups
             request.state.auth_source = identity.source
+            if has_read_only_role(identity.groups) and request.method not in {
+                "GET",
+                "HEAD",
+                "OPTIONS",
+            }:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Read-only identities cannot perform this operation."},
+                )
         elif not auth_required():
             request.state.identity = ANONYMOUS_IDENTITY
             request.state.user = ANONYMOUS_IDENTITY.user
