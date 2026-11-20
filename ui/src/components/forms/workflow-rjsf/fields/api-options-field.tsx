@@ -52,7 +52,7 @@ import {
 } from "@/lib/option-source";
 import type { OptionSource } from "@/types/workflow-catalog.types";
 
-import { contextOf } from "../context";
+import { contextOf, type ShellFormContext } from "../context";
 import { corePrefillParams, optionQueryValues } from "../prefill";
 import type { FormData, Owner } from "../state";
 import type { ApiOptionsOptions } from "../ui-schema";
@@ -106,6 +106,119 @@ interface GroupedOptionsProps {
   onChange(keys: string[]): void;
 }
 
+interface GroupedOptionProps extends Pick<
+  GroupedOptionsProps,
+  "selected" | "disabled" | "invalid" | "showDescriptions" | "onChange"
+> {
+  item: OptionSourceItem;
+  optionId: string;
+  describedBy: string;
+}
+
+const GroupedOption = ({
+  item,
+  optionId,
+  describedBy,
+  selected,
+  disabled,
+  invalid,
+  showDescriptions,
+  onChange,
+}: GroupedOptionProps) => {
+  const key = String(item.value);
+  return (
+    <div className="flex items-start gap-2">
+      <Checkbox
+        id={optionId}
+        checked={selected.includes(key)}
+        disabled={disabled}
+        aria-describedby={describedBy}
+        aria-invalid={invalid || undefined}
+        onCheckedChange={(checked) =>
+          onChange(
+            checked === true
+              ? [...new Set([...selected, key])]
+              : selected.filter((value) => value !== key)
+          )
+        }
+      />
+      <div className="space-y-1">
+        <Label htmlFor={optionId}>{item.label}</Label>
+        {showDescriptions && item.description ? (
+          <p className="text-sm text-muted-foreground">{item.description}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
+interface GroupedOptionsContentProps extends Pick<
+  GroupedOptionsProps,
+  "id" | "label" | "loaded" | "waitingText" | "selected" | "disabled" | "invalid" |
+  "showDescriptions" | "onChange"
+> {
+  describedBy: string;
+}
+
+const GroupedOptionsContent = ({
+  id,
+  label,
+  loaded,
+  waitingText,
+  describedBy,
+  ...optionProps
+}: GroupedOptionsContentProps) => {
+  if (isLoading(loaded)) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <LoadingSpinner /> Loading {label}...
+      </div>
+    );
+  }
+  if (loaded.missingDependencies.length > 0) {
+    return waitingText ? (
+      <div className="space-y-2 rounded-md border p-3">
+        <p id={`${id}__waiting`} className="text-sm text-muted-foreground">
+          {waitingText}
+        </p>
+      </div>
+    ) : null;
+  }
+  if (loaded.status === "error") {
+    return (
+      <p className="text-sm text-destructive">Could not load {label} options.</p>
+    );
+  }
+  if (loaded.status === "empty") {
+    return <p className="text-sm text-muted-foreground">No {label} found.</p>;
+  }
+
+  const groups = new Map<string, OptionSourceItem[]>();
+  for (const item of loaded.options) {
+    const group = item.group ?? "";
+    groups.set(group, [...(groups.get(group) ?? []), item]);
+  }
+  return [...groups.entries()].map(([group, items], groupIndex) => (
+    <fieldset
+      key={group || "ungrouped"}
+      className="space-y-2 rounded-md border p-3"
+    >
+      {group ? (
+        <legend className="px-1 text-sm font-semibold">{group}</legend>
+      ) : null}
+      {items.map((item, itemIndex) => (
+        <GroupedOption
+          key={String(item.value)}
+          item={item}
+          optionId={`${id}-${groupIndex}-${itemIndex}`}
+          describedBy={describedBy}
+          {...optionProps}
+        />
+      ))}
+    </fieldset>
+  ));
+};
+
 const GroupedOptions = ({
   id,
   label,
@@ -120,17 +233,11 @@ const GroupedOptions = ({
   metaText,
   onChange,
 }: GroupedOptionsProps) => {
-  const groups = new Map<string, OptionSourceItem[]>();
-  for (const item of loaded.options) {
-    const group = item.group ?? "";
-    groups.set(group, [...(groups.get(group) ?? []), item]);
-  }
   const allKeys = [
     ...new Set(loaded.options.map((item) => String(item.value))),
   ];
   const count = metaText ? loaded.meta?.[metaText.key] : undefined;
   const waiting = loaded.missingDependencies.length > 0;
-  const busy = isLoading(loaded);
   const labelId = `${id}__label`;
   const waitingId = `${id}__waiting`;
   const describedBy = [
@@ -176,66 +283,18 @@ const GroupedOptions = ({
         ) : null}
       </div>
 
-      {busy ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <LoadingSpinner /> Loading {label}...
-        </div>
-      ) : waiting ? (
-        waitingText ? (
-          <div className="space-y-2 rounded-md border p-3">
-            <p id={waitingId} className="text-sm text-muted-foreground">
-              {waitingText}
-            </p>
-          </div>
-        ) : null
-      ) : loaded.status === "error" ? (
-        <p className="text-sm text-destructive">
-          Could not load {label} options.
-        </p>
-      ) : loaded.status === "empty" ? (
-        <p className="text-sm text-muted-foreground">No {label} found.</p>
-      ) : (
-        [...groups.entries()].map(([group, items], groupIndex) => (
-          <fieldset
-            key={group || "ungrouped"}
-            className="space-y-2 rounded-md border p-3"
-          >
-            {group ? (
-              <legend className="px-1 text-sm font-semibold">{group}</legend>
-            ) : null}
-            {items.map((item, itemIndex) => {
-              const key = String(item.value);
-              const optionId = `${id}-${groupIndex}-${itemIndex}`;
-              return (
-                <div key={key} className="flex items-start gap-2">
-                  <Checkbox
-                    id={optionId}
-                    checked={selected.includes(key)}
-                    disabled={disabled}
-                    aria-describedby={describedBy}
-                    aria-invalid={invalid || undefined}
-                    onCheckedChange={(checked) =>
-                      onChange(
-                        checked === true
-                          ? [...new Set([...selected, key])]
-                          : selected.filter((value) => value !== key)
-                      )
-                    }
-                  />
-                  <div className="space-y-1">
-                    <Label htmlFor={optionId}>{item.label}</Label>
-                    {showDescriptions && item.description ? (
-                      <p className="text-sm text-muted-foreground">
-                        {item.description}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </fieldset>
-        ))
-      )}
+      <GroupedOptionsContent
+        id={id}
+        label={label}
+        loaded={loaded}
+        waitingText={waitingText}
+        describedBy={describedBy}
+        selected={selected}
+        disabled={disabled}
+        invalid={invalid}
+        showDescriptions={showDescriptions}
+        onChange={onChange}
+      />
 
       {description ? (
         <p id={descriptionId(id)} className="text-sm text-muted-foreground">
@@ -255,6 +314,91 @@ const GroupedOptions = ({
     </div>
   );
 };
+
+const hasPendingDependencies = (
+  source: OptionSource,
+  owner: Owner,
+  { layout, pending, formData, optionSelections }: ShellFormContext
+): boolean =>
+  dependencyFields(source).some((dependency) => {
+    const dependencyOwner = layout.owners[dependency];
+    return (
+      dependencyOwner !== undefined &&
+      dependencyOwner !== owner &&
+      pending.has(dependencyOwner)
+    );
+  }) ||
+  Object.values(source.depends_on ?? {}).some((dependency) => {
+    if (dependency.option_key === undefined) return false;
+    const values = normalizeDependencyValue(formData[dependency.field]);
+    const selected = optionSelections[dependency.field]?.values;
+    return (
+      values.length > 0 &&
+      (selected === undefined ||
+        values.length !== selected.length ||
+        values.some((value, index) => value !== selected[index]))
+    );
+  });
+
+const selectedOptionKeys = (
+  value: unknown,
+  type: unknown,
+  typed: boolean,
+  multiple: boolean
+): string | string[] => {
+  if (multiple) {
+    return (Array.isArray(value) ? value : []).map((item) =>
+      keyOf(item, undefined, false)
+    );
+  }
+  return isEmptyValue(value) ? "" : keyOf(value, type, typed);
+};
+
+interface SourceOptionsFeedbackProps {
+  loaded: OptionSourceState;
+  label: string;
+  hasNoMatchingDevices: boolean;
+  matchingDeviceCount: number | undefined;
+  metaText: SourceFieldProps["metaText"];
+}
+
+const SourceOptionsFeedback = ({
+  loaded,
+  label,
+  hasNoMatchingDevices,
+  matchingDeviceCount,
+  metaText,
+}: SourceOptionsFeedbackProps) => (
+  <>
+    {loaded.status === "empty" && !hasNoMatchingDevices ? (
+      <p className="text-sm text-muted-foreground">No {label} found.</p>
+    ) : null}
+    {typeof matchingDeviceCount === "number" ? (
+      <p
+        className={
+          matchingDeviceCount > 0
+            ? "text-sm text-green-600"
+            : "text-sm text-amber-600"
+        }
+      >
+        {matchingDeviceCount > 0
+          ? `✓ Found ${matchingDeviceCount} matching device${
+              matchingDeviceCount === 1 ? "" : "s"
+            }`
+          : "⚠ No devices found matching the selected criteria"}
+      </p>
+    ) : metaText && typeof loaded.meta?.[metaText.key] === "number" ? (
+      <p className="text-sm text-muted-foreground">
+        {metaText.label}: {loaded.meta[metaText.key]}
+      </p>
+    ) : null}
+    {(loaded.meta?.warnings ?? []).map((warning) => (
+      <p key={warning} className="text-sm text-amber-700 dark:text-amber-300">
+        {warning}
+      </p>
+    ))}
+  </>
+);
 
 export const SourceOptionsField = ({
   field,
@@ -284,7 +428,6 @@ export const SourceOptionsField = ({
   const {
     formData,
     pending,
-    layout,
     optionSelections,
     setFields,
     setOptionSelection,
@@ -300,26 +443,7 @@ export const SourceOptionsField = ({
     selections: optionSelections,
   });
   const ownPending = pending.has(owner);
-  const dependencyPending =
-    dependencyFields(source).some((dependency) => {
-      const dependencyOwner = layout.owners[dependency];
-      return (
-        dependencyOwner !== undefined &&
-        dependencyOwner !== owner &&
-        pending.has(dependencyOwner)
-      );
-    }) ||
-    Object.values(source.depends_on ?? {}).some((dependency) => {
-      if (dependency.option_key === undefined) return false;
-      const values = normalizeDependencyValue(formData[dependency.field]);
-      const selected = optionSelections[dependency.field]?.values;
-      return (
-        values.length > 0 &&
-        (selected === undefined ||
-          values.length !== selected.length ||
-          values.some((value, index) => value !== selected[index]))
-      );
-    });
+  const dependencyPending = hasPendingDependencies(source, owner, context);
 
   const patchFor = React.useCallback(
     (selected: readonly OptionSourceItem[]): FormData => {
@@ -449,13 +573,7 @@ export const SourceOptionsField = ({
   ]);
 
   const items = loaded.options;
-  const selected = multiple
-    ? (Array.isArray(value) ? value : []).map((item) =>
-        keyOf(item, undefined, false)
-      )
-    : isEmptyValue(value)
-    ? ""
-    : keyOf(value, type, typed);
+  const selected = selectedOptionKeys(value, type, typed, multiple);
   const waiting = loaded.missingDependencies.length > 0;
   const hasNoMatchingDevices =
     disableWhenNoMatches && loaded.meta?.matching_device_count === 0;
@@ -469,48 +587,6 @@ export const SourceOptionsField = ({
     waiting ||
     isLoading(loaded) ||
     hasNoMatchingDevices;
-
-  const feedback = (
-    <>
-      {presentation !== "grouped-checkboxes" &&
-      loaded.status === "empty" &&
-      !hasNoMatchingDevices ? (
-        <p className="text-sm text-muted-foreground">No {label} found.</p>
-      ) : null}
-      {presentation !== "grouped-checkboxes" &&
-      typeof matchingDeviceCount === "number" ? (
-        <p
-          className={
-            matchingDeviceCount > 0
-              ? "text-sm text-green-600"
-              : "text-sm text-amber-600"
-          }
-        >
-          {matchingDeviceCount > 0
-            ? `✓ Found ${matchingDeviceCount} matching device${
-                matchingDeviceCount === 1 ? "" : "s"
-              }`
-            : "⚠ No devices found matching the selected criteria"}
-        </p>
-      ) : presentation !== "grouped-checkboxes" &&
-        metaText &&
-        typeof loaded.meta?.[metaText.key] === "number" ? (
-        <p className="text-sm text-muted-foreground">
-          {metaText.label}: {loaded.meta[metaText.key]}
-        </p>
-      ) : null}
-      {presentation !== "grouped-checkboxes"
-        ? (loaded.meta?.warnings ?? []).map((warning) => (
-            <p
-              key={warning}
-              className="text-sm text-amber-700 dark:text-amber-300"
-            >
-              {warning}
-            </p>
-          ))
-        : null}
-    </>
-  );
 
   return presentation === "grouped-checkboxes" ? (
     <GroupedOptions
@@ -576,7 +652,13 @@ export const SourceOptionsField = ({
           )
         }
       />
-      {feedback}
+      <SourceOptionsFeedback
+        loaded={loaded}
+        label={label}
+        hasNoMatchingDevices={hasNoMatchingDevices}
+        matchingDeviceCount={matchingDeviceCount}
+        metaText={metaText}
+      />
     </div>
   );
 };

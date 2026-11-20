@@ -24,6 +24,7 @@ nvcm_source_ready=false
 nvcm_upgrade_pip() {
     case "$nvcm_pip_ready" in
         true) return 0 ;;
+        *) : ;; # Continue bootstrapping unless already ready.
     esac
     # The hash protects this first download even if the old pip trusts a bad CA.
     pip install --disable-pip-version-check --no-deps "$NVCM_PIP_REQUIREMENT" || return 1
@@ -33,6 +34,7 @@ nvcm_upgrade_pip() {
 nvcm_bootstrap_pip() {
     case "$nvcm_source_ready" in
         true) return 0 ;;
+        *) : ;; # Continue bootstrapping unless already ready.
     esac
     nvcm_upgrade_pip || return 1
     # Source builds also need patched system/Requests trust for their subprocesses.

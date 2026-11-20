@@ -660,6 +660,53 @@ describe("shellReducer", () => {
     expect(late.pending.size).toBe(0);
   });
 
+  it("settles an inactive filter prefill without changing the active mode or its errors", () => {
+    const withMac: ShellState = {
+      ...state(["scope:implicit:device_id", "field:note"], {
+        remote_mac_address: "00:11:22:33:44:55",
+      }),
+      serverErrors: {
+        remote_mac_address: { __errors: ["bad MAC"] },
+      } as unknown as ShellState["serverErrors"],
+    };
+    const late = shellReducer(withMac, {
+      type: "filter-patch",
+      scope: "implicit:device_id",
+      patch: { site: { id: "PDX01", type: "Site" } },
+      source: "prefill",
+      exclusiveGroups,
+    });
+
+    expect(late.formData).toBe(withMac.formData);
+    expect(late.filters).toBe(withMac.filters);
+    expect(late.serverErrors).toBe(withMac.serverErrors);
+    expect([...late.pending]).toEqual(["field:note"]);
+  });
+
+  it("clears the owning field's errors when only its hidden sibling changes", () => {
+    const withErrors: ShellState = {
+      ...state([], { site: "42", site_type: "Site", note: "unchanged" }),
+      serverErrors: {
+        __errors: ["invalid location"],
+        site: { __errors: ["bad location type"] },
+        note: { __errors: ["bad note"] },
+      } as unknown as ShellState["serverErrors"],
+    };
+    const next = shellReducer(withErrors, {
+      type: "field-patch",
+      owner: "field:site",
+      patch: { site_type: "Module" },
+      source: "user",
+    });
+
+    expect(next.formData).toEqual({
+      site: "42",
+      site_type: "Module",
+      note: "unchanged",
+    });
+    expect(next.serverErrors).toEqual({ note: { __errors: ["bad note"] } });
+  });
+
   it("clears mapped server errors for changed keys and form-level errors on any change", () => {
     const withErrors: ShellState = {
       ...state([], { a: "1", b: "2" }),
@@ -759,6 +806,36 @@ describe("mapServerErrors", () => {
       device_id: { __errors: ["Field required"] },
       site: { __errors: ["Bad type"] },
       port_names: { __errors: ["Item 2: Unknown port"] },
+    });
+  });
+
+  it("routes hidden and unknown paths to the form while keeping whole-value errors on their field", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        secret: { type: "string" },
+        ports: { type: "array", items: { type: "string" } },
+      },
+    };
+    const uiSchema = {
+      secret: { "ui:widget": "hidden" },
+      ports: { "ui:field": "apiOptions" },
+    };
+    expect(
+      mapServerErrors(schema, uiSchema, buildLayout(schema, uiSchema), [
+        { loc: ["secret"], msg: "Invalid secret" },
+        { loc: ["body", "unknown", 0], msg: "Unknown field" },
+        { loc: [], msg: "Invalid request" },
+        { loc: ["ports", "name"], msg: "Unknown port" },
+        { loc: ["ports", 0], msg: "Unavailable port" },
+      ])
+    ).toEqual({
+      __errors: [
+        "secret: Invalid secret",
+        "unknown.0: Unknown field",
+        "Invalid request",
+      ],
+      ports: { __errors: ["name: Unknown port", "Item 1: Unavailable port"] },
     });
   });
 

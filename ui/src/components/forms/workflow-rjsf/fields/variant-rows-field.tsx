@@ -282,6 +282,12 @@ export const VariantRowsField = (props: FieldProps) => {
     setRowsByMode((current) => ({ ...current, [mode.id]: next }));
     publish(mode, next);
   };
+  const changeCell = (index: number, column: VariantRowsColumn, value: string) =>
+    changeRows(
+      rows.map((item, rowIndex) =>
+        rowIndex === index ? { ...item, [columnId(column)]: value } : item
+      )
+    );
   const changeMode = (id: string) => {
     const nextMode = config.modes.find((candidate) => candidate.id === id);
     if (!nextMode) return;
@@ -332,13 +338,7 @@ export const VariantRowsField = (props: FieldProps) => {
                   disabled={isDisabled}
                   invalid={invalid}
                   describedBy={ariaDescribedByIds(id)}
-                  onChange={(value) =>
-                    changeRows(
-                      rows.map((item, rowIndex) =>
-                        rowIndex === index ? { ...item, [columnId(column)]: value } : item
-                      )
-                    )
-                  }
+                  onChange={(value) => changeCell(index, column, value)}
                 />
               </div>
             ))}
