@@ -9,6 +9,27 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
+## 1.4.3
+
+Unreleased. Changes since 1.4.2, prepared for release from `main`.
+
+### Added
+
+- Added a standalone [integration-test command](docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
+  for an existing deployment: `nvcm-installer test install.yaml`. It runs the
+  tests bundled in the deployed image without redeploying. SSO deployments can
+  use Keycloak client credentials or a supplied access-token file.
+- Added [Kea DHCPv4 thread and queue controls](docs/dhcp/index.mdx#kea-multi-threading)
+  through `networkDhcp.kea.multiThreading` and installer
+  `dhcp.kea_multi_threading`. CPU-based sizing rounds the DHCP container's CPU
+  request up to at least one thread. Explicit thread and queue sizes are also
+  supported. Defaults retain Kea's automatic thread count and 64-packet queue;
+  CPU-based sizing and an explicit thread count cannot be combined.
+- Added [`oidc.proxy.cookieRefresh`](docs/install/gateway-api.mdx#oidc-session-refresh)
+  to configure request-driven OIDC session refresh. The default remains `"1h"`.
+  Set an interval shorter than the forwarded ID token's lifetime; refresh also
+  depends on the identity provider and does not extend token lifetimes.
+
 ### Changed
 
 - Bundled Nautobot now assigns the MCP read-only token to the dedicated
@@ -89,6 +110,21 @@ The promotion workflow extracts GitHub release notes from that commit.
   imports all of them, so each workflow run's sandbox re-imports only the
   modules that run uses instead of all 29 workflow modules. The package's
   public names are unchanged.
+- The bundled Nautobot image no longer includes `nautobot_firewall_models`.
+  Deployments that used the app must review their firewall data and plan its
+  retention or cleanup before upgrading. Removing the app does not provide a
+  migration to a replacement firewall model.
+- New render consumers use a default delivery limit of 20. Retryable handler
+  failures and device-lock contention count toward that limit; a message that
+  reaches it is logged and terminated. Existing NATS durables retain their own
+  `max_deliver`, including `-1` for unlimited retries. Review externally managed
+  consumers and the [delivery-limit guidance](docs/render/render-service.mdx#external-nats-administration).
+- Workflow archive writes now retain their backlog in JetStream while the
+  backend is unavailable, with at most two concurrent writes. New archive
+  consumers default to 288 deliveries with five-minute retry delays. Permanently
+  rejected records and records that reach the durable's delivery limit are
+  logged and discarded. Existing durables retain their configured limits;
+  review the [archive consumer settings](docs/render/render-service.mdx#external-nats-administration).
 
 ### Fixed
 
@@ -137,6 +173,44 @@ The promotion workflow extracts GitHub release notes from that commit.
   example `["['Active'", "'Provisioned']"]` for `--status`, so commands such as
   `site-cable-validation` failed at their first stage unless every list option
   was passed explicitly.
+- MCP Nautobot inventory tools now use dedicated read-only credentials when
+  sign-in is disabled. The installer provisions these for built-in Nautobot.
+  Existing deployments must populate `readOnlyToken` and rerun Nautobot
+  migrations; with ESO, wait for the read-only Secret to synchronize first.
+  External Nautobot requires a separately provisioned view-only account and
+  token. Follow the [inventory credential upgrade steps](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
+- Helm now rejects CNPG backup configurations with an unsupported destination
+  or missing S3 bucket or path. When enabling backups, set
+  `cnpg.backup.destinationType: s3`, `cnpg.backup.s3.bucket`, and
+  `cnpg.backup.s3.path`. Backup-credential ExternalSecrets now follow the backup
+  settings of enabled clusters, including Nautobot, instead of the unused
+  `cnpg.backup.enabled` value.
+- Cumulus neighbor discovery now collects IPv4 and IPv6 neighbors through the
+  split NVUE endpoints on Cumulus Linux 5.15 and later, while retaining the
+  legacy endpoint for earlier versions. Missing data for one address family no
+  longer discards the other family's neighbors.
+- Render queue claims are atomic, preventing concurrent producers from
+  publishing duplicate render requests or clearing another producer's queued
+  flag after a failed publish.
+- Helm and Argo CD run the template updater after Config Store migrations,
+  so template loading no longer races database initialization.
+- AIR deployment checks now use the Temporal bootstrap image's CLI to verify
+  search attributes. Failed checks retain their diagnostics, and workers restart
+  only when a successful check confirms missing attributes.
+- The ZTP SFTP server offers ECDSA as well as RSA host keys, allowing Cumulus
+  clients without RSA SHA-2 support to negotiate a host key after the Paramiko
+  dependency update.
+- Helm renders `temporal.dynamicConfig` in Temporal's native key-to-values
+  mapping format, preserving configured values and namespace constraints.
+
+### Security
+
+- Updated Python, Go, installer, UI, and runtime-image dependencies to
+  incorporate security fixes. Bundled oauth2-proxy is now 7.15.6 and the Stork
+  agent is 2.6.0. SSH dependencies require Paramiko 5.0.1 or later.
+- Updated the Temporal Web UI's Markdown dependency and preserved the
+  Nautobot runtime image's patched zlib library instead of replacing it with
+  the builder's copy.
 
 ## 1.4.2
 
