@@ -5,7 +5,7 @@ include:
   - local: .gitlab/ci/test.yml
   # Secret-free pull-request builds and protected test-env promote pipelines
   # have deliberately narrow job sets. Do not include unrelated Pulse or
-  # airgapped jobs (including their tracking/manual placeholders) in them.
+  # installer resource jobs in them.
   # Trigger variables are untrusted until a validator job runs, so triggered
   # pipelines are excluded using GitLab's pipeline source + protected ref.
   - local: .gitlab/ci/pulse.yml
