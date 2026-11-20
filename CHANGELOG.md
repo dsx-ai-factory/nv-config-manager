@@ -11,9 +11,6 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ### Changed
 
-- Stable container releases now publish `major.minor-latest` tags, such as
-  `1.3-latest`, so consumers can follow patches within a minor version. Global
-  `latest` still follows the newest stable release; RCs update neither alias.
 - Bundled Nautobot now assigns the MCP read-only token to the dedicated
   `nvcm-mcp-read-only` inventory account. Before upgrading, ensure
   `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
