@@ -87,15 +87,47 @@ The account also needs the ordinary data-plane permissions for its configured su
 
 When `temporal.archive.enabled=true`, the archive service consumes `archiveSubject` through the fixed `archiveConsumer.name` and `archiveConsumer.deliverySubject`. It requires consumer INFO and durable CREATE for that exact stream and durable, subscribe access to the configured delivery subject, and publish access to JetStream acknowledgement subjects. The archive service creates the push durable when it is missing. An administrator can provision the same durable with `deliver_policy=new`, `ack_policy=explicit`, `ack_wait=360s`, `max_deliver=288`, `max_ack_pending=2`, the configured filter and delivery subjects, and a delivery group matching the durable name.
 
-The archive service acknowledges a message only after the record is written. A failed write is retried every 5 minutes, so a record survives about a day of backend outage. Like the device render consumer, the archive service follows the `max_deliver` of the durable it binds to: on the final delivery that durable allows, it logs that it is giving up and terminates the message, and that record is not archived. `max_deliver=-1` retries indefinitely. A record that the backend rejects, a record missing a field the archive needs, or a payload that cannot be read is terminated without retrying, because a retry cannot succeed. So is an event whose workflow Temporal does not have in the namespace the workflow ran in, which each event names. An event whose workflow ran in a namespace other than the one the archive reads is retried, because a misconfigured namespace reports every workflow as missing. An event from an older producer that does not name its namespace is terminated once it is older than the namespace's retention or the archive has found another event's workflow; until then it is retried. The archive service handles up to `max_ack_pending=2` messages at once, and never more even if the durable allows more, and gives each 5 minutes, inside the 6-minute ack wait; an archive that runs longer is abandoned and retried later. During an outage the backlog stays in the stream instead of in the archive pod's memory. On shutdown the archive service stops taking messages and gives in-flight archives 20 seconds to finish; JetStream redelivers any that do not.
+The archive service acknowledges a message only after the record is written.
+Failed writes retry every five minutes. New durables allow 288 deliveries,
+providing roughly a day of retry attempts. This is not a retention guarantee:
+stream limits can remove records sooner. Existing durables retain their
+configured `max_deliver`; `-1` retries indefinitely while the stream retains
+the record. If the final delivery allowed by the durable still fails, the
+service logs that it is giving up and terminates the message, leaving that
+record unarchived. A successful final attempt is acknowledged normally.
+
+A record that the backend rejects, a record missing a required field, or an
+unreadable payload is terminated without retry. The same applies when
+Temporal confirms that the workflow is missing from the namespace named in
+the event. A namespace mismatch is retried because a misconfigured archive
+namespace reports every workflow as missing. For older events without a
+namespace, the service terminates the event after it exceeds namespace
+retention or another event's workflow has been found; until then it retries.
+
+The service handles at most two messages concurrently, even if the durable
+permits more. Each archive attempt has a five-minute timeout within the
+six-minute acknowledgement wait. Longer attempts are abandoned and retried.
+During outages, backlog stays in the stream. On shutdown, the service stops
+taking messages and allows in-flight writes 20 seconds to finish; JetStream
+redelivers unacknowledged messages.
 
 Clients specify their stream explicitly and do not request `STREAM.INFO` for externally managed streams. Stream creation, mutation, and inspection therefore remain administrator operations. When `externalServices.nats.local=true`, the application retains its existing stream setup behavior for local development.
 
 An administrator-provisioned consumer should use the configured stream and filter subject with the fixed durable name, `deliver_policy=new`, `ack_policy=explicit`, `ack_wait=360s`, and `max_deliver=20`. The application validates operational settings but does not change an existing consumer or require its delivery policy to match; the owner can retain the delivery policy chosen for a migration boundary.
 
-The render consumers follow the `max_deliver` of the durable they find and recheck it about every 15 seconds, so an edited limit takes effect without a restart. On the final delivery that durable allows, a consumer logs that it is giving up and terminates the message. A lower limit shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A limit below 9 cannot outlast another render's 180-second device lock, so it can discard a render that was only waiting for that lock; keep the default unless you have a reason to lower it. A message whose handler raises, for example because Redis or NATS is unavailable, is redelivered after a delay that doubles from 1 second up to 60 seconds, so the default limit rides out about 14 minutes of such failures. DCIM and Config Store errors are not retried: the dispatcher logs and counts them, and the message is acknowledged. A render that waits on another render's device lock is retried after a delay that doubles from 5 seconds up to 30 seconds. Those retries count toward the same limit, and the default limit waits about 8 minutes, longer than a device lock can be held. A render that gives up because its data is bad is not lost for good: correcting the data triggers a new render.
+The render consumers follow the `max_deliver` of the durable they find and recheck it about every 15 seconds, so an edited limit takes effect without a restart. If handling still fails or the device lock is still unavailable on the final delivery, a consumer logs that it is giving up and terminates the message. A lower limit shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A limit below 9 cannot outlast another render's 180-second device lock, so it can discard a render that was only waiting for that lock; keep the default unless you have a reason to lower it. A message whose handler raises, for example because Redis or NATS is unavailable, is redelivered after a delay that doubles from 1 second up to 60 seconds, so the default limit rides out about 14 minutes of such failures. DCIM and Config Store errors are not retried: the dispatcher logs and counts them, and the message is acknowledged. A render that waits on another render's device lock is retried after a delay that doubles from 5 seconds up to 30 seconds. Those retries count toward the same limit, and the default limit waits about 8 minutes, longer than a device lock can be held. A render that gives up because its data is bad is not lost for good: correcting the data triggers a new render.
 
-A render consumer whose fetch loop keeps failing exits, and Kubernetes restarts the pod. The consumer exits when a fetch cycle fails and no round trip to NATS has completed for `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600, which must exceed the 360-second ack wait); the error it exits with states how long it was stalled. A round trip is a completed fetch while the consumer is idle, including one that finds no messages, or a consumer info lookup while a handler runs, so a long config context batch does not count as a stall. A consumer whose event loop is blocked, or whose handler never returns, does not reach this check and is not restarted; alert on the progress and processing-start metrics below to find it.
+A render consumer whose fetch loop keeps failing exits, and Kubernetes
+restarts its container. The consumer exits when a fetch cycle fails and no
+round trip to NATS has completed for `CONSUMER_LIVENESS_TIMEOUT_SECONDS`.
+The default is 600 seconds and must exceed the 360-second acknowledgement
+wait. The exit error states how long the consumer was stalled.
+
+A round trip is a completed fetch, including an empty fetch while idle, or a
+consumer-info lookup while a handler runs. Long configuration-context batches
+therefore do not count as stalls while those lookups succeed. A blocked event
+loop or a handler that never returns does not reach the exit check. Alert on
+the progress and processing-start metrics below to find those cases.
 
 If create permission is omitted and the durable is absent, the consumer logs the exact provisioning request. If delete permission is omitted, the reset API returns instructions to delete and recreate the exact durable at the stream head. Configuration mismatches likewise produce an administrator-ready update request in the consumer log.
 
