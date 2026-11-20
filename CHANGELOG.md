@@ -59,6 +59,17 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. Refer to
   [Render service](docs/render/render-service.mdx).
+- The Temporal archive service now exits, and Kubernetes restarts the pod, once
+  its durable consumer has made no progress for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, a subscription that
+  stopped receiving left the pod `Running` while archiving nothing. A pod that
+  is still receiving and retrying messages during an archive backend outage is
+  not restarted. A durable deleted while the service runs is re-created after
+  its last acknowledged message, so events published in between are still
+  archived. The archive pod also serves progress metrics on
+  `temporal.archive.metricsPort` (default 8000), scraped by a new PodMonitor when
+  `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set. See
+  [Render service](docs/render/render-service.mdx).
 - Retryable failed workflow stages now wait for a manual retry for a configurable
   window (three hours by default) after automatic activity or child retries are
   exhausted, instead of indefinitely. An unanswered retry wait closes the
