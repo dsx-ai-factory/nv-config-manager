@@ -393,6 +393,32 @@ for Kubernetes permissions, SSO credentials, token files, and deployments
 without an installer config. For an installed CLI, use `nvcm-installer` in
 place of the bundle's `./installer/nvcm-installer` command.
 
+### Optional Kata runtime
+
+On a cluster with Kata installed and hardware virtualization available, select
+its RuntimeClass in your Helm values. Raise the health-check memory limit for
+a standalone guest:
+
+```yaml
+global:
+  runtimeClassName: kata-qemu-runtime-rs
+  healthCheckResources:
+    limits:
+      cpu: "1"
+      memory: 256Mi
+```
+
+This applies to chart-owned application Deployments and hook Jobs.
+`global.runtimeClassOverrides` selects a class per component; an empty string
+uses the node default. Set CPU/memory limits for all containers and sidecars,
+and tune `global.initContainerResources` for init and plugin-install steps.
+For migrations, use `global.migrationResources` for Config Store and
+`nautobot.server.migrations.resources` for Nautobot (default memory limit: 2Gi).
+Runtime installation, scheduling/overhead, and
+operator-managed dependencies such as CNPG databases and the ingress gateway
+are configured separately. Qualify your runtime profile, storage, identity,
+and real DHCP/ZTP ingress paths before production use.
+
 ## Iterative Deployment and Post-Deploy Changes
 
 You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `nv-config-manager-install.yaml` as the source of truth: re-open it with `nvcm-installer init --config nv-config-manager-install.yaml`, adjust the configuration, and deploy again. The deployer applies updates through Helm and only restarts services when relevant inputs have changed.

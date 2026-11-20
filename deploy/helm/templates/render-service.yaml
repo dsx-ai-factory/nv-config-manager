@@ -40,6 +40,7 @@ spec:
         {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "render") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -183,6 +184,7 @@ spec:
         {{- include "nv-config-manager.spiffe.annotations" (dict "root" . "app" $renderName) | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "render") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -298,6 +300,7 @@ spec:
         {{- include "nv-config-manager.spiffe.annotations" (dict "root" . "app" $renderName) | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "render") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -410,6 +413,7 @@ spec:
         {{- include "nv-config-manager.spiffe.annotations" (dict "root" . "app" $renderName) | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "render") | nindent 6 }}
       restartPolicy: OnFailure  # Required for Jobs - only restart on failure, not on success
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}

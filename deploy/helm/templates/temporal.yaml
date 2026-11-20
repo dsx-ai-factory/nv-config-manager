@@ -77,6 +77,7 @@ spec:
         {{- include "nv-config-manager.spiffe.annotations" (dict "root" $ "app" $temporalName) | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "temporal") | nindent 6 }}
       {{- if $.Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- range $.Values.global.imagePullSecrets }}
@@ -94,6 +95,8 @@ spec:
       # Render the upstream-compatible config template without introducing a
       # shell into the Temporal server runtime.
       - name: render-config
+        resources:
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ include "nv-config-manager.image" (dict "root" $ "image" $.Values.global.images.temporalServer) }}"
         imagePullPolicy: {{ $.Values.global.images.temporalServer.pullPolicy }}
         command: ["/usr/local/bin/dockerize", "-template", "/etc/temporal/config-template/config_template.yaml:/etc/temporal/config/docker.yaml"]
@@ -140,6 +143,8 @@ spec:
         {{- include "nv-config-manager.containerSecurityContext" $ | nindent 8 }}
       # Wait for both PostgreSQL clusters to be ready (temporal and visibility)
       - name: wait-for-postgres
+        resources:
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ $.Values.global.images.busybox.repository }}:{{ $.Values.global.images.busybox.tag }}"
         command:
         - sh
@@ -161,6 +166,8 @@ spec:
       {{- if eq $service "frontend" }}
       # Frontend runs schema setup before starting (other services wait for frontend)
       - name: schema-setup
+        resources:
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ include "nv-config-manager.image" (dict "root" $ "image" $.Values.global.images.temporalBootstrap) }}"
         imagePullPolicy: {{ $.Values.global.images.temporalBootstrap.pullPolicy }}
         command: ["/usr/local/bin/temporal-bootstrap", "setup-schema"]
@@ -201,6 +208,8 @@ spec:
       {{- else }}
       # Non-frontend services wait for frontend to be ready (which implies schema is set up)
       - name: wait-for-frontend
+        resources:
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ $.Values.global.images.busybox.repository }}:{{ $.Values.global.images.busybox.tag }}"
         command: ['sh', '-c', 'until nc -z {{ $temporalName }}-frontend-service.{{ $.Values.global.namespace }}.svc.cluster.local {{ (index $.Values.temporal.services "frontend").port }}; do echo "waiting for {{ $temporalName }}-frontend-service.{{ $.Values.global.namespace }}.svc.cluster.local"; sleep 2; done; echo "frontend is ready"']
       {{- end }}
@@ -363,6 +372,7 @@ spec:
         {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "temporalWorker") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -504,6 +514,7 @@ spec:
         {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "temporalApi") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -676,6 +687,7 @@ spec:
         {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "temporalScheduler") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -778,6 +790,7 @@ spec:
         {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "temporalArchive") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -857,6 +870,7 @@ spec:
         {{- include "nv-config-manager.spiffe.annotations" (dict "root" . "app" (printf "%s-web" $temporalName)) | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "temporalUi") | nindent 6 }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- range .Values.global.imagePullSecrets }}

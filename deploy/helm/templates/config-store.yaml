@@ -39,6 +39,7 @@ spec:
         {{- include "nv-config-manager.otelOptOutAnnotations" . | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "configStore") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
@@ -156,6 +157,7 @@ spec:
         {{- include "nv-config-manager.vaultAgent.injectorAnnotationsJob" . | nindent 8 }}
       {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "configStore") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       restartPolicy: OnFailure
       {{- if .Values.global.imagePullSecrets }}
@@ -168,6 +170,8 @@ spec:
       initContainers:
       # Wait for config-store postgres to be ready
       - name: wait-for-postgres
+        resources:
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 10 }}
         image: "{{ .Values.global.images.busybox.repository }}:{{ .Values.global.images.busybox.tag }}"
         command:
         - sh
@@ -181,6 +185,8 @@ spec:
           echo "Config-store postgres is ready"
       containers:
       - name: db-init
+        resources:
+          {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "migrationResources") | nindent 10 }}
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
         imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
         {{- include "nv-config-manager.containerSecurityContext" . | nindent 8 }}
@@ -231,6 +237,7 @@ spec:
         {{- include "nv-config-manager.spiffe.annotations" (dict "root" . "app" $configStoreName) | nindent 8 }}
         {{- end }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "configStore") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:

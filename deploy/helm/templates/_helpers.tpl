@@ -1,3 +1,40 @@
+{{/*
+Keep these fallbacks aligned with values.yaml. Upgrades using --reuse-values
+can retain chart defaults from before these keys existed. Merge nested user
+overrides so partial resource settings keep the remaining default bounds.
+*/}}
+{{- define "nv-config-manager.globalResources" -}}
+{{- $defaults := dict
+  "initContainerResources" (dict "requests" (dict "cpu" "50m" "memory" "64Mi") "limits" (dict "cpu" "1" "memory" "512Mi"))
+  "migrationResources" (dict "requests" (dict "cpu" "100m" "memory" "128Mi") "limits" (dict "cpu" "1" "memory" "512Mi"))
+  "healthCheckResources" (dict "requests" (dict "cpu" "10m" "memory" "16Mi") "limits" (dict "cpu" "50m" "memory" "32Mi"))
+-}}
+{{- $overrides := get .root.Values.global .key | default dict -}}
+{{- toYaml (mustMergeOverwrite (deepCopy (get $defaults .key)) $overrides) -}}
+{{- end -}}
+
+{{/*
+Runtime selection for chart-owned pods. An explicit empty component override
+opts out of the global runtime. Operators own RuntimeClass installation,
+scheduling constraints and overhead; this chart only selects a class.
+*/}}
+{{- define "nv-config-manager.runtimeClass" -}}
+{{- $name := get .root.Values.global "runtimeClassName" -}}
+{{- $overrides := .root.Values.global.runtimeClassOverrides | default dict -}}
+{{- if hasKey $overrides .component -}}
+{{- $name = get $overrides .component -}}
+{{- end -}}
+{{- if not (kindIs "string" $name) -}}
+{{- fail "runtimeClassName and runtimeClassOverrides values must be strings" -}}
+{{- end -}}
+{{- if $name -}}
+{{- if or (gt (len $name) 253) (not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$" $name)) -}}
+{{- fail "runtimeClassName must be a Kubernetes DNS subdomain name" -}}
+{{- end -}}
+runtimeClassName: {{ $name | quote }}
+{{- end -}}
+{{- end -}}
+
 {{- define "nv-config-manager.failedStageRetryTimeoutSeconds" -}}
 {{- $seconds := .Values.temporal.configManagerWorker.failedStageRetryTimeoutSeconds -}}
 {{- /*
@@ -1184,6 +1221,8 @@ Usage: {{ include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
 {{- range .Values.renderService.templatePlugins.images }}
 {{- $name := .name | lower | replace "_" "-" | trunc 45 | trimSuffix "-" }}
 - name: copy-template-plugin-{{ $name }}
+  resources:
+    {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 4 }}
   image: {{ required "renderService.templatePlugins.images[].image is required" .image }}
   imagePullPolicy: {{ .pullPolicy | default "IfNotPresent" }}
   command: ["/bin/sh", "-c"]
@@ -1215,6 +1254,8 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
 {{- define "nv-config-manager.installTemplatePlugins" -}}
 {{- if .Values.renderService.templatePlugins.enabled }}
 - name: install-template-plugins
+  resources:
+    {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 4 }}
   image: {{ .Values.renderService.templatePlugins.installerImage | default "python:3.13-alpine" }}
   imagePullPolicy: IfNotPresent
   command: ["/bin/sh", "-c"]
@@ -1294,6 +1335,8 @@ wheels must be present under /plugin-wheels.
 {{- range .Values.dcim.providerPackages.images }}
 {{- $name := required "dcim.providerPackages.images[].name is required" .name | lower | replace "_" "-" | trunc 45 | trimSuffix "-" }}
 - name: copy-dcim-provider-{{ $name }}
+  resources:
+    {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 4 }}
   image: {{ required "dcim.providerPackages.images[].image is required" .image }}
   imagePullPolicy: {{ .pullPolicy | default "IfNotPresent" }}
   command: ["/bin/sh", "-c"]
@@ -1317,6 +1360,8 @@ wheels must be present under /plugin-wheels.
 {{- define "nv-config-manager.installDCIMProviderPackages" -}}
 {{- if .Values.dcim.providerPackages.enabled }}
 - name: install-dcim-provider-packages
+  resources:
+    {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 4 }}
   image: {{ .Values.dcim.providerPackages.installerImage | default "python:3.13-bookworm" }}
   imagePullPolicy: IfNotPresent
   command: ["/bin/sh", "-c"]
@@ -1404,6 +1449,8 @@ plugin cannot shadow a package that ships in the service image.
 {{- end }}
 {{- $_ := set $seen $name true }}
 - name: copy-workflow-plugin-{{ $name }}
+  resources:
+    {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 4 }}
   image: {{ required "temporal.workflowPlugins.images[].image is required" .image }}
   imagePullPolicy: {{ .pullPolicy | default "IfNotPresent" }}
   command: ["/bin/sh", "-c"]
@@ -1428,6 +1475,8 @@ plugin cannot shadow a package that ships in the service image.
 {{- define "nv-config-manager.installWorkflowPlugins" -}}
 {{- if .Values.temporal.workflowPlugins.enabled }}
 - name: install-workflow-plugins
+  resources:
+    {{- include "nv-config-manager.globalResources" (dict "root" $ "key" "initContainerResources") | nindent 4 }}
   image: {{ .Values.temporal.workflowPlugins.installerImage | default "python:3.13-bookworm" }}
   imagePullPolicy: IfNotPresent
   command: ["/bin/sh", "-c"]
