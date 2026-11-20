@@ -328,8 +328,15 @@ client ID from flags or config.
 The installer executes the integration tests already included in the deployed
 Config Manager image, inside the ZTP pod's `sftp` container. No cloned
 repository, Makefile, host-side pytest installation, internet access, or image
-pull is needed. Tests use internal service addresses; the operator host only
-needs Kubernetes API access. Its Kubernetes credentials must allow listing
+pull is needed. The runner supplies internal URLs for Nautobot, Render, ZTP,
+DHCP, and Temporal. Other fixtures still derive gateway URLs from the default
+`config-manager.local` hostname. With sign-in disabled, MCP tests default to
+`https://mcp.config-manager.local/mcp`. The runner neither sets `MCP_URL` nor
+passes `--base-hostname`. A different deployment hostname can therefore cause
+failures even when its services are healthy. These gateway endpoints must be
+resolvable and reachable from the ZTP pod.
+
+The operator host needs Kubernetes API access. Its credentials must allow listing
 pods, reading the `nautobot-admin` Secret, and executing commands in pods in the
 deployment namespace.
 
@@ -416,6 +423,10 @@ Before running, confirm that:
 * The bundled Nautobot provider and the services under test are running, and
   site topology and templates have been loaded. Tests that require devices or
   rendered configurations fail when that data is missing.
+* Site data matches the suite's topology assumptions. The SMN DHCP pool check
+  expects `10.240.164.64/31` when SMN uplink `/31` subnets are present. Other valid
+  site addressing can fail this check with `KeyError`. The full suite is not
+  a general acceptance test for arbitrary site topologies.
 * For SSO deployments, Keycloak client credentials or an access-token file are
   available as described above. External DCIM providers are not supported by
   this runner. It assumes the bundled chart's default resource naming, without
@@ -460,6 +471,10 @@ kubectl logs -n nv-config-manager -l app=nv-config-manager-platform-dhcp-refresh
 ```
 
 ## Iterative Deployment and Post-Deploy Changes
+
+Before upgrading an existing deployment to 1.4.3, complete the
+[upgrade checks](index.mdx#preparing-to-upgrade-to-143), including any
+firewall-app cleanup while the old Nautobot image is still available.
 
 You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `install.yaml` as the source of truth: re-open it with `./installer/nvcm-installer init --config install.yaml`, adjust the configuration, and deploy again.
 

@@ -67,6 +67,19 @@ Key service metrics include:
 
 Each render consumer polls the state of its exact durable consumer and publishes that state as `nv_config_manager_nats_consumer_*` gauges. The built-in dashboard uses these render-owned metrics, so displaying consumer backlog does not require access to the NATS HTTP monitoring endpoint or a NATS Prometheus exporter. Accurate idle backlog still requires the fixed durable's JetStream consumer-info permission, which the render runtime also uses for consumer lifecycle management.
 
+### Render Queue Latency
+
+`nv_config_manager_nautobot_change_message_end_to_end_time` measures seconds
+from a Nautobot change through render processing, including queue wait. One
+change affecting many devices can therefore exceed ten minutes without each
+render taking that long.
+
+In 1.4.3, the histogram adds buckets at 900, 1,200, 1,800, 2,700, 3,600, and
+7,200 seconds. Existing boundaries remain available. Use the new buckets to
+distinguish longer queue delays that previously shared the `+Inf` bucket above
+600 seconds. Refer to [render consumer progress](../render/render-service.mdx#external-nats-administration)
+for stalled-consumer and retry-limit behavior.
+
 ### Temporal worker metrics
 
 When `monitoring.enabled` and `monitoring.podMonitors.enabled` are set, the chart renders a PodMonitor for the Config Manager Temporal worker.
