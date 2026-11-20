@@ -79,6 +79,15 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ### Fixed
 
+- The DHCP config refresh no longer restarts when the DCIM times out, cannot be
+  reached, or returns a server error, as it does for a minute or two while its
+  database fails over. It skips that cycle, keeps Kea on its last good
+  configuration, and tries again after the refresh interval. Previously the
+  container exited and could enter `CrashLoopBackOff`. Skips are counted under
+  `nv_config_manager_dhcp_query_errors_total{error_type="unavailable"}`, and a
+  sustained outage still stops `cache_last_refresh_timestamp` from advancing.
+  Client errors and data that fails validation still restart the container, and
+  one-shot refreshes still fail.
 - Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
   NVLink firmware upgrade, and reprovisioning now await the backup child's result
   so failures and timeouts reach stage failure handling. Previously a failed or
