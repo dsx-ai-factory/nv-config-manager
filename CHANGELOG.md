@@ -79,13 +79,16 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
   Kubernetes `namespace` label, so workflow results can be separated per
-  deployment. These metrics are no longer pushed over OTLP, and their `job`
-  label changes from `nv-config-manager-temporal-worker` to the PodMonitor's
-  `<namespace>/<worker deployment name>`; update dashboards and alerts that
-  match the old `job`. The scraped endpoint adds no unit suffix, so deployments
-  whose OTLP collector does (such as the bundled Alloy, which stores
-  `temporal_request_latency_milliseconds_*`) also see the `_milliseconds` part
-  of those metric names disappear. See
+  deployment. The SDK's Temporal `namespace` label becomes `exported_namespace`;
+  update selectors and grouping that identify a Temporal namespace. These
+  metrics no longer use OTLP. Their `job` label changes from
+  `nv-config-manager-temporal-worker` to the PodMonitor's
+  `<namespace>/<worker deployment name>`. Update dashboards and alerts that
+  match the old `job`. The scraped endpoint adds no unit suffix. If your OTLP
+  collector adds one, as bundled Alloy does, the `_milliseconds` part disappears
+  from the corresponding metric names, such as
+  `temporal_request_latency_milliseconds_*`. Duration values remain in
+  milliseconds. See
   [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
 - CNPG clusters now accept `cnpg.<cluster>.affinity.podAntiAffinityType`
   (`preferred` or `required`). The chart defaults now set
