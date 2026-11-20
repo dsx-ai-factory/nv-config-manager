@@ -702,7 +702,10 @@ async def is_authorized(request: Request, handle: WorkflowHandle, action: str) -
             raise
 
     if read_only:
-        return True
+        # Historical executions retain the roles present when they started.
+        # Readers must have a current read grant for this workflow type.
+        configured_roles = rbac_config.get_workflow_roles(description.workflow_type)
+        return bool(configured_roles and roles.intersection(configured_roles["read_roles"]))
 
     # convert roles to string set for comparison
     attr = EXECUTE_ROLES_SEARCH_ATTRIBUTE if action == "execute" else READ_ROLES_SEARCH_ATTRIBUTE
@@ -899,11 +902,26 @@ async def get_workflows(  # pylint: disable=R0913,R0914
         filters.append("ExecutionStatus != 'Completed'")
     if limit <= 0:
         raise HTTPException(status_code=400, detail="limit must be greater than 0")
-    # Add role filters
-    # Permit admin roles to view workflows that are missing
-    # RBAC search attributes
-    admin_roles = RBACConfig().get_admin_roles()
-    if not (admin_roles.intersection(user_roles) or has_read_only_role(user_roles)):
+    # Readers use current read grants so old executions need no search-attribute
+    # rewrite. Membership in a read-only group does not grant workflow access.
+    rbac_config = RBACConfig()
+    admin_roles = rbac_config.get_admin_roles()
+    if has_read_only_role(user_roles):
+        readable_types = sorted(
+            name
+            for name, roles in rbac_config.get_all_workflows().items()
+            if user_roles.intersection(roles["read_roles"])
+        )
+        if not readable_types:
+            return WorkflowListResponse(
+                workflows=[], next_page_token=None, total_count=0, page_count=0
+            )
+        type_filters = [
+            f"WorkflowType = '{_sanitize_visibility_value(name, 'workflow_type')}'"
+            for name in readable_types
+        ]
+        filters.append(f"({' or '.join(type_filters)})")
+    elif not admin_roles.intersection(user_roles):
         role_filters = [
             f"{READ_ROLES_SEARCH_ATTRIBUTE} = '{_sanitize_visibility_value(role, 'role')}'"
             for role in sorted(user_roles)

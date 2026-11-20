@@ -1,5 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Readers can inspect historical workflows without inheriting execution access."""
 
 from unittest.mock import AsyncMock, MagicMock
@@ -21,6 +33,17 @@ def reader_request(monkeypatch):
         auth.AuthConfig(required=False, read_only_groups=("api-reader",)),
     )
     monkeypatch.setattr(auth, "_auth_config_tracks_file", False)
+    config = MagicMock()
+    roles = {"read_roles": {"api-reader"}, "execute_roles": {"all"}}
+    config.get_workflow_roles.side_effect = lambda name: (
+        roles if name == "AllowedWorkflow" else None
+    )
+    config.get_all_workflows.return_value = {
+        "AllowedWorkflow": roles,
+        "RestrictedWorkflow": {"read_roles": {"other-reader"}, "execute_roles": {"all"}},
+    }
+    config.get_admin_roles.return_value = {"administrator"}
+    monkeypatch.setattr(workflow_v1, "RBACConfig", lambda: config)
     request = Request({"type": "http", "method": "GET", "path": "/v1/workflow", "headers": []})
     request.state.user = "reader"
     request.state.roles = {"all", "api-reader"}
@@ -32,9 +55,25 @@ def reader_request(monkeypatch):
 async def test_reader_can_inspect_historical_workflow(reader_request, stored_roles):
     handle = MagicMock()
     handle.describe = AsyncMock(
-        return_value=MagicMock(search_attributes={"ReadRoles": stored_roles})
+        return_value=MagicMock(
+            workflow_type="AllowedWorkflow", search_attributes={"ReadRoles": stored_roles}
+        )
     )
     assert await workflow_v1.is_authorized(reader_request, handle, "read")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workflow_type", ["RestrictedWorkflow", "UnknownWorkflow"])
+@pytest.mark.parametrize("other_roles", [set(), {"administrator"}])
+async def test_reader_needs_current_workflow_read_grant(reader_request, workflow_type, other_roles):
+    reader_request.state.roles.update(other_roles)
+    handle = MagicMock()
+    handle.describe = AsyncMock(
+        return_value=MagicMock(
+            workflow_type=workflow_type, search_attributes={"ReadRoles": ["api-reader"]}
+        )
+    )
+    assert not await workflow_v1.is_authorized(reader_request, handle, "read")
 
 
 @pytest.mark.asyncio
@@ -64,8 +103,14 @@ def test_reader_cannot_start_public_workflow(reader_request):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("site, expected", [(None, None), ("example", "Site = 'example'")])
-async def test_historical_list_keeps_filters_without_reader_role_filter(
+@pytest.mark.parametrize(
+    "site, expected",
+    [
+        (None, "(WorkflowType = 'AllowedWorkflow')"),
+        ("example", "Site = 'example' and (WorkflowType = 'AllowedWorkflow')"),
+    ],
+)
+async def test_historical_list_keeps_filters_and_requires_current_read_grants(
     reader_request,
     monkeypatch,
     site,
@@ -81,3 +126,19 @@ async def test_historical_list_keeps_filters_without_reader_role_filter(
 
     client.count_workflows.assert_awaited_once_with(expected)
     assert summaries.await_args.args[1] == expected
+
+
+@pytest.mark.asyncio
+async def test_reader_without_workflow_grants_gets_empty_list(reader_request, monkeypatch):
+    reader_request.state.roles = {"all", "different-reader"}
+    monkeypatch.setattr(
+        auth, "_auth_config", auth.AuthConfig(read_only_groups=("different-reader",))
+    )
+    get_client = AsyncMock()
+    monkeypatch.setattr(workflow_v1, "get_client", get_client)
+
+    response = await workflow_v1.get_workflows(reader_request)
+
+    assert response.workflows == []
+    assert response.total_count == 0
+    get_client.assert_not_awaited()

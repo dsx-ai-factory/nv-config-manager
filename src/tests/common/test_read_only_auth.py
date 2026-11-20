@@ -1,5 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Read-only roles must not reach mutating API handlers."""
 
 from configparser import ConfigParser
@@ -75,6 +87,17 @@ def test_public_path_does_not_bypass_reader_restriction(reader_api):
 def test_existing_writer_is_unchanged(reader_api):
     client, called = reader_api
     assert client.post("/resource", headers=headers("administrator")).status_code == 200
+    assert called == [True]
+
+
+def test_default_empty_group_list_does_not_restrict_existing_group(reader_api, monkeypatch):
+    monkeypatch.setattr(
+        auth,
+        "_auth_config",
+        auth.AuthConfig(required=True, accept_request_headers=True),
+    )
+    client, called = reader_api
+    assert client.post("/resource", headers=headers()).status_code == 200
     assert called == [True]
 
 

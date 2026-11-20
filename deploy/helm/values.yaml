@@ -1035,7 +1035,8 @@ gateway:
 # =============================================================================
 auth:
   # Restrict these groups to GET/HEAD/OPTIONS across the FastAPI services.
-  # They may read all workflow executions, including runs predating their role.
+  # Workflow reads still require that workflow type's configured read_roles.
+  # Current read grants also apply to historical executions for these groups.
   # Each service's allowedGroups still controls admission to that service.
   readOnlyGroups: []
   # Trust X-Auth-Request-* identity headers on inbound requests.
