@@ -114,10 +114,11 @@ def poll_image(
 ) -> PollImageOutput:
     """Poll the device until reachable and return its running image."""
     device = get_device_connection(activity_input.device_data)
+    device.disable_retries()
     start_time = datetime.now()
 
     image = None
-    while datetime.now() - start_time < timedelta(minutes=30):
+    while datetime.now() - start_time < timedelta(minutes=55):
         elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
         activity.heartbeat(f"Polling image ({elapsed_minutes:.0f}m)")
 

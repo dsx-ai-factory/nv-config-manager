@@ -206,6 +206,12 @@ class NetworkConnection:
         """Execute ZTP on the device."""
         raise NotImplementedError()
 
+    def disable_retries(self) -> None:
+        """Disable transport retries when the caller handles polling.
+
+        Connections with transport-level retries should override this method.
+        """
+
     def get_running_image(self) -> str:
         """Get the running image on the device."""
         raise NotImplementedError()

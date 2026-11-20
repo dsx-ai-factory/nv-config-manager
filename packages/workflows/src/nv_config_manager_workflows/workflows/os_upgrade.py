@@ -385,7 +385,7 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
                 device_data=stage_input.device_data,
                 expected_image=stage_input.desired_firmware,
             ),
-            start_to_close_timeout=timedelta(minutes=35),  # 30 min + 5 min buffer
+            start_to_close_timeout=timedelta(hours=1),  # 55 min + 5 min buffer
             heartbeat_timeout=timedelta(minutes=3),  # Detect dead activities within 3 minutes
             retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
         )

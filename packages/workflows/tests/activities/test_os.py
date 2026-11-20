@@ -175,15 +175,35 @@ def test_poll_image_returns_expected_image_and_heartbeats(mocker: MockerFixture)
     result = poll_image(PollImageInput(device_data=_device(), expected_image="5.1.0"))
 
     assert result.running_image == "5.1.0"
+    connection.disable_retries.assert_called_once_with()
     heartbeat.assert_called_once_with("Polling image (0m)")
     sleep.assert_not_called()
+
+
+def test_poll_image_keeps_polling_after_connection_failure_and_30_minutes(
+    mocker: MockerFixture,
+) -> None:
+    connection = _connection(mocker)
+    connection.get_running_image.side_effect = [RuntimeError("rebooting"), "5.1.0"]
+    start = datetime(2026, 1, 1)
+    later = start + timedelta(minutes=40)
+    _mock_now(mocker, start, start, start, later, later)
+    heartbeat = mocker.patch.object(os_activities.activity, "heartbeat")
+    sleep = mocker.patch.object(os_activities.time, "sleep")
+
+    result = poll_image(PollImageInput(device_data=_device(), expected_image="5.1.0"))
+
+    assert result.running_image == "5.1.0"
+    assert connection.get_running_image.call_count == 2
+    assert heartbeat.call_args_list == [call("Polling image (0m)"), call("Polling image (40m)")]
+    sleep.assert_called_once_with(30)
 
 
 def test_poll_image_returns_last_seen_image_at_timeout(mocker: MockerFixture) -> None:
     connection = _connection(mocker)
     connection.get_running_image.return_value = "5.0.0"
     start = datetime(2026, 1, 1)
-    _mock_now(mocker, start, start, start, start + timedelta(minutes=30))
+    _mock_now(mocker, start, start, start, start + timedelta(minutes=55))
     sleep = mocker.patch.object(os_activities.time, "sleep")
     mocker.patch.object(os_activities.activity, "heartbeat")
 
@@ -197,7 +217,7 @@ def test_poll_image_wraps_no_reachable_image_at_timeout(mocker: MockerFixture) -
     connection = _connection(mocker)
     connection.get_running_image.side_effect = RuntimeError("rebooting")
     start = datetime(2026, 1, 1)
-    _mock_now(mocker, start, start, start, start + timedelta(minutes=30))
+    _mock_now(mocker, start, start, start, start + timedelta(minutes=55))
     mocker.patch.object(os_activities.time, "sleep")
     mocker.patch.object(os_activities.activity, "heartbeat")
 
