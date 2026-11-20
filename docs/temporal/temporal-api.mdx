@@ -364,7 +364,8 @@ POST /v1/workflow/{workflow_id}/retry/{stage_name}
 If the workflow closes before the signal arrives, the API returns
 `409 Conflict` with its status in the `detail` message. Refresh the workflow
 before offering another action. If the workflow no longer exists, the API
-returns `404 Not Found`. These outcomes previously produced `500` responses.
+returns `404 Not Found`. These signal-delivery errors previously surfaced
+as `500` responses.
 
 The UI hides **Retry** after a failed stage's workflow closes and refreshes
 its state after a `409`. An expired

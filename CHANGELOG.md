@@ -122,14 +122,15 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   migration to a replacement firewall model.
 - New render consumers use a default delivery limit of 20. Retryable handler
   failures and device-lock contention count toward that limit; a message that
-  reaches it is logged and terminated. Existing NATS durables retain their own
+  still fails on its final allowed delivery is logged and terminated. Existing
+  NATS durables retain their own
   `max_deliver`, including `-1` for unlimited retries. Review externally managed
   consumers and the [delivery-limit guidance](docs/render/render-service.mdx#external-nats-administration).
 - Workflow archive writes now retain their backlog in JetStream while the
   backend is unavailable, with at most two concurrent writes. New archive
   consumers default to 288 deliveries with five-minute retry delays. Permanently
-  rejected records and records that reach the durable's delivery limit are
-  logged and discarded. Existing durables retain their configured limits;
+  rejected records and records still failing at the durable's delivery limit
+  are logged and discarded. Existing durables retain their configured limits;
   review the [archive consumer settings](docs/render/render-service.mdx#external-nats-administration).
 
 ### Fixed
@@ -148,7 +149,8 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   for replay compatibility.
 - Workflow API approve, reject, and retry requests now return `409 Conflict`
   with the status if the workflow closes before the signal arrives. They return
-  `404` if the workflow no longer exists, replacing the previous `500` response.
+  `404` if the workflow no longer exists. Previously, an unhandled signal
+  error could return `500` when a workflow closed before the signal arrived.
   The UI hides **Retry** after a failed stage's workflow closes. On a `409`
   response, it reports that the workflow is no longer running and refreshes
   the workflow.
