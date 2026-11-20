@@ -25,6 +25,14 @@ nats.conf: |
   http_port: 8222
   
   max_payload: {{ printf "%.0f" .Values.nautobotNats.maxPayload }}
+  {{- if include "nv-config-manager.natsGatewayHostname" . }}
+
+  # Client protocol over WebSocket; TLS terminates at the gateway.
+  websocket {
+    port: {{ .Values.nautobotNats.gateway.websocket.port | default 8080 }}
+    no_tls: true
+  }
+  {{- end }}
   
   {{- if .Values.nautobotNats.jetstream.enabled }}
   jetstream {
