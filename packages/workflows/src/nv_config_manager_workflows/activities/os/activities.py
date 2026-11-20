@@ -19,6 +19,7 @@ import time
 from datetime import datetime, timedelta
 
 from nv_config_manager_dcim.workflow_models import Platform
+from nv_config_manager_logging import LogCategory, get_logger
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -55,6 +56,8 @@ from nv_config_manager_workflows.activities.os.models import (
     WaitRebootOutput,
 )
 from nv_config_manager_workflows.runtime import get_dcim_client, get_device_connection
+
+logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 
 
 @activity.defn
@@ -127,7 +130,13 @@ def poll_image(
             if image == activity_input.expected_image:
                 return PollImageOutput(running_image=image)
             time.sleep(30)
-        except Exception:
+        except Exception as error:
+            logger.info(
+                "Waiting for device %s to report its image (%.0f minutes elapsed): %s",
+                activity_input.device_data.name,
+                elapsed_minutes,
+                error,
+            )
             time.sleep(30)
 
     if image:
@@ -141,6 +150,7 @@ def poll_ztp_status(
 ) -> PollZTPStatusOutput:
     """Poll device ZTP status until success."""
     device = get_device_connection(activity_input.device_data)
+    device.disable_retries()
     start_time = datetime.now()
 
     ztp_execution_time = None
@@ -155,7 +165,13 @@ def poll_ztp_status(
             if check_ztp_success(device, ztp_execution_time):
                 return PollZTPStatusOutput(success=True)
             time.sleep(30)
-        except Exception:
+        except Exception as error:
+            logger.info(
+                "Waiting for device %s to report ZTP status (%.0f minutes elapsed): %s",
+                activity_input.device_data.name,
+                elapsed_minutes,
+                error,
+            )
             time.sleep(30)
 
     return PollZTPStatusOutput(success=False)
@@ -167,6 +183,7 @@ def wait_reboot(
 ) -> WaitRebootOutput:
     """Wait for a device reboot by checking uptime."""
     device = get_device_connection(activity_input.device_data)
+    device.disable_retries()
     start_time = datetime.now()
     ztp_execution_timestamp = datetime.fromisoformat(activity_input.ztp_execution_timestamp)
 
@@ -179,7 +196,13 @@ def wait_reboot(
             if uptime < elapsed_time:
                 return WaitRebootOutput(success=True)
             time.sleep(30)
-        except Exception:
+        except Exception as error:
+            logger.info(
+                "Waiting for device %s to report uptime (%.0f minutes elapsed): %s",
+                activity_input.device_data.name,
+                elapsed_minutes,
+                error,
+            )
             time.sleep(30)
 
     return WaitRebootOutput(success=False)

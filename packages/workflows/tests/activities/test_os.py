@@ -171,6 +171,7 @@ def test_poll_image_returns_expected_image_and_heartbeats(mocker: MockerFixture)
     _mock_now(mocker, now, now, now)
     heartbeat = mocker.patch.object(os_activities.activity, "heartbeat")
     sleep = mocker.patch.object(os_activities.time, "sleep")
+    info = mocker.patch.object(os_activities.logger, "info")
 
     result = poll_image(PollImageInput(device_data=_device(), expected_image="5.1.0"))
 
@@ -178,6 +179,7 @@ def test_poll_image_returns_expected_image_and_heartbeats(mocker: MockerFixture)
     connection.disable_retries.assert_called_once_with()
     heartbeat.assert_called_once_with("Polling image (0m)")
     sleep.assert_not_called()
+    info.assert_not_called()
 
 
 def test_poll_image_keeps_polling_after_connection_failure_and_30_minutes(
@@ -187,16 +189,21 @@ def test_poll_image_keeps_polling_after_connection_failure_and_30_minutes(
     connection.get_running_image.side_effect = [RuntimeError("rebooting"), "5.1.0"]
     start = datetime(2026, 1, 1)
     later = start + timedelta(minutes=40)
-    _mock_now(mocker, start, start, start, later, later)
+    next_check = later + timedelta(minutes=1)
+    _mock_now(mocker, start, later, later, next_check, next_check)
     heartbeat = mocker.patch.object(os_activities.activity, "heartbeat")
     sleep = mocker.patch.object(os_activities.time, "sleep")
+    info = mocker.patch.object(os_activities.logger, "info")
 
     result = poll_image(PollImageInput(device_data=_device(), expected_image="5.1.0"))
 
     assert result.running_image == "5.1.0"
     assert connection.get_running_image.call_count == 2
-    assert heartbeat.call_args_list == [call("Polling image (0m)"), call("Polling image (40m)")]
+    assert heartbeat.call_args_list == [call("Polling image (40m)"), call("Polling image (41m)")]
     sleep.assert_called_once_with(30)
+    info.assert_called_once()
+    assert info.call_args.args[1:3] == ("leaf-1", 40)
+    assert str(info.call_args.args[3]) == "rebooting"
 
 
 def test_poll_image_returns_last_seen_image_at_timeout(mocker: MockerFixture) -> None:
@@ -267,6 +274,7 @@ def test_poll_ztp_status_supports_legacy_missing_timestamp(mocker: MockerFixture
     result = poll_ztp_status(PollZTPStatusInput(device_data=_device()))
 
     assert result.success is True
+    connection.disable_retries.assert_called_once_with()
     heartbeat.assert_called_once_with("Polling ZTP (0m)")
 
 
@@ -298,7 +306,40 @@ def test_wait_reboot_compares_uptime_with_elapsed_execution_time(
     )
 
     assert result.success is True
+    connection.disable_retries.assert_called_once_with()
     heartbeat.assert_called_once_with("Waiting for reboot (0m)")
+
+
+@pytest.mark.parametrize("poll_kind", ["ztp", "reboot"])
+def test_device_polls_log_connection_errors_and_recover(
+    mocker: MockerFixture, poll_kind: str
+) -> None:
+    connection = _connection(mocker)
+    start = datetime(2026, 1, 1)
+    _mock_now(mocker, *([start] * 6))
+    heartbeat = mocker.patch.object(os_activities.activity, "heartbeat")
+    sleep = mocker.patch.object(os_activities.time, "sleep")
+    info = mocker.patch.object(os_activities.logger, "info")
+    error = RuntimeError("Authentication failed: HTTP 401")
+
+    if poll_kind == "ztp":
+        connection.get_ztp_status.side_effect = [error, "success"]
+        result = poll_ztp_status(PollZTPStatusInput(device_data=_device()))
+    else:
+        connection.get_uptime.side_effect = [error, 1]
+        result = wait_reboot(
+            WaitRebootInput(
+                device_data=_device(),
+                ztp_execution_timestamp=(start - timedelta(minutes=1)).isoformat(),
+            )
+        )
+
+    assert result.success is True
+    connection.disable_retries.assert_called_once_with()
+    assert heartbeat.call_count == 2
+    sleep.assert_called_once_with(30)
+    info.assert_called_once()
+    assert info.call_args.args[1:] == ("leaf-1", 0, error)
 
 
 def test_get_mlnx_os_version_parses_versions_and_cleans_up(mocker: MockerFixture) -> None:

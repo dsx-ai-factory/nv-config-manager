@@ -15,6 +15,7 @@
 """Network Device Firmware Upgrade Workflow Definition."""
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import timedelta
 from typing import ClassVar
 
@@ -387,7 +388,7 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
             ),
             start_to_close_timeout=timedelta(hours=1),  # 55 min + 5 min buffer
             heartbeat_timeout=timedelta(minutes=3),  # Detect dead activities within 3 minutes
-            retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
+            retry_policy=replace(DEFAULT_ACTIVITY_RETRY_POLICY, maximum_attempts=2),
         )
         if image_result.running_image != stage_input.desired_firmware:
             raise ApplicationError(
