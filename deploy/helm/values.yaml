@@ -1034,6 +1034,13 @@ gateway:
 # Inbound Service Authentication
 # =============================================================================
 auth:
+  # Restrict these groups to GET/HEAD/OPTIONS across the FastAPI services.
+  # Workflow reads still require that workflow type's configured read_roles.
+  # Current read grants also apply to historical executions for these groups.
+  # Each service's allowedGroups still controls admission to that service.
+  # Use dedicated groups; the universal "all" role is not permitted here.
+  # Temporal Web and direct backend interfaces need separate network/RBAC limits.
+  readOnlyGroups: []
   # Trust X-Auth-Request-* identity headers on inbound requests.
   # null (default): trusted unless SPIFFE is enabled with authMode jwt. Then
   # internal callers present a JWT-SVID, users present the bearer token

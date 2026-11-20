@@ -74,3 +74,6 @@
     {{- fail "gateway.nodePort supports at most one HTTPS listener for kgateway" -}}
   {{- end -}}
 {{- end -}}
+{{- if has "all" (.Values.auth.readOnlyGroups | default list) }}
+{{- fail "auth.readOnlyGroups cannot contain the universal role 'all'; use a dedicated reporting group to preserve service and device writes" }}
+{{- end }}
