@@ -213,6 +213,76 @@ def test_check_sync_heartbeat_missing_exits_nonzero(tmp_path) -> None:
     assert "missing" in result.output
 
 
+def _age_heartbeat(hb, seconds: float) -> None:
+    old = time.time() - seconds
+    os.utime(hb, (old, old))
+
+
+def test_record_heartbeat_max_age_survives_touches(tmp_path) -> None:
+    """The recorded threshold is owner-only and kept by later mtime-only touches."""
+    hb = str(tmp_path / "hb")
+    heartbeat.record_heartbeat_max_age(220.0, hb)
+    heartbeat.touch_heartbeat(hb)
+
+    assert heartbeat.recorded_heartbeat_max_age(hb) == 220.0
+    assert stat.S_IMODE(os.stat(hb).st_mode) == 0o600
+
+    heartbeat.record_heartbeat_max_age(90.0, hb)
+    assert heartbeat.recorded_heartbeat_max_age(hb) == 90.0
+
+
+@pytest.mark.parametrize("contents", ["", "abc", "0", "-5", "inf", "nan"])
+def test_recorded_heartbeat_max_age_ignores_invalid_contents(tmp_path, contents: str) -> None:
+    hb = tmp_path / "hb"
+    hb.write_text(contents)
+
+    assert heartbeat.recorded_heartbeat_max_age(str(hb)) is None
+
+
+def test_recorded_heartbeat_max_age_ignores_unsafe_files(tmp_path) -> None:
+    """Missing, symlinked, and publicly writable files are not trusted."""
+    assert heartbeat.recorded_heartbeat_max_age(str(tmp_path / "missing")) is None
+
+    target = tmp_path / "target"
+    target.write_text("1000")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    assert heartbeat.recorded_heartbeat_max_age(str(link)) is None
+
+    target.chmod(0o666)
+    assert heartbeat.recorded_heartbeat_max_age(str(target)) is None
+
+
+@pytest.mark.parametrize(("recorded", "exit_code"), [(None, 1), (220.0, 0)])
+def test_check_sync_heartbeat_default_max_age_uses_recorded_value(
+    tmp_path, monkeypatch, recorded: float | None, exit_code: int
+) -> None:
+    """Without --max-age, a 150s-old heartbeat is stale only at the 90s fallback."""
+    monkeypatch.delenv("CONFIG_SYNC_HEARTBEAT_MAX_AGE", raising=False)
+    hb = tmp_path / "hb"
+    hb.write_text("")
+    if recorded is not None:
+        heartbeat.record_heartbeat_max_age(recorded, str(hb))
+    _age_heartbeat(hb, 150)
+
+    result = CliRunner().invoke(cli_group, ["check-sync-heartbeat", "--heartbeat-file", str(hb)])
+
+    assert result.exit_code == exit_code, result.output
+
+
+def test_check_sync_heartbeat_env_max_age_beats_recorded_value(tmp_path, monkeypatch) -> None:
+    """An explicit CONFIG_SYNC_HEARTBEAT_MAX_AGE is not raised by the recorded threshold."""
+    monkeypatch.setenv("CONFIG_SYNC_HEARTBEAT_MAX_AGE", "60")
+    hb = tmp_path / "hb"
+    heartbeat.record_heartbeat_max_age(220.0, str(hb))
+    _age_heartbeat(hb, 150)
+
+    result = CliRunner().invoke(cli_group, ["check-sync-heartbeat", "--heartbeat-file", str(hb)])
+
+    assert result.exit_code == 1
+    assert "stale" in result.output
+
+
 # --------------------------------------------------------------------------- #
 # reconcile loop: heartbeat advancement, error handling, timeouts
 # --------------------------------------------------------------------------- #
@@ -255,6 +325,28 @@ async def test_loop_advances_heartbeat_on_success(sync_env) -> None:
     assert sync_env.touch.call_count == 3
     # Successful reconciliation recorded for both the initial set and the iteration.
     assert sync_env.record.call_count == 2
+
+
+async def test_check_keeps_the_running_loops_threshold_after_an_ini_change(
+    sync_env, monkeypatch, kea_ini
+) -> None:
+    """Lowering sync_timeout_seconds in the live INI does not shrink a running loop's threshold."""
+    monkeypatch.delenv("CONFIG_SYNC_HEARTBEAT_MAX_AGE", raising=False)
+    kea_ini(sync_timeout_seconds="60")
+    sync_env.redis.load_kea_config = AsyncMock(side_effect=[CONFIG, CONFIG])
+
+    with pytest.raises(_StopLoop):
+        await cli._sync_kea_configuration_async(4, 10, False, sync_env.hb)
+
+    assert heartbeat.recorded_heartbeat_max_age(sync_env.hb) == 220.0
+    kea_ini(sync_timeout_seconds="15")
+    _age_heartbeat(sync_env.hb, 150)
+
+    result = CliRunner().invoke(
+        cli_group, ["check-sync-heartbeat", "--heartbeat-file", sync_env.hb]
+    )
+
+    assert result.exit_code == 0, result.output
 
 
 async def test_loop_advances_heartbeat_after_recoverable_error(sync_env) -> None:

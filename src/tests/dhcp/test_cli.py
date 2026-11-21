@@ -595,6 +595,56 @@ async def test_startup_survives_a_redis_outage(mocker: Any) -> None:
     kea_client.set_config.assert_awaited_once()
 
 
+async def test_sync_client_timeout_follows_kea_op_timeout(mocker: Any) -> None:
+    """The Kea client's HTTP timeout must track CONFIG_SYNC_KEA_TIMEOUT.
+
+    Otherwise a shorter inner client timeout fires before the asyncio.wait_for
+    deadline and raising CONFIG_SYNC_KEA_TIMEOUT has no effect.
+    """
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(load_side_effect=[config, config])
+    mocker.patch.object(cli, "KEA_OP_TIMEOUT_SECONDS", 37.0)
+    _patch_sleep_after_one_retry(mocker)
+
+    with (
+        patch.object(cli.KeaClient, "from_config", return_value=kea_client) as from_config,
+        patch.object(cli.RedisClient, "from_config", return_value=redis_client),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._sync_kea_configuration_async(4, 1, False)
+
+    assert from_config.call_args.kwargs["timeout_seconds"] == 37.0
+    assert from_config.call_args.kwargs["attached"] is True
+
+
+async def test_ini_sync_timeout_sets_client_and_apply_deadlines(mocker: Any, kea_ini) -> None:
+    """[dhcp.kea] sync_timeout_seconds overrides the default for every Kea deadline."""
+    kea_ini(sync_timeout_seconds="40")
+    config = {"Dhcp4": {"subnet4": []}}
+    kea_client, redis_client = _make_clients(load_side_effect=[config, config])
+    mocker.patch.object(cli, "KEA_OP_TIMEOUT_SECONDS", 37.0)
+    apply = mocker.patch.object(
+        cli, "_apply_and_verify_kea_config", wraps=cli._apply_and_verify_kea_config
+    )
+    _patch_sleep_after_one_retry(mocker)
+
+    with (
+        patch.object(cli.KeaClient, "from_config", return_value=kea_client) as from_config,
+        patch.object(cli.RedisClient, "from_config", return_value=redis_client),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._sync_kea_configuration_async(4, 1, False)
+
+    assert from_config.call_args.kwargs["timeout_seconds"] == 40.0
+    assert apply.await_args.args[3] == 40.0
+
+
+@pytest.mark.parametrize(("kea_timeout", "expected"), [(15.0, 90.0), (60.0, 220.0)])
+def test_heartbeat_max_age_covers_one_sync_iteration(kea_timeout: float, expected: float) -> None:
+    """The threshold keeps 90s by default and grows to cover a long sync iteration."""
+    assert cli._heartbeat_max_age(kea_timeout) == expected
+
+
 async def test_startup_survives_a_kea_outage(mocker: Any) -> None:
     """Kea not yet listening before the first apply must not exit the sidecar."""
     config = {"Dhcp4": {"subnet4": []}}

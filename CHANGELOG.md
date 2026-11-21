@@ -146,6 +146,15 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
 
 ### Fixed
 
+- The DHCP config-sync sidecar no longer gives up on a Kea apply after 10
+  seconds when its own deadline is longer. Helm
+  `networkDhcp.kea.configSyncTimeoutSeconds` (default 15) sets the config-sync
+  deadline, and `networkDhcp.kea.clientTimeoutSeconds` (default 10) sets the
+  Kea request timeout for the `api` and `config-refresh-v4` containers. Both
+  are written to the shared `[dhcp.kea]` INI section. The `/livez` and
+  `/healthcheck` probes keep a fixed 10-second Kea timeout, and the config-sync
+  heartbeat probe allows for one full sync iteration at the configured deadline.
+  See [Kea Control Timeouts](docs/dhcp/index.mdx#kea-control-timeouts).
 - Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
   NVLink firmware upgrade, and reprovisioning now await the backup child's result
   so failures and timeouts reach stage failure handling. Previously a failed or
