@@ -507,7 +507,7 @@ async def _refresh_loop_async(
                     DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.UNAVAILABLE).inc()
                     logger.error(
                         f"Skipping this refresh; the DCIM was unavailable: "
-                        f"{escape_log_newlines(str(exc))}"
+                        f"{_safe_error_text(str(exc))}"
                     )
                 else:
                     if should_exit or not refresh_interval:

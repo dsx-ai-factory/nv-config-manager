@@ -1169,6 +1169,23 @@ async def test_refresh_loop_skips_a_cycle_while_the_dcim_is_unavailable() -> Non
     assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.UNAVAILABLE) == before + 1
 
 
+async def test_refresh_loop_redacts_a_provider_connectivity_error_it_skips(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A provider raises this type directly, so its message never went through redaction."""
+    refresh = AsyncMock(
+        side_effect=[DCIMConnectivityError("connect failed: password=hunter2"), True]
+    )
+
+    async with _patched_refresh_loop(refresh):
+        with caplog.at_level(logging.ERROR):
+            await cli._refresh_loop_async(4, check=False, refresh_interval=300)
+
+    skip_logs = [r.getMessage() for r in caplog.records if "DCIM was unavailable" in r.getMessage()]
+    assert skip_logs
+    assert all("hunter2" not in message for message in skip_logs)
+
+
 async def test_refresh_loop_fails_a_one_shot_run_while_the_dcim_is_unavailable() -> None:
     """Without an interval there is no later cycle to recover in, so it must surface."""
     refresh = AsyncMock(side_effect=DCIMConnectivityError("500 Internal Server Error"))
