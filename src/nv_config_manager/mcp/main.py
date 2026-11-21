@@ -25,7 +25,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-from nv_config_manager.common.config_watch import restart_on_config_change
+from nv_config_manager.common.config_watch import (
+    SERVICE_DRAIN_SECONDS,
+    restart_on_config_change,
+)
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.common.telemetry import instrument_asgi_app, setup_tracing
 from nv_config_manager.mcp.auth import (
@@ -198,4 +201,5 @@ def main() -> None:
         proxy_headers=True,
         log_config=None,
         loop="asyncio",
+        timeout_graceful_shutdown=SERVICE_DRAIN_SECONDS,
     )

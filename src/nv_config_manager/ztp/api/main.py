@@ -23,7 +23,10 @@ from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator, metrics
 
 from nv_config_manager.common.auth import install_identity_probe
-from nv_config_manager.common.config_watch import restart_on_config_change
+from nv_config_manager.common.config_watch import (
+    SERVICE_DRAIN_SECONDS,
+    restart_on_config_change,
+)
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -57,6 +60,7 @@ def main() -> None:
         limit_concurrency=1000,
         backlog=2048,
         loop="asyncio",
+        timeout_graceful_shutdown=SERVICE_DRAIN_SECONDS,
     )
 
 

@@ -22,6 +22,9 @@ The promotion workflow extracts GitHub release notes from that commit.
   A process still running 30 seconds after the restart request is stopped
   outright. This covers the DHCP configuration refresh and sync loops as well
   as the API, consumer, worker, and scheduler services.
+- The API services now wait at most 25 seconds for open requests to finish
+  after SIGTERM, so a long request can no longer hold a shutdown past the
+  pod's grace period.
 - The Config Manager Temporal worker now handles SIGTERM: it stops taking new
   tasks and gives running activities 25 seconds to finish before cancelling
   them. Before, it ignored the signal and was killed at the end of the pod's

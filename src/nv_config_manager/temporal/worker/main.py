@@ -28,7 +28,10 @@ from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from nv_config_manager.common.config.loader import load_config
-from nv_config_manager.common.config_watch import restart_on_config_change
+from nv_config_manager.common.config_watch import (
+    SERVICE_DRAIN_SECONDS,
+    restart_on_config_change,
+)
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.temporal.client.connection import (
     client_connect_options,
@@ -65,7 +68,7 @@ SANDBOX_PASSTHROUGH_MODULES = ("annotated_types",)
 # activities this long to finish before cancelling them. It sits inside the
 # default Kubernetes grace period, which is also how long the configuration
 # watcher waits before stopping a process outright.
-GRACEFUL_SHUTDOWN_TIMEOUT = timedelta(seconds=25)
+GRACEFUL_SHUTDOWN_TIMEOUT = timedelta(seconds=SERVICE_DRAIN_SECONDS)
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +185,11 @@ async def _run_until_shutdown(worker: Worker, shutdown: asyncio.Event) -> None:
         await asyncio.wait({run, requested}, return_when=asyncio.FIRST_COMPLETED)
         if not run.done():
             logger.info("Shutdown requested, draining the worker")
-            await worker.shutdown()
+            # A worker that fails while starting never reports its shutdown
+            # complete, so waiting on the drain alone would hide that failure.
+            drain = asyncio.create_task(worker.shutdown())
+            await asyncio.wait({run, drain}, return_when=asyncio.FIRST_COMPLETED)
+            drain.cancel()
         await run
     finally:
         requested.cancel()

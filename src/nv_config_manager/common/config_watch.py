@@ -55,6 +55,10 @@ DEFAULT_MAX_JITTER_SECONDS = 120.0
 # This is the grace period Kubernetes gives a container by default.
 DEFAULT_SHUTDOWN_GRACE_SECONDS = 30.0
 
+# A service bounds its own drain with this so that it finishes, and exits
+# cleanly, before the grace period above runs out.
+SERVICE_DRAIN_SECONDS = 25
+
 # Distinguishes a forced stop from the clean exit a SIGTERM handler produces.
 FORCED_EXIT_CODE = 1
 

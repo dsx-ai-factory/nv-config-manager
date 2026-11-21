@@ -267,6 +267,28 @@ async def test_a_worker_that_stops_on_its_own_is_not_drained() -> None:
     worker.shutdown.assert_not_awaited()
 
 
+async def test_a_startup_failure_during_a_drain_still_surfaces() -> None:
+    """A worker that fails while starting never reports its shutdown complete."""
+    failing = asyncio.Event()
+    worker = Mock()
+
+    async def run() -> None:
+        await failing.wait()
+        raise RuntimeError("namespace not found")
+
+    async def shutdown() -> None:
+        failing.set()
+        await asyncio.Event().wait()
+
+    worker.run = AsyncMock(side_effect=run)
+    worker.shutdown = AsyncMock(side_effect=shutdown)
+    requested = asyncio.Event()
+    requested.set()
+
+    with pytest.raises(RuntimeError, match="namespace not found"):
+        await asyncio.wait_for(worker_main._run_until_shutdown(worker, requested), timeout=5.0)
+
+
 async def test_sigterm_drains_the_worker(mocker: MockerFixture) -> None:
     """The worker is PID 1, where a SIGTERM with no handler is dropped."""
     worker_constructor = _mock_worker_startup(mocker)

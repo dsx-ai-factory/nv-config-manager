@@ -22,7 +22,10 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_fastapi_instrumentator import metrics as instrumentator_metrics
 
 from nv_config_manager.common.auth import install_identity_probe
-from nv_config_manager.common.config_watch import restart_on_config_change
+from nv_config_manager.common.config_watch import (
+    SERVICE_DRAIN_SECONDS,
+    restart_on_config_change,
+)
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
@@ -48,6 +51,7 @@ def main() -> None:
         proxy_headers=True,
         log_config=None,
         loop="asyncio",
+        timeout_graceful_shutdown=SERVICE_DRAIN_SECONDS,
     )
 
 
