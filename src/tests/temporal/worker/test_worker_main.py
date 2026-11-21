@@ -14,7 +14,10 @@
 # limitations under the License.
 """Tests for Temporal worker startup composition."""
 
+import asyncio
 import json
+import os
+import signal
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -232,6 +235,78 @@ async def test_worker_registers_the_frozen_temporal_type_names(
     assert sorted(activity_name(item) for item in options["activities"]) == frozen["activities"]
     (logged_registry,) = log_registry.call_args.args
     assert HelloWorldRunning not in logged_registry.all_workflows
+
+
+async def test_a_shutdown_request_drains_the_worker() -> None:
+    """The worker stops taking tasks and lets running activities finish."""
+    stopped = asyncio.Event()
+    worker = Mock()
+    worker.run = AsyncMock(side_effect=stopped.wait)
+    worker.shutdown = AsyncMock(side_effect=stopped.set)
+    shutdown = asyncio.Event()
+
+    running = asyncio.create_task(worker_main._run_until_shutdown(worker, shutdown))
+    await asyncio.sleep(0)
+    worker.shutdown.assert_not_awaited()
+
+    shutdown.set()
+    await asyncio.wait_for(running, timeout=5.0)
+
+    worker.shutdown.assert_awaited_once()
+
+
+async def test_a_worker_that_stops_on_its_own_is_not_drained() -> None:
+    """A worker failure has to surface, not wait for a shutdown request."""
+    worker = Mock()
+    worker.run = AsyncMock(side_effect=RuntimeError("worker failed"))
+    worker.shutdown = AsyncMock()
+
+    with pytest.raises(RuntimeError, match="worker failed"):
+        await worker_main._run_until_shutdown(worker, asyncio.Event())
+
+    worker.shutdown.assert_not_awaited()
+
+
+async def test_a_startup_failure_during_a_drain_still_surfaces() -> None:
+    """A worker that fails while starting never reports its shutdown complete."""
+    failing = asyncio.Event()
+    worker = Mock()
+
+    async def run() -> None:
+        await failing.wait()
+        raise RuntimeError("namespace not found")
+
+    async def shutdown() -> None:
+        failing.set()
+        await asyncio.Event().wait()
+
+    worker.run = AsyncMock(side_effect=run)
+    worker.shutdown = AsyncMock(side_effect=shutdown)
+    requested = asyncio.Event()
+    requested.set()
+
+    with pytest.raises(RuntimeError, match="namespace not found"):
+        await asyncio.wait_for(worker_main._run_until_shutdown(worker, requested), timeout=5.0)
+
+
+async def test_sigterm_drains_the_worker(mocker: MockerFixture) -> None:
+    """The worker is PID 1, where a SIGTERM with no handler is dropped."""
+    worker_constructor = _mock_worker_startup(mocker)
+    worker = worker_constructor.return_value
+    stopped = asyncio.Event()
+
+    async def run() -> None:
+        os.kill(os.getpid(), signal.SIGTERM)
+        await stopped.wait()
+
+    worker.run = AsyncMock(side_effect=run)
+    worker.shutdown = AsyncMock(side_effect=stopped.set)
+
+    await asyncio.wait_for(worker_main.main(), timeout=5.0)
+
+    worker.shutdown.assert_awaited_once()
+    options = worker_constructor.call_args.kwargs
+    assert options["graceful_shutdown_timeout"] == worker_main.GRACEFUL_SHUTDOWN_TIMEOUT
 
 
 def _worker_ini(**options: str) -> str:

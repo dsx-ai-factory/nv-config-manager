@@ -47,6 +47,7 @@ from nv_config_manager.common.config.nats import (
     nats_nautobot_change_config,
     nats_render_change_config,
 )
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.nats_admin import (
     CONSUMER_ACK_WAIT_SECONDS,
@@ -178,6 +179,7 @@ class PullConsumer:
         self._consumed_stream_created: datetime | None = None
         self.dispatcher = EventDispatcher()
         self.running = False
+        self._stop_requested = False
         self.namespace = os.getenv("NV_CONFIG_MANAGER_K8S_NAMESPACE", "unknown")
         self.metrics_refresh_interval = 15.0
         # The existing durable's limit, which is what JetStream enforces.
@@ -374,6 +376,9 @@ class PullConsumer:
             disconnected_cb=disconnected_cb,
             reconnected_cb=reconnected_cb,
         )
+        if self._stop_requested:
+            await self.nats_conn.close()
+            return
         self.logger.info("Consumer %s connected to NATS.", self.queue)
 
         # Register connection with manager for sharing with publishers
@@ -738,6 +743,7 @@ class PullConsumer:
         """Cancel all running tasks and close the connection to NATS."""
         self.logger.info("Received shutdown signal, initiating clean exit...")
         self.running = False
+        self._stop_requested = True
 
         async def close_connection() -> None:
             #
@@ -915,6 +921,8 @@ def main() -> None:
     """Entry point for the pull consumer."""
     # Start Prometheus Server
     start_http_server(8000)
+
+    restart_on_config_change()
 
     consumer: PullConsumer
     consumer_name = os.getenv("NATS_CONSUMER")

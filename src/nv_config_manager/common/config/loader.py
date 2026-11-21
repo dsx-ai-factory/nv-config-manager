@@ -15,21 +15,38 @@
 
 from __future__ import annotations
 
-import os
 from configparser import ConfigParser, SectionProxy
 from functools import lru_cache
 
-from nv_config_manager.common.ini import FileFingerprint, file_fingerprint
+from nv_config_manager.common.ini import (
+    FileFingerprint,
+    clear_loaded_config_snapshot,
+    config_path,
+    file_fingerprint,
+    read_config_snapshot,
+    remember_loaded_config,
+)
 
 
 @lru_cache(maxsize=1)
 def _load_config(
-    config_path: str,
+    path: str,
     _fingerprint: FileFingerprint | None,
 ) -> ConfigParser:
     """Parse one version of the unified INI file."""
     config = ConfigParser(interpolation=None, delimiters=("=",))
-    config.read(config_path)
+    # One read supplies both the parse and the watcher baseline. A second read
+    # can observe a Secret-volume swap and record a digest the process is not using.
+    snapshot = read_config_snapshot(path)
+    if snapshot is None:
+        config.read(path)
+        return config
+    digest, raw = snapshot
+    # Decoded strictly: a replaced byte in a credential would only show up
+    # later as an unexplained authentication failure.
+    text = raw.decode("utf-8")
+    config.read_string(text, source=path)
+    remember_loaded_config(path, digest, text)
     return config
 
 
@@ -46,13 +63,14 @@ def load_config() -> ConfigParser:
     Returns:
         Loaded ConfigParser instance for the current file version
     """
-    config_path = os.getenv("NV_CONFIG_MANAGER_INI", "/etc/vault/nv-config-manager.ini")
-    return _load_config(config_path, file_fingerprint(config_path))
+    path = config_path()
+    return _load_config(path, file_fingerprint(path))
 
 
 def clear_config_cache() -> None:
     """Clear the parsed INI cache without reading the file again."""
     _load_config.cache_clear()
+    clear_loaded_config_snapshot()
 
 
 def reload_config() -> ConfigParser:

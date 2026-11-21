@@ -24,6 +24,7 @@ from aiohttp import ClientResponse
 from pytest_mock import MockerFixture
 
 from nv_config_manager.common import auth as auth_mod
+from nv_config_manager.common import config_watch
 from nv_config_manager.common.config.loader import clear_config_cache
 from nv_config_manager.temporal.runtime import configure_workflow_runtime
 from nv_config_manager_workflows import runtime as workflow_runtime
@@ -180,6 +181,19 @@ def _clear_auth_config_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
+def no_live_config_watch(mocker: MockerFixture) -> Generator[None]:
+    """Keep service entrypoints under test from starting a real watcher.
+
+    A live watcher would outlast its test and leave the once-only guard held,
+    making later tests depend on which ran first.
+    """
+    mocker.patch.object(config_watch, "_watch")
+    yield
+    if config_watch._watch_started.locked():
+        config_watch._watch_started.release()
+
+
+@pytest.fixture(autouse=True)
 def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
     """
     Auto-use fixture that mocks ConfigParser.read with comprehensive test config.
@@ -195,6 +209,7 @@ def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
     _clear_auth_config_cache()
 
     read_func = configparser.ConfigParser.read
+    read_string_func = configparser.ConfigParser.read_string
 
     def mock_func(
         self: configparser.ConfigParser,
@@ -202,10 +217,22 @@ def mock_ini_config(mocker: MockerFixture) -> Generator[None]:
         *args: Any,
         **kwargs: Any,
     ) -> list[str]:
-        self.read_string(_current_ini["content"])
+        read_string_func(self, _current_ini["content"])
         return read_func(self, filenames, *args, **kwargs)
 
+    # load_config parses file contents it has already read, so a string with a
+    # file source gets the same test defaults underneath as a read() would.
+    def mock_read_string(
+        self: configparser.ConfigParser,
+        string: str,
+        source: str = "<string>",
+    ) -> None:
+        if source != "<string>":
+            read_string_func(self, _current_ini["content"])
+        read_string_func(self, string, source)
+
     mocker.patch("configparser.ConfigParser.read", new=mock_func)
+    mocker.patch("configparser.ConfigParser.read_string", new=mock_read_string)
     mocker.patch.object(workflow_runtime, "_nats_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_slack_provider", workflow_runtime._UNSET)
     mocker.patch.object(workflow_runtime, "_ui_base_url_provider", workflow_runtime._UNSET)

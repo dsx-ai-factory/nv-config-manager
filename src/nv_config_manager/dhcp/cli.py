@@ -32,6 +32,7 @@ from aiohttp import ClientError
 from prometheus_client import start_http_server
 
 from nv_config_manager.common.config.loader import load_config
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import (
     LogCategory,
     configure_logging,
@@ -535,6 +536,9 @@ def refresh_kea_configuration(
         initialize_refresh_metrics(ip_version)
         _start_metrics_server("refresh")
 
+    if refresh_interval:
+        restart_on_config_change()
+
     asyncio.run(_refresh_loop_async(ip_version, check, refresh_interval))
 
 
@@ -961,6 +965,9 @@ def sync_kea_configuration(
 
     initialize_sync_metrics(ip_version)
     _start_metrics_server("sync")
+
+    if refresh_interval:
+        restart_on_config_change()
 
     asyncio.run(_sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file))
 
