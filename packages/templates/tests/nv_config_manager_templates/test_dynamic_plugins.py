@@ -256,3 +256,61 @@ def test_a_plugin_cannot_shadow_a_standard_library_module(plugins_root):
 
     assert str(plugins_root / "site-overrides") in sys.path
     assert sys.path.index(str(plugins_root / "site-overrides")) > 0
+
+
+SAME_ENTRYPOINT_MANIFEST = """
+apiVersion: nvconfigmanager.nvidia.com/v1alpha1
+kind: TemplatePlugin
+metadata:
+  id: {plugin_id}
+compatibility:
+  templateEngineAPI: ">=1,<2"
+templates:
+  paths:
+    - templates/
+python:
+  entrypoint: plugin
+"""
+
+
+def make_top_level_plugin(root: Path, plugin_id: str, filter_name: str) -> Path:
+    """A plugin whose entrypoint is a top-level module called ``plugin`` (not inside a package)."""
+    plugin_dir = root / plugin_id
+    (plugin_dir / "templates").mkdir(parents=True)
+    (plugin_dir / "plugin.py").write_text(
+        f"def get_custom_filters():\n    return {{'{filter_name}': lambda value: str(value)}}\n"
+    )
+    (plugin_dir / "templates" / f"{filter_name}.j2").write_text("x")
+    (plugin_dir / "plugin.yaml").write_text(SAME_ENTRYPOINT_MANIFEST.format(plugin_id=plugin_id))
+    return plugin_dir
+
+
+def test_two_plugins_with_the_same_entrypoint_name_are_not_mixed_up(plugins_root):
+    # Python checks sys.modules before searching sys.path, so the second import of "plugin" would
+    # return the first plugin's module and register the second plugin with the first one's filters.
+    make_top_level_plugin(plugins_root, "same-a", "from_a")
+    make_top_level_plugin(plugins_root, "same-b", "from_b")
+
+    renderer = Renderer()
+
+    assert [p["plugin_id"] for p in renderer.plugins if p.get("dynamic")] == ["same-a"]
+    assert "from_a" in renderer.environment.filters
+    assert "from_b" not in renderer.environment.filters
+    errors = renderer.dynamic_plugin_errors
+    assert any("same-b" in e and "plugin" in e and "unique" in e for e in errors)
+
+
+def test_an_entrypoint_that_resolves_to_an_installed_module_is_refused(plugins_root):
+    # "json" is already imported from the standard library; the plugin's own json.py must not be
+    # taken for it.
+    plugin_dir = make_top_level_plugin(plugins_root, "shadow", "from_shadow")
+    (plugin_dir / "json.py").write_text("def get_custom_filters():\n    return {}\n")
+    manifest = SAME_ENTRYPOINT_MANIFEST.format(plugin_id="shadow")
+    (plugin_dir / "plugin.yaml").write_text(
+        manifest.replace("entrypoint: plugin", "entrypoint: json")
+    )
+
+    renderer = Renderer()
+
+    assert [p["plugin_id"] for p in renderer.plugins if p.get("dynamic")] == []
+    assert any("shadow" in e and "json" in e for e in renderer.dynamic_plugin_errors)

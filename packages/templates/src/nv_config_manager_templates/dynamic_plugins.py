@@ -224,8 +224,38 @@ def _import_entrypoint(root: Path, entrypoint: str) -> Any:
     if str(root) not in sys.path:
         sys.path.append(str(root))
     try:
-        return importlib.import_module(entrypoint)
+        module = importlib.import_module(entrypoint)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         raise DynamicPluginError(
             f"python.entrypoint {entrypoint!r} failed to import: {exc}"
         ) from exc
+    _require_module_from(root, module, entrypoint)
+    return module
+
+
+def _module_location(module: Any) -> Path | None:
+    """Where an imported module (or package) lives on disk, or None when it has no location."""
+    location = getattr(module, "__file__", None)
+    if location is None:
+        search_path = list(getattr(module, "__path__", []) or [])
+        location = search_path[0] if search_path else None
+    return Path(location).resolve() if location else None
+
+
+def _require_module_from(root: Path, module: Any, entrypoint: str) -> None:
+    """Refuse an entrypoint that resolved to a module from somewhere other than this plugin.
+
+    Python looks in ``sys.modules`` before it searches ``sys.path``, so when two plugins (or a
+    plugin and an installed package) use the same entrypoint name, the second import silently
+    returns the first module and the second plugin would be registered with the first one's
+    filters and hooks.
+    """
+    location = _module_location(module)
+    plugin_root = root.resolve()
+    if location is None or (location != plugin_root and plugin_root not in location.parents):
+        where = f" ({location})" if location else ""
+        raise DynamicPluginError(
+            f"python.entrypoint {entrypoint!r} resolves to a module{where} that is not in this "
+            "plugin: another plugin or an installed package already provides that name. "
+            "Entrypoint names must be unique among the activated plugins."
+        )
