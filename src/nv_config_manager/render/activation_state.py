@@ -119,7 +119,9 @@ class ActivationStateStore:
             if cm is not None:
                 raw = (cm.data or {}).get(_DATA_KEY)
                 if raw:
-                    current = json.loads(raw)
+                    # A ConfigMap written by an older version lacks newer keys; as in get(), the
+                    # defaults fill them in, so a mutator can rely on every key being there.
+                    current = {**current, **json.loads(raw)}
 
             new_state = mutator(current)
             body = client.V1ConfigMap(

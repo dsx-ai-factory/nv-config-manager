@@ -217,7 +217,8 @@ def test_an_already_active_digest_needs_no_restart():
     resp = client.post("/v1/activation/activate", json=_body("req-2"), headers=AUTH_HEADERS)
 
     assert resp.json()["status"] == "READY"
-    assert "req-2" not in FakeStateStore._shared_state["requests"]
+    # recorded as finished (not left out), so a retry of req-2 stays READY: see the idempotency test below
+    assert FakeStateStore._shared_state["requests"]["req-2"]["status"] == "READY"
 
 
 @patch(STORE, FakeStateStore)
@@ -369,3 +370,84 @@ def test_activate_rejects_malformed_body():
     )
 
     assert resp.status_code == 422
+
+
+# ---- review findings: idempotency and races in the activation state machine -------------------------
+
+
+def _complete(client: TestClient, request_id: str, outcome: str = "READY"):
+    return client.post(
+        f"/v1/activation/{request_id}/complete", json={"outcome": outcome}, headers=AUTH_HEADERS
+    )
+
+
+def _activate(client: TestClient, request_id: str, digest: str):
+    return client.post(
+        "/v1/activation/activate", json=_body(request_id, digest), headers=AUTH_HEADERS
+    )
+
+
+@patch(STORE, FakeStateStore)
+def test_a_request_for_an_already_active_set_is_recorded_and_stays_ready_on_retry():
+    _allow_headers()
+    client = _client()
+    _activate(client, "req-1", "sha256:aaaa")
+    _complete(client, "req-1")
+
+    first = _activate(client, "req-2", "sha256:aaaa")
+
+    assert first.json()["status"] == "READY"
+    assert FakeStateStore._shared_state["requests"]["req-2"]["status"] == "READY"
+
+    # Another set becomes active; the earlier request is retried and must not announce the old set again.
+    _activate(client, "req-3", "sha256:bbbb")
+    _complete(client, "req-3")
+    retry = _activate(client, "req-2", "sha256:aaaa")
+
+    assert retry.json()["status"] == "READY"
+    state = FakeStateStore._shared_state
+    assert state["in_progress_digest"] is None
+    assert state["active_digest"] == "sha256:bbbb"
+
+
+@patch(STORE, FakeStateStore)
+def test_a_completion_that_is_stale_by_the_time_it_is_written_cannot_promote_another_set():
+    _allow_headers()
+    client = _client()
+    _activate(client, "req-a", "sha256:aaaa")
+    stale = deepcopy(FakeStateStore._shared_state)  # what the completion's first read saw
+    # A's caller went quiet, so A is stale and B replaces it before A's completion is written
+    FakeStateStore._shared_state["in_progress_since"] = (
+        datetime.now(UTC) - timedelta(hours=2)
+    ).isoformat()
+    assert _activate(client, "req-b", "sha256:bbbb").json()["status"] == "ACCEPTED"
+
+    with patch.object(FakeStateStore, "get", lambda self: deepcopy(stale)):
+        resp = _complete(client, "req-a", "READY")
+
+    assert resp.status_code == 409
+    state = FakeStateStore._shared_state
+    assert state["active_digest"] is None  # B's set was not promoted by A's report
+    assert state["in_progress_digest"] == "sha256:bbbb"
+    assert state["requests"]["req-b"]["status"] == "REQUESTED"
+    assert state["requests"]["req-a"]["status"] == "FAILED"
+
+
+@patch(STORE, FakeStateStore)
+def test_two_requests_for_the_same_set_are_finished_together():
+    _allow_headers()
+    client = _client()
+    assert _activate(client, "req-a", "sha256:aaaa").json()["status"] == "ACCEPTED"
+    assert _activate(client, "req-b", "sha256:aaaa").json()["status"] == "ACCEPTED"
+
+    assert _complete(client, "req-a", "READY").status_code == 200
+
+    state = FakeStateStore._shared_state
+    assert state["requests"]["req-a"]["status"] == "READY"
+    assert state["requests"]["req-b"]["status"] == "READY"
+    assert state["active_digest"] == "sha256:aaaa" and state["in_progress_digest"] is None
+    # the second caller's report and retries are consistent replays, not conflicts
+    again = _complete(client, "req-b", "READY")
+    assert again.status_code == 200 and again.json()["status"] == "READY"
+    assert _activate(client, "req-b", "sha256:aaaa").json()["status"] == "READY"
+    assert _complete(client, "req-b", "FAILED").status_code == 409

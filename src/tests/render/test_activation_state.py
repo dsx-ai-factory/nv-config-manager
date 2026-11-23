@@ -133,3 +133,25 @@ def test_changing_a_returned_empty_state_does_not_change_the_default(_cfg, core_
 
     assert ActivationStateStore("cm", "ns").get()["requests"] == {}
     assert ActivationStateStore("cm", "ns").get()["in_progress_artifacts"] == []
+
+
+@patch("nv_config_manager.render.activation_state.load_k8s_config")
+@patch("nv_config_manager.render.activation_state.client.CoreV1Api")
+def test_update_gives_the_mutator_every_key_even_when_the_stored_state_lacks_some(
+    mock_core_v1_cls, _mock_load_config
+):
+    # A state written by an older version has no in_progress_artifacts; get() fills it in, and update()
+    # must too, or a mutator reading it raises KeyError and the write never happens.
+    core_v1 = mock_core_v1_cls.return_value
+    cm = MagicMock()
+    cm.data = {"state.json": json.dumps({"active_digest": "sha256:old", "requests": {}})}
+    cm.metadata.resource_version = "7"
+    core_v1.read_namespaced_config_map.return_value = cm
+    seen: dict = {}
+
+    store = ActivationStateStore("render-activation-state", "ns")
+    store.update(lambda s: seen.update(s) or s)
+
+    assert seen["active_digest"] == "sha256:old"  # what was stored is kept
+    assert seen["in_progress_digest"] is None and seen["in_progress_artifacts"] == []
+    assert set(_EMPTY_STATE) <= set(seen)

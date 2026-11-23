@@ -161,6 +161,13 @@ async def activate(
             outcome["replay"] = existing["status"]
             return s
         if s["active_digest"] == request.plugin_set_digest and not s["in_progress_digest"]:
+            # Recorded as finished, so a retry of this request_id stays READY even after another set
+            # becomes active (request_id idempotency), and never announces this set again.
+            s["requests"][request.request_id] = {
+                "digest": request.plugin_set_digest,
+                "status": "READY",
+                "updated_at": now_iso(),
+            }
             outcome["already_active"] = "1"
             return s
         in_flight = s["in_progress_digest"]
@@ -227,34 +234,50 @@ async def complete(
     store = ActivationStateStore(_activation_configmap_name(), _activation_namespace())
     state = await asyncio.to_thread(store.get)
 
-    recorded = state["requests"].get(request_id)
-    if recorded is None:
+    if state["requests"].get(request_id) is None:
         raise HTTPException(status_code=404, detail=f"No activation request {request_id!r}.")
-    if recorded["status"] != "REQUESTED":
-        if recorded["status"] == body.outcome:
-            return _response_for(recorded["status"], request_id)
-        raise HTTPException(
-            status_code=409,
-            detail=f"Request {request_id!r} already finished as {recorded['status']}.",
-        )
-    if state["in_progress_digest"] != recorded["digest"]:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Request {request_id!r} is no longer the in-flight activation.",
-        )
 
+    outcome: dict[str, str] = {}
+
+    # Every check runs inside the read-modify-write, against the state that is about to be written:
+    # a replacement activation that commits after the read above must not be promoted, or have its
+    # in-flight set cleared, by this completion.
     def _finish(s: dict) -> dict:
+        outcome.clear()
+        recorded = s["requests"].get(request_id)
+        if recorded is None:
+            raise HTTPException(status_code=404, detail=f"No activation request {request_id!r}.")
+        if recorded["status"] != "REQUESTED":
+            if recorded["status"] == body.outcome:
+                outcome["replay"] = recorded["status"]
+                return s
+            raise HTTPException(
+                status_code=409,
+                detail=f"Request {request_id!r} already finished as {recorded['status']}.",
+            )
+        digest = s["in_progress_digest"]
+        if digest != recorded["digest"]:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Request {request_id!r} is no longer the in-flight activation.",
+            )
         if body.outcome == "READY":
-            s["active_digest"] = s["in_progress_digest"]
+            s["active_digest"] = digest
             s["active_artifacts"] = s["in_progress_artifacts"]
         s["in_progress_digest"] = None
         s["in_progress_artifacts"] = []
         s["in_progress_since"] = None
-        s["requests"][request_id]["status"] = body.outcome
-        s["requests"][request_id]["updated_at"] = now_iso()
+        # Requests for the same set share one activation: they finish together, so a second caller's
+        # report and retries are replays of a recorded outcome, not conflicts.
+        for sibling in s["requests"].values():
+            if sibling["status"] == "REQUESTED" and sibling["digest"] == digest:
+                sibling["status"] = body.outcome
+                sibling["updated_at"] = now_iso()
         return s
 
-    await asyncio.to_thread(store.update, _finish)
+    finished = await asyncio.to_thread(store.update, _finish)
+    if "replay" in outcome:
+        return _response_for(outcome["replay"], request_id)
     logger.info(
         "Activation %s reported %s by %s%s",
         request_id,
@@ -263,7 +286,7 @@ async def complete(
         f": {body.detail}" if body.detail else "",
     )
     detail = (
-        f"Plugin set {recorded['digest']} is now active."
+        f"Plugin set {finished['requests'][request_id]['digest']} is now active."
         if body.outcome == "READY"
         else f"Activation failed; the previous plugin set stays active. {body.detail}".strip()
     )
