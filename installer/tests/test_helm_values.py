@@ -1912,6 +1912,114 @@ class TestTemplatePreview:
         assert section["backend"]["internalArtifactToken"] == {
             "existingSecret": "template-preview-artifact-token"
         }
+        # the frontend image was not given, so it comes from the registry (see the tests below)
+        assert section["frontend"]["image"] == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-frontend"
+        }
+
+    def test_registry_deployments_pull_template_preview_from_the_images_registry(self):
+        # The chart's own default is a bare name (nvcm-template-preview-backend), which a registry
+        # deployment cannot pull: the installer builds the repository from images.registry instead.
+        section = _gen(_make_config(template_preview=TemplatePreviewConfig(enabled=True)))[
+            "templatePreview"
+        ]
+
+        assert section["backend"]["image"] == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-backend"
+        }
+        assert section["frontend"]["image"] == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-frontend"
+        }
+
+    def test_the_registry_comes_from_the_config_and_a_trailing_slash_is_harmless(self):
+        config = _make_config(
+            images=ImagesConfig(registry="registry.example.com/team/"),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert (
+            section["backend"]["image"]["repository"]
+            == "registry.example.com/team/nvcm-template-preview-backend"
+        )
+        assert (
+            section["frontend"]["image"]["repository"]
+            == "registry.example.com/team/nvcm-template-preview-frontend"
+        )
+
+    def test_a_tag_is_never_guessed_from_the_nvcm_tag(self):
+        # Template Preview is released on its own schedule: its tag is the chart's default or the one
+        # given, never images.tag (NVCM's).
+        config = _make_config(
+            images=ImagesConfig(tag="9.9.9"),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert "tag" not in section["backend"]["image"]
+        assert "tag" not in section["frontend"]["image"]
+
+    def test_a_tag_alone_keeps_the_registry_repository(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True, backend_image=TemplatePreviewImage(tag="0.7.0")
+            )
+        )
+        image = _gen(config)["templatePreview"]["backend"]["image"]
+
+        assert image == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-backend",
+            "tag": "0.7.0",
+        }
+
+    def test_an_explicit_repository_wins_over_the_registry(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                frontend_image=TemplatePreviewImage(repository="mirror.example.com/tp-ui", tag="2"),
+            )
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert section["frontend"]["image"] == {
+            "repository": "mirror.example.com/tp-ui",
+            "tag": "2",
+        }
+        assert (
+            section["backend"]["image"]["repository"]
+            == "nvcr.io/nvidian/cfa/nvcm-template-preview-backend"
+        )
+
+    @pytest.mark.parametrize("how", ["source", "flag"])
+    def test_local_deployments_keep_the_names_they_are_given(self, how):
+        # On kind the images are built and loaded locally: nothing is pulled from a registry, so the
+        # registry is not put in front of the names.
+        if how == "source":
+            config = _make_config(
+                images=ImagesConfig(source=ImageSource.LOCAL),
+                template_preview=TemplatePreviewConfig(
+                    enabled=True,
+                    backend_image=TemplatePreviewImage(
+                        repository="nvcm-template-preview-backend", tag="dev"
+                    ),
+                ),
+            )
+            section = _gen(config)["templatePreview"]
+        else:
+            config = _make_config(
+                template_preview=TemplatePreviewConfig(
+                    enabled=True,
+                    backend_image=TemplatePreviewImage(
+                        repository="nvcm-template-preview-backend", tag="dev"
+                    ),
+                )
+            )
+            section = _gen(config, local_images=True)["templatePreview"]
+
+        assert section["backend"]["image"] == {
+            "repository": "nvcm-template-preview-backend",
+            "tag": "dev",
+        }
         assert "frontend" not in section
 
     def test_plugins_must_be_acknowledged(self):

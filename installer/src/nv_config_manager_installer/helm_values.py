@@ -992,11 +992,19 @@ def _build_rbac(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     return {"admin_roles": list(config.rbac.admin_roles), "workflows": workflows}
 
 
-def _build_template_preview(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
+def _build_template_preview(
+    config: NVConfigManagerInstallConfig, *, is_local: bool
+) -> dict[str, Any]:
     """Build the ``templatePreview`` section (only used when Template Preview is enabled).
 
     One block configures both Template Preview and NVCM's activation endpoint, so nothing is set
     under ``renderService`` here.
+
+    Its images are not among NVCM's own, so their names are built here. Pulling from a registry, a
+    repository that was not given is ``<images.registry>/nvcm-template-preview-<backend|frontend>``:
+    the chart's own default is a bare name that no registry serves. The tag is never taken from
+    ``images.tag`` (that is NVCM's release); it is the one given, or the chart's default. A local
+    (kind) deployment loads its images itself and keeps exactly the names it was given.
     """
     tp = config.template_preview
     section: dict[str, Any] = {
@@ -1006,8 +1014,11 @@ def _build_template_preview(config: NVConfigManagerInstallConfig) -> dict[str, A
             "acknowledgeArbitraryCodeExecution": tp.acknowledge_arbitrary_code_execution,
         },
     }
+    registry = config.images.registry.rstrip("/")
     for key, image in (("backend", tp.backend_image), ("frontend", tp.frontend_image)):
         image_values = {k: v for k, v in image.model_dump().items() if v}
+        if not is_local and "repository" not in image_values:
+            image_values["repository"] = f"{registry}/nvcm-template-preview-{key}"
         if image_values:
             section[key] = {"image": image_values}
     if tp.internal_artifact_token_secret:
@@ -1129,7 +1140,7 @@ def build_values(
 
     values["cnpg"] = _build_cnpg(config)
     if config.template_preview.enabled:
-        values["templatePreview"] = _build_template_preview(config)
+        values["templatePreview"] = _build_template_preview(config, is_local=is_local)
 
     monitoring = config.infrastructure.monitoring
     monitoring_active = monitoring.enabled or monitoring.observability_enabled
