@@ -351,9 +351,8 @@ spec:
         {{- include "nv-config-manager.customPodLabels" . | nindent 8 }}
       annotations:
         {{- include "nv-config-manager.authIniChecksum" . | nindent 8 }}
-        {{- /* The worker reads the [temporal.worker] INI limits only at startup, so a
-        change to either value must roll the pods. */}}
-        checksum/worker-limits: {{ printf "%v/%v" .Values.temporal.configManagerWorker.maxCachedWorkflows .Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks | sha256sum }}
+        {{- /* Roll workers when startup settings change. */}}
+        checksum/worker-limits: {{ printf "%v/%v/%v" .Values.temporal.configManagerWorker.maxCachedWorkflows .Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks (include "nv-config-manager.failedStageRetryTimeoutSeconds" .) | sha256sum }}
         {{- if eq .Values.secrets.method "vault-agent" }}
         {{- include "nv-config-manager.vaultAgent.injectorAnnotations" . | nindent 8 }}
         {{- end }}
@@ -804,10 +803,15 @@ spec:
           value: {{ .Values.global.environment }}
         - name: TEMPORAL_API_HOST
           value: {{ tpl .Values.temporal.gateway.api.hostname . | quote }}
+        - name: ARCHIVE_METRICS_PORT
+          value: {{ .Values.temporal.archive.metricsPort | quote }}
         {{- include "nv-config-manager.dcimProviderPythonPath" . | nindent 8 }}
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-temporal-archive") | nindent 8 }}
         {{- end }}
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.temporal.archive.metricsPort }}
         resources:
           {{- toYaml .Values.temporal.archive.resources | nindent 10 }}
         volumeMounts:

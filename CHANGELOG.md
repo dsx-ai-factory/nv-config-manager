@@ -4,9 +4,32 @@ Notable user-facing changes for NVIDIA Config Manager should be recorded here.
 
 This project uses release tags for published versions. Add entries under
 `Unreleased` while changes are in flight, then finalize them under the release
-version before the selected release candidate is promoted.
+version before creating the release candidate tag selected for promotion.
+The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
+
+## 1.4.3
+
+Unreleased. Changes since 1.4.2, prepared for release from `main`.
+
+### Added
+
+- Added a standalone [integration-test command](docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
+  for an existing deployment: `nvcm-installer test install.yaml`. It runs the
+  tests bundled in the deployed image without redeploying. The runner requires
+  bundled Nautobot and a ready ZTP SFTP container. SSO deployments can
+  use Keycloak client credentials or a supplied access-token file.
+- Added [Kea DHCPv4 thread and queue controls](docs/dhcp/index.mdx#kea-multi-threading)
+  through `networkDhcp.kea.multiThreading` and installer
+  `dhcp.kea_multi_threading`. CPU-based sizing rounds the DHCP container's CPU
+  request up to at least one thread. Explicit thread and queue sizes are also
+  supported. Defaults retain Kea's automatic thread count and 64-packet queue;
+  CPU-based sizing and an explicit thread count cannot be combined.
+- Added [`oidc.proxy.cookieRefresh`](docs/install/gateway-api.mdx#oidc-session-refresh)
+  to configure request-driven OIDC session refresh. The default remains `"1h"`.
+  Set an interval shorter than the forwarded ID token's lifetime; refresh also
+  depends on the identity provider and does not extend token lifetimes.
 
 ### Changed
 
@@ -29,57 +52,138 @@ version before the selected release candidate is promoted.
   released workflow histories retain their previous failure behavior on replay.
   Histories from the earlier QA batching implementation keep their recorded
   activity boundaries and deadlines; current runs delegate batching to the provider.
+- Bundled Nautobot now assigns the MCP read-only token to the dedicated
+  `nvcm-mcp-read-only` inventory account. Before upgrading, ensure
+  `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
+  belongs to another user, the `run-migrations` init container stops. Prefer a
+  fresh token of exactly 40 lowercase hexadecimal characters in the
+  [configured Nautobot secret](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
+  Wait for secret synchronization, then rerun the migration init container.
+  Registration deletes other tokens owned by `nvcm-mcp-read-only`; MCP clients
+  using those Nautobot tokens lose access. Update every affected consumer to use
+  the configured token, then reload the MCP server configuration.
+  Reassign an existing token only if it is dedicated to MCP, since initialization
+  disables writes and restricts its access to inventory. Create `nvcm-mcp-read-only`
+  if needed before reassigning.
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
   so the ARP retries and remaining validation stages fit within the child
   workflow deadline. Already-started child workflows keep their existing deadline.
 - A render consumer whose NATS fetches keep failing now exits, and Kubernetes
-  restarts the pod, once no round trip to NATS has completed for
+  restarts the container, once no round trip to NATS has completed for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, it kept retrying
   on a connection that was not coming back while the pod stayed `Running`.
   Expect a container restart where a consumer used to stall. The render
   consumers also export progress metrics for stalls the exit cannot catch,
-  such as a handler that never returns. See
+  such as a handler that never returns. Refer to
   [Render service](docs/render/render-service.mdx).
+- The Temporal archive service now exits, and Kubernetes restarts the pod, once
+  its durable consumer has made no progress for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, a subscription that
+  stopped receiving left the pod `Running` while archiving nothing. A pod that
+  is still receiving and retrying messages during an archive backend outage is
+  not restarted. A durable deleted while the service runs is re-created after
+  its last acknowledged message, so events published in between are still
+  archived. The archive pod also serves progress metrics on
+  `temporal.archive.metricsPort` (default 8000), scraped by a new PodMonitor when
+  `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set. See
+  [Render service](docs/render/render-service.mdx).
+- Retryable failed workflow stages now wait for a manual retry for a configurable
+  window (three hours by default) after automatic activity or child retries are
+  exhausted, instead of indefinitely. An unanswered retry wait closes the
+  workflow as **Failed** with a non-retryable `StageRetryTimeout` cause. The durable
+  timer survives worker restarts and does not limit healthy work or approval
+  waits. Existing histories that already took the indefinite failure-wait path
+  retain it for replay compatibility.
+- Helm `temporal.configManagerWorker.failedStageRetryTimeoutSeconds` configures
+  the failed-stage manual retry window in positive integer seconds (default
+  10,800, maximum 31,536,000, or 365 days). The chart renders this setting for
+  every secrets method. New workflow histories and schedule actions record the
+  value so replay and child runs preserve it across restarts and configuration
+  changes. Recreate existing schedules to apply a changed retry window. An unset
+  key, such as after `helm upgrade
+  --reuse-values` from an earlier release, renders the default. Installer
+  deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
+  `nv-config-manager-install.yaml`. Refer to
+  [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
-  `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now carry the pod's
-  Kubernetes `namespace` label, so workflow results can be separated per
-  deployment. These metrics are no longer pushed over OTLP, and their `job`
-  label changes from `nv-config-manager-temporal-worker` to the PodMonitor's
-  `<namespace>/<worker deployment name>`; update dashboards and alerts that
-  match the old `job`. The scraped endpoint adds no unit suffix, so deployments
-  whose OTLP collector does (such as the bundled Alloy, which stores
-  `temporal_request_latency_milliseconds_*`) also see the `_milliseconds` part
-  of those metric names disappear. See
+  `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now
+  carry the pod's Kubernetes `namespace` label, so workflow results can be
+  separated per deployment. The SDK's Temporal `namespace` label becomes
+  `exported_namespace`;
+  update selectors and grouping that identify a Temporal namespace. These
+  metrics no longer use OTLP. Their `job` label changes from
+  `nv-config-manager-temporal-worker` to the PodMonitor's
+  `<namespace>/<worker deployment name>`. Update dashboards and alerts that
+  match the old `job`. The scraped endpoint adds no unit suffix. If your OTLP
+  collector adds one, as bundled Alloy does, the `_milliseconds` part disappears
+  from the corresponding metric names, such as
+  `temporal_request_latency_milliseconds_*`. Duration values remain in
+  milliseconds. Refer to
   [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
 - CNPG clusters now accept `cnpg.<cluster>.affinity.podAntiAffinityType`
   (`preferred` or `required`). The chart defaults now set
   `enablePodAntiAffinity: true` and `podAntiAffinityType: preferred`, which
   match the scheduling CloudNativePG already applied when they were unset.
 - The Config Manager Temporal worker's sticky workflow cache now defaults to 200
-  entries (the Temporal SDK default is 1,000) and the worker runs at most 10
-  workflow tasks at once (the SDK default is 100), so bursts of new workflows
-  queue instead of all exceeding the workflow task timeout, and the memory held
-  by cached runs is bounded. Both limits are set in the new
+  entries, compared with the Temporal SDK default of 1,000. It runs at most 10
+  workflow tasks concurrently, compared with the SDK default of 100. These
+  limits bound the memory retained by cached runs and queue workflow bursts to
+  reduce workflow task timeouts. Both limits are set in the new
   `[temporal.worker]` INI section (`max_cached_workflows`,
   `max_concurrent_workflow_tasks`), which the Helm chart renders from
   `temporal.configManagerWorker.maxCachedWorkflows` and
   `maxConcurrentWorkflowTasks`. Invalid values fail worker startup.
 - `nv_config_manager_nautobot_change_message_end_to_end_time` gains buckets at
-  900, 1200, 1800, 2700, 3600, and 7200 seconds. Its time includes queue wait,
-  which can pass ten minutes when one change fans out to many devices, and the
-  old 600-second top bucket left everything beyond that in `+Inf`. Existing
+  900, 1,200, 1,800, 2,700, 3,600, and 7,200 seconds. The metric includes queue
+  wait, which can exceed ten minutes when one change affects many devices. The
+  previous 600-second top bucket grouped longer waits in `+Inf`. Existing
   bucket boundaries are unchanged, so queries on them keep working.
 - `nv_config_manager_workflows.workflows` now imports each exported name from
-  its defining module when the name is accessed. Importing one workflow module no longer
-  imports all of them, so each workflow run's sandbox re-imports only the
-  modules that run uses instead of all 29 workflow modules. The package's
+  its defining module when the name is accessed. Importing one workflow module
+  no longer imports all of them, so each workflow run's sandbox re-imports only
+  the modules that run uses instead of all 29 workflow modules. The package's
   public names are unchanged.
+- The bundled Nautobot image no longer includes `nautobot_firewall_models`.
+  Deployments that used the app must review their firewall data and plan its
+  retention or cleanup before upgrading. Removing the app does not provide a
+  migration to a replacement firewall model.
+- New render consumers use a default delivery limit of 20. Retryable handler
+  failures and device-lock contention count toward that limit; a message that
+  still fails on its final allowed delivery is logged and terminated. Existing
+  NATS durables retain their own
+  `max_deliver`, including `-1` for unlimited retries. Review externally managed
+  consumers and the [delivery-limit guidance](docs/render/render-service.mdx#external-nats-administration).
+- Workflow archive writes now retain their backlog in JetStream while the
+  backend is unavailable, with at most two concurrent writes. New archive
+  consumers default to 288 deliveries with five-minute retry delays. Permanently
+  rejected records and records still failing at the durable's delivery limit
+  are logged and discarded. Existing durables retain their configured limits;
+  review the [archive consumer settings](docs/render/render-service.mdx#external-nats-administration).
 
 ### Fixed
 
+- Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
+  NVLink firmware upgrade, and reprovisioning now await the backup child's result
+  so failures and timeouts reach stage failure handling. Previously a failed or
+  timed-out backup was reported as backed up and the workflow continued. These
+  workflows now stop at the backup stage even if the configuration change
+  already took effect. Retry the stage to start a new backup. Without a retry,
+  the workflow closes as **Failed** after the failed-stage retry window. A backup
+  child can retry its stage until the failed-stage retry window or its 10-minute
+  run timeout expires, whichever comes first. The parent then reports a failure
+  or timeout. Refer to the backup workflow's page for the underlying error.
+  Histories that already used the old child-completion check retain that path
+  for replay compatibility.
+- Workflow API approve, reject, and retry requests now return `409 Conflict`
+  with the status if the workflow closes before the signal arrives. They return
+  `404` if the workflow no longer exists. Previously, an unhandled signal
+  error could return `500` when a workflow closed before the signal arrived.
+  The UI hides **Retry** after a failed stage's workflow closes. On a `409`
+  response, it reports that the workflow is no longer running and refreshes
+  the workflow.
 - `cnpg.<cluster>.affinity.enablePodAntiAffinity: false` now disables pod
   anti-affinity on the CNPG `Cluster`. The chart previously dropped `false`,
   and CloudNativePG then enabled preferred anti-affinity by default.
@@ -94,25 +198,63 @@ version before the selected release candidate is promoted.
 - With `secrets.method: vault-agent`, pods now carry a `checksum/vault-agent-ini`
   annotation, so a change to the rendered `nv-config-manager.ini` template rolls
   them. Before, the injector kept serving the old template until pods restarted.
-- The Temporal worker no longer re-imports pydantic and the shared workflow
+- The Temporal worker no longer re-imports `pydantic` and the shared workflow
   libraries in the sandbox for every workflow run. This cuts the per-run startup
   CPU and per-run memory that contributed to workflow task timeouts, deadlock
   errors, and OOMKills during large fan-outs such as site cable validation.
-  Every built-in workflow module now imports everything except the standard
+  Every built-in workflow module imports dependencies other than the standard
   library and `temporalio` inside its
-  `workflow.unsafe.imports_passed_through()` block, a test enforces this, and
-  the workflows package README documents the pattern for plugin workflows. The
+  `workflow.unsafe.imports_passed_through()` block. A test enforces this pattern.
+  The workflows package README documents it for plugin workflows. The
   worker also passes through `annotated_types`, which Pydantic imports lazily
   after those blocks have closed.
 - `workflow-cli` now sends the default of a list option as a list when the
-  option is omitted. Before, it sent the default's text split on commas, for
-  example `["['Active'", "'Provisioned']"]` for `--status`, so commands such as
-  `site-cable-validation` failed at their first stage unless every list option
-  was passed explicitly.
+  option is omitted. Previously, it split the default's text on commas,
+  producing values such as `["['Active'", "'Provisioned']"]` for `--status`.
+  Commands such as `site-cable-validation` then failed at the first stage unless
+  you supplied every list option explicitly.
+- MCP Nautobot inventory tools now use dedicated read-only credentials when
+  sign-in is disabled. The installer provisions these for built-in Nautobot.
+  Existing deployments must populate `readOnlyToken` and rerun Nautobot
+  migrations; with ESO, wait for the read-only Secret to synchronize first.
+  External Nautobot requires a separately provisioned view-only account and
+  token. Follow the [inventory credential upgrade steps](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
+- Helm now rejects CNPG backup configurations with an unsupported destination
+  or missing S3 bucket or path. When enabling backups, set
+  `cnpg.backup.destinationType: s3`, `cnpg.backup.s3.bucket`, and
+  `cnpg.backup.s3.path`. Backup-credential ExternalSecrets now follow the backup
+  settings of enabled clusters, including Nautobot, instead of the unused
+  `cnpg.backup.enabled` value.
+- Cumulus neighbor discovery now collects IPv4 and IPv6 neighbors through the
+  split NVUE endpoints on Cumulus Linux 5.15 and later, while retaining the
+  legacy endpoint for earlier versions. Missing data for one address family no
+  longer discards the other family's neighbors.
+- Render queue claims are atomic, preventing concurrent producers from
+  publishing duplicate render requests or clearing another producer's queued
+  flag after a failed publish.
+- Helm and Argo CD run the template updater after Config Store migrations,
+  so template loading no longer races database initialization.
+- AIR deployment checks now use the Temporal bootstrap image's CLI to verify
+  search attributes. Failed checks retain their diagnostics, and workers restart
+  only when a successful check confirms missing attributes.
+- The ZTP SFTP server offers ECDSA as well as RSA host keys, allowing Cumulus
+  clients without RSA SHA-2 support to negotiate a host key after the Paramiko
+  dependency update.
+- Helm renders `temporal.dynamicConfig` in Temporal's native key-to-values
+  mapping format, preserving configured values and namespace constraints.
+
+### Security
+
+- Updated Python, Go, installer, UI, and runtime-image dependencies to
+  incorporate security fixes. Bundled oauth2-proxy is now 7.15.6 and the Stork
+  agent is 2.6.0. SSH dependencies require Paramiko 5.0.1 or later.
+- Updated the Temporal Web UI's Markdown dependency and preserved the
+  Nautobot runtime image's patched zlib library instead of replacing it with
+  the builder's copy.
 
 ## 1.4.2
 
-Changes since 1.4.1, prepared against `1.4.2-rc.2`. Release promotion is pending.
+Changes since 1.4.1. Released November 16, 2026.
 
 ### Added
 

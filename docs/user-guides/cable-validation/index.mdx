@@ -13,7 +13,7 @@ Two variants are available:
 
 The site workflow runs the device workflow as a child workflow per device, so the issue categories and the underlying validation logic are identical between the two — only the scope and the report download format differ.
 
-Site-launched device validations have a ten-minute overall timeout, including retries and waits for manual stage retries. A timed-out device appears among the failed devices in the site report, allowing the remaining results to be reported. Standalone device validations retain their normal stage retry behavior.
+New site-launched device validations have a thirty-minute overall timeout, including automatic retries and waits for manual stage retries. Child validations already started before the upgrade retain their original deadline. A timed-out device appears among the failed devices in the site report, allowing the remaining results to be reported. Standalone device validations retain their normal stage retry behavior.
 
 The report becomes available before cable statuses are persisted to the DCIM. The report remains visible while its stage is in progress, so operators can begin reviewing results without waiting for the DCIM writes. See [DCIM cable status updates](#dcim-cable-status-updates) for the status mapping and provider behavior.
 
@@ -221,7 +221,7 @@ The device workflow runs six stages. The three data-collection stages (`get_devi
 
 1. **`get_device_mac_table` — Read the FDB and ARP table from the device.**
 
-   Pulls the MAC table (FDB) and ARP table off the device. MAC and ARP entries are the fallback validator for links where LLDP is not available — most commonly IPMI/BMC connections to hosts. When LLDP is absent, the FDB MAC must match the MAC recorded in the DCIM.
+   Pulls the MAC table (FDB) and ARP table off the device. ARP collection allows five minutes per attempt, with up to three attempts. MAC and ARP entries are the fallback validator for links where LLDP is not available — most commonly IPMI/BMC connections to hosts. When LLDP is absent, the FDB MAC must match the MAC recorded in the DCIM.
 
 1. **`validate_connections` — Compare intended vs actual and produce the report.**
 

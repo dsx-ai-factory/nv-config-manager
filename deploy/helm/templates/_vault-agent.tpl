@@ -464,6 +464,7 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           [temporal.worker]
           max_cached_workflows = {{ $root.Values.temporal.configManagerWorker.maxCachedWorkflows }}
           max_concurrent_workflow_tasks = {{ $root.Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks }}
+          failed_stage_retry_timeout_seconds = {{ include "nv-config-manager.failedStageRetryTimeoutSeconds" $root }}
 
           # -----------------------------------------------------------------
           # Device Credentials (for Temporal workflows)
@@ -541,6 +542,8 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           [dhcp.kea]
           server = {{ $dhcpName }}-internal
           port = 8000
+          thread_pool_size = {{ include "nv-config-manager.dhcp.threadPoolSize" $root }}
+          packet_queue_size = {{ include "nv-config-manager.dhcp.packetQueueSize" $root }}
 
           [dhcp.lease_db]
           local = false

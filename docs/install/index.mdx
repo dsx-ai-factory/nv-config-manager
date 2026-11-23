@@ -368,9 +368,78 @@ kubectl get deployments -n <namespace> -l app.kubernetes.io/component=network-dh
 kubectl logs -n <namespace> deployment/<refresh-deployment> -c config-refresh-v4 -f --tail=200
 ```
 
+### Run Tests Against an Existing Deployment
+
+After loading site data, check the
+[suite's prerequisites](install-airgapped.mdx#test-prerequisites-and-results)
+before running it against the existing deployment:
+
+```bash
+nvcm-installer test nv-config-manager-install.yaml
+```
+
+The runner requires bundled Nautobot, a ready ZTP `sftp` container, and the
+bundled chart's default resource names. It does not support external DCIM
+providers. Some checks assume the bundled mock topology: SMN DHCP testing
+expects `10.240.164.64/31` when SMN uplink `/31` subnets are present. Other valid site
+addressing can fail that check.
+
+Tests run inside the deployed image. Several fixtures still use gateway URLs
+under the default `config-manager.local` hostname, including MCP tests when
+sign-in is disabled. A different deployment hostname can cause failures.
+The suite does not validate browser login through the external gateway.
+Refer to [test prerequisites and authentication](install-airgapped.mdx#run-integration-tests-after-deployment)
+for Kubernetes permissions, SSO credentials, token files, and deployments
+without an installer config. For an installed CLI, use `nvcm-installer` in
+place of the bundle's `./installer/nvcm-installer` command.
+
 ## Iterative Deployment and Post-Deploy Changes
 
 You do not need to redeploy from scratch when you change data, add images, update templates, or upgrade versions. Treat `nv-config-manager-install.yaml` as the source of truth: re-open it with `nvcm-installer init --config nv-config-manager-install.yaml`, adjust the configuration, and deploy again. The deployer applies updates through Helm and only restarts services when relevant inputs have changed.
+
+### Preparing to Upgrade to 1.4.3
+
+Before upgrading from 1.4.2, review the following changes with the owners of
+the affected services. Keep recoverable database backups and test the upgrade
+against a restored copy of the deployment first.
+
+| Area | Upgrade Action |
+| :--- | :------------- |
+| Bundled Nautobot | Complete the [firewall-app removal checks](../nautobot/nautobot-integration.mdx#firewall-app-removal-in-143) before replacing the old image. There is no automatic migration to another firewall model. |
+| Workflow recovery | Review the three-hour [failed-stage retry window](../temporal/temporal-deployment.mdx#failed-stage-retry-window). Recreate existing schedules if they must use a changed window. |
+| Worker capacity | Review the new [cache and workflow-task limits](../temporal/temporal-deployment.mdx#worker-cache-and-task-limits) against the worker's memory allocation. |
+| Monitoring | Update dashboards and alerts for the worker's [scraped metrics](../overview/observability.mdx#temporal-worker-metrics): `job`, `exported_namespace`, and collector-dependent metric-name changes. Duration values remain in milliseconds. |
+| MCP inventory without sign-in | Populate the [dedicated read-only credentials](../overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled) and rerun Nautobot migrations. With ESO, wait for the Secret to synchronize first. |
+| Existing NATS durables | Review [render and archive delivery limits](../render/render-service.mdx#external-nats-administration). Upgrading the application does not replace the limits on existing durables. |
+| CNPG databases | Review [backup validation and pod placement](#cnpg-backups-and-pod-placement), especially explicit `enablePodAntiAffinity: false` settings. |
+| OIDC sessions | Keep [cookie refresh](gateway-api.mdx#oidc-session-refresh) shorter than the forwarded ID token's lifetime. Refresh depends on the identity provider. |
+
+For disconnected environments, use the same checks before deploying the new
+bundle. Refer to the [1.4.3 release notes](../fern/changelog/2026-11-19.mdx)
+for release status and the full change list.
+
+#### CNPG Backups and Pod Placement
+
+When an enabled CNPG cluster has `backup.enabled: true`, Helm requires
+`cnpg.backup.destinationType: s3` and nonempty string values for
+`cnpg.backup.s3.bucket` and `cnpg.backup.s3.path`. Other backup destinations
+are not implemented by this chart. These checks also cover bundled Nautobot
+when its CNPG backups are enabled. The installer's
+`infrastructure.cnpg_s3_backup` settings provide the shared S3 values.
+
+With ESO, backup-credential ExternalSecrets now follow the backup settings of
+enabled clusters, including Nautobot. The unused `cnpg.backup.enabled` value
+does not control credential creation. Confirm the configured credential Secret
+is available to each cluster that needs it.
+
+Each `cnpg.<cluster>.affinity` accepts `enablePodAntiAffinity` and
+`podAntiAffinityType`. The defaults, `true` and `preferred`, preserve CNPG's
+previous effective placement. An explicit `false` now disables anti-affinity;
+earlier charts dropped that value. This changes placement for deployments
+using the small or medium local values files. Choose `required` only when
+enough nodes are available: database instances remain `Pending` rather than
+sharing a node. Apply these settings under the relevant cluster key, such as
+`cnpg.temporal.affinity` or `cnpg.nautobot.affinity`.
 
 ### Upgrade Order for Browser Workflow Forms
 

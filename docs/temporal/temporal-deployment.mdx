@@ -13,6 +13,8 @@ The installer controls Temporal deployment through `nv-config-manager-install.ya
 - `services.temporal`: enables the Temporal API, workers, and related deployment resources.
 - `temporal.history_replicas`: optionally overrides the managed History service pod count.
 - `temporal.num_history_shards`: optionally overrides the persisted History shard count.
+- `temporal.failed_stage_retry_timeout_seconds`: optionally overrides the
+  [failed-stage retry window](#failed-stage-retry-window).
 - `cluster.hostname`: drives public workflow API and Temporal Web hostnames.
 - `secrets`: provides database, auth, and integration secrets.
 - `rbac`: configures workflow read and execute roles.
@@ -96,6 +98,111 @@ does not provide an in-place re-sharding command; do not attempt to work around
 this by editing cluster metadata or restoring the database under a different
 shard count.
 </Warning>
+
+## Failed-Stage Retry Window
+
+Configure the manual retry window after an activity or child workflow exhausts its
+automatic retries. The default is three hours. In `nv-config-manager-install.yaml`,
+omit the setting or set it to `0` to keep the default:
+
+```yaml
+temporal:
+  failed_stage_retry_timeout_seconds: 7200 # Two hours
+```
+
+Unlike the History sizing fields, this setting also applies when Temporal is
+external, because the workflow API, scheduler, and workers still run in this
+deployment. The installer maps it to the Helm value
+`temporal.configManagerWorker.failedStageRetryTimeoutSeconds`. The equivalent
+direct Helm override is:
+
+```yaml
+temporal:
+  configManagerWorker:
+    failedStageRetryTimeoutSeconds: 7200
+```
+
+The Helm value must be a positive integer in seconds, up to 31536000 (365 days).
+The chart rejects `0`, negative, non-integer, and oversized values instead of
+disabling the cap; only the installer treats `0` as "use the default". If the key
+is unset or null, for example after `helm upgrade --reuse-values` from a release
+that predates it, the chart renders the three-hour default. The value is written to
+`[temporal.worker].failed_stage_retry_timeout_seconds` in the unified INI for
+Kubernetes Secrets, ESO, and Vault Agent deployments.
+
+The workflow API and scheduler read the current INI each time they start a workflow
+or create a schedule, so a change applies to workflows and schedules created after
+the updated INI reaches those pods. They record the setting in each new workflow or
+schedule action. Children and continue-as-new runs inherit it from the parent
+history, so a worker restart or configuration update cannot alter a recorded retry
+window. Existing schedules keep their recorded value until recreated; workflows
+started without this setting in history retain the three-hour default. Existing
+histories already waiting on the legacy indefinite retry path remain on that path.
+
+This setting does not impose a total workflow run timeout or limit healthy work
+and approval waits. When an unanswered failure wait expires, the workflow closes
+as **Failed** with a `StageRetryTimeout` cause. Existing shorter run or execution
+deadlines continue to apply. See [Workflow Lifecycle](../user-guides/workflow-lifecycle/index.mdx#retry).
+
+## Worker Cache and Task Limits
+
+The Config Manager worker limits its sticky workflow cache and concurrent
+workflow tasks to bound memory use during large workflow batches. Configure
+the limits directly in Helm values:
+
+```yaml
+temporal:
+  configManagerWorker:
+    maxCachedWorkflows: 200
+    maxConcurrentWorkflowTasks: 10
+```
+
+The installer configuration does not expose these worker limits or
+`temporal.dynamicConfig`. Maintain overrides in a Helm values file applied
+after generated values in your Helm or GitOps workflow. `nvcm-installer
+deploy` regenerates values without that file and can reset these settings.
+
+These are the Config Manager defaults, replacing the Temporal SDK defaults
+of 1,000 cached workflows and 100 concurrent workflow tasks. Each worker
+process reads the values at startup. Helm rolls the worker pods when these
+settings change; existing workflow histories stay in Temporal. For deployments
+outside Helm, restart workers after changing their configuration.
+
+For deployments outside Helm, set `max_cached_workflows` and
+`max_concurrent_workflow_tasks` in the `[temporal.worker]` INI section.
+The cache must be a nonnegative integer; `0` disables it. Task concurrency
+must be a positive integer and at least `2` while the cache is enabled.
+Invalid values stop worker startup. Size the cache against each worker's
+memory limit. Workflow-task slots limit workflow execution tasks, rather
+than the number of open workflows or activity executions.
+
+Custom workflow plugins should follow the
+[workflow module import pattern](https://github.com/dsx-ai-factory/nv-config-manager/blob/main/packages/workflows/README.md#workflow-module-imports)
+to share deterministic dependencies with the worker instead of re-importing
+them in every cached sandbox.
+
+## Server Dynamic Configuration
+
+For the managed Temporal server, `temporal.dynamicConfig` uses Temporal's
+native map of configuration keys to lists of values. For example:
+
+```yaml
+temporal:
+  dynamicConfig:
+    frontend.namespaceRPS.visibility:
+      - value: 50
+      - value: 25
+        constraints:
+          namespace: example-namespace
+```
+
+The chart writes this structure directly to `dynamic_config.yaml`, preserving
+each value and its constraints. Do not wrap the map in another `value` key.
+The example sets a per-frontend visibility limit of 50 requests per second
+per Temporal namespace, with 25 for `example-namespace`. Other server rate
+limits can also apply. The namespace is a **Temporal namespace**, not a Kubernetes
+namespace; replace it with the namespace used by your workflows. When using
+an external Temporal server, configure dynamic settings on that server.
 
 ## Temporal Images
 

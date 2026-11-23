@@ -23,13 +23,46 @@ The Config Manager Nautobot image enables the following Nautobot apps in `nautob
 | :----------- | :---------- |
 | `nv_config_manager` | Config Manager-specific models, jobs, and integration points |
 | `nautobot_fsus` | Field-serviceable unit tracking |
-| [`nautobot_firewall_models`](https://github.com/nautobot/nautobot-app-firewall-models) | Firewall and security policy data models |
 | [`nautobot_design_builder`](https://github.com/nautobot/nautobot-app-design-builder) | Design and job framework used by bootstrap and custom data-loading flows |
 | `nautobot_nvdatamodels` | NVIDIA-specific data models |
 | [`nautobot_bgp_models`](https://github.com/nautobot/nautobot-app-bgp-models) | BGP data models |
 | `nautobot_app_overlays` | Overlay network data models |
 
 The image also includes the `nautobot-broker-nats` package for Nautobot event broker integration. That package is not listed in `PLUGINS`; it is registered by the Nautobot configuration when NATS is configured.
+
+### Firewall-App Removal in 1.4.3
+
+Config Manager 1.4.3 removes `nautobot_firewall_models` from the bundled image
+and its enabled apps. Config Manager 1.4.2 bundled Firewall Models 2.4.0.
+This change does not migrate firewall objects to a replacement model. It
+does not uninstall the app from an externally managed Nautobot instance.
+
+<Warning>
+Rolling the app's migrations back to zero deletes its database schema and
+data. Keep a verified backup and obtain the data owner's approval before
+cleanup. Do not use this command as a way to preserve firewall records or
+wait until the app has disappeared from the image to run it.
+</Warning>
+
+Before replacing the bundled Nautobot image:
+
+1. Check whether firewall objects, custom jobs, templates, or integrations
+   depend on the app. If the app must remain operational, resolve that
+   dependency before upgrading the bundled instance.
+1. Agree on data retention with the data owner. Take a recoverable backup of
+   the Nautobot database and retain the old image and configuration. Export
+   any firewall records needed outside that backup. Verify recovery and
+   dependent integrations in an isolated restore.
+1. If retiring the app, perform its database cleanup while the old image
+   still contains and enables it. The upstream
+   [Firewall Models 2.4.0 uninstall guide](https://github.com/nautobot/nautobot-app-firewall-models/blob/v2.4.0/docs/admin/uninstall.md)
+   specifies `nautobot-server migrate nautobot_firewall_models zero` before
+   removing the app configuration. Rehearse that rollback on the restored
+   database and inspect its effects before scheduling production cleanup.
+1. Deploy the new Config Manager image after the retention and cleanup steps
+   are complete. The image already removes the app configuration and Python
+   package; do not run `pip uninstall` inside the new container. Verify core
+   inventory, jobs, and Config Manager integrations after deployment.
 
 ## NATS Event Streaming
 

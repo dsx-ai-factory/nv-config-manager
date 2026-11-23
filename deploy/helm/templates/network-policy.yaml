@@ -72,6 +72,10 @@ spec:
         - protocol: TCP
           port: {{ .Values.externalServices.redis.metricsExport.port }}  # bundled Redis exporter
         {{- end }}
+        {{- if and .Values.temporal.archive.enabled (not (has (int .Values.temporal.archive.metricsPort) (list 8000 8003 9000 9090 9091))) }}
+        - protocol: TCP
+          port: {{ .Values.temporal.archive.metricsPort }}  # archive consumer metrics (temporal.archive.metricsPort)
+        {{- end }}
     {{- end }}
     {{- if and .Values.renderService.enabled .Values.renderService.autoscaling.enabled (include "nv-config-manager.inClusterPrometheusAddress" .) }}
     # Allow KEDA to read the render-consumer trigger metric from the Prometheus

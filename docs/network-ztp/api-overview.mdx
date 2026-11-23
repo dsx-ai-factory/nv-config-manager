@@ -35,6 +35,12 @@ at `/device/{device_uuid}/{configlet}` on TCP 2222. The default Cumulus boot
 script retrieves `/device/{device_uuid}/startup.yaml` over SFTP; the HTTP API
 remains available for compatibility.
 
+The SFTP server offers both RSA and ECDSA host keys. Clients must support
+RSA SHA-2 or ECDSA: the bundled Paramiko 5 implementation no longer supports
+the `ssh-rsa` SHA-1 signature algorithm. Cumulus clients without RSA SHA-2
+support can negotiate ECDSA. If host-key negotiation fails, check the
+client's supported algorithms before changing configuration or credentials.
+
 ### Firmware Endpoints
 
 Platform and version-based firmware access:

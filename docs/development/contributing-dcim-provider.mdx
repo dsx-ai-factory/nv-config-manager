@@ -179,7 +179,9 @@ Map expected backend failures to SDK errors:
 Do not turn incorrect data into a default value. Workflows intentionally leave
 their retry signal available after a data failure so an operator can correct
 the DCIM record—for example an IP address or platform setting—and retry the
-same run.
+same run within the
+[failed-stage retry window](../user-guides/workflow-lifecycle/index.mdx#retry)
+(three hours by default).
 
 ## Render data and templates
 

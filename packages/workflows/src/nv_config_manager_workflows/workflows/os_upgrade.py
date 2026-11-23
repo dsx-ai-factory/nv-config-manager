@@ -15,6 +15,7 @@
 """Network Device Firmware Upgrade Workflow Definition."""
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import timedelta
 from typing import ClassVar
 
@@ -64,6 +65,7 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.workflow_references import DeviceReference
     from nv_config_manager_workflows.workflows._form_sources import MANAGED_DEVICE_SOURCE
     from nv_config_manager_workflows.workflows.backup import (
+        BACKUP_CHILD_RESULT_PATCH_ID,
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
@@ -334,7 +336,10 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
             BackupWorkflow.run, backup_input, run_timeout=timedelta(minutes=10)
         )
         self.append_child_workflow("perform_backup", backup_handle.id)
-        await workflow.wait_condition(backup_handle.done)
+        if workflow.patched(BACKUP_CHILD_RESULT_PATCH_ID):
+            await backup_handle
+        else:
+            await workflow.wait_condition(backup_handle.done)
 
         # Check if the backup workflow reported config drift to the DCIM
         config_drift = await workflow.execute_activity(
@@ -381,9 +386,9 @@ class SwitchOSUpgradeWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Ar
                 device_data=stage_input.device_data,
                 expected_image=stage_input.desired_firmware,
             ),
-            start_to_close_timeout=timedelta(minutes=35),  # 30 min + 5 min buffer
+            start_to_close_timeout=timedelta(hours=1),  # 55 min + 5 min buffer
             heartbeat_timeout=timedelta(minutes=3),  # Detect dead activities within 3 minutes
-            retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
+            retry_policy=replace(DEFAULT_ACTIVITY_RETRY_POLICY, maximum_attempts=2),
         )
         if image_result.running_image != stage_input.desired_firmware:
             raise ApplicationError(

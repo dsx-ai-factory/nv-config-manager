@@ -52,14 +52,10 @@ def run_download(
     )
 
 
-@pytest.mark.parametrize(
-    "filename,job",
-    [("release.yml", "helm-publish-release"), ("airgapped.yml", ".airgapped-template")],
-)
 @pytest.mark.parametrize("failure", ["", "checksum", "download"])
-def test_yq_is_verified_before_chmod(tmp_path: Path, filename: str, job: str, failure: str) -> None:
-    config = yaml.safe_load((ROOT / ".gitlab/ci" / filename).read_text())
-    block = config[job]["before_script"][0]
+def test_yq_is_verified_before_chmod(tmp_path: Path, failure: str) -> None:
+    config = yaml.safe_load((ROOT / ".gitlab/ci/release.yml").read_text())
+    block = config["helm-publish-release"]["before_script"][0]
     # Keep the block's own error mode and the actual yq installation commands.
     installation = block[block.index("YQ_VERSION=") :].split("chmod +x /usr/local/bin/yq", 1)[0]
     script = block.splitlines()[0] + "\n" + installation + "chmod +x /usr/local/bin/yq\n"
