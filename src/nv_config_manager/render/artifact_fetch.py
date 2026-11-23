@@ -33,6 +33,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import sys
 import tarfile
 import zipfile
@@ -194,6 +195,15 @@ def cli_main() -> None:
     store = ActivationStateStore(configmap_name, namespace)
     state = store.get()
     artifacts = artifacts_to_install(state)
+
+    # Leave only the selected set installed. If this init container ran before in the same pod (a retry
+    # after a failed activation), its files are still on the volume and the loader would load them, even
+    # though a FAILED activation leaves the previous set in place. Only _dynamic is cleared: static
+    # plugins live elsewhere under dest_dir. Not ignoring errors: if it cannot be cleared, fail the
+    # init container rather than start with files that are not part of the set.
+    dynamic_root = os.path.join(dest_dir, DYNAMIC_PLUGINS_SUBDIR)
+    if os.path.isdir(dynamic_root):
+        shutil.rmtree(dynamic_root)
 
     if not artifacts:
         logger.info("No plugin set has been activated yet -- nothing to fetch.")

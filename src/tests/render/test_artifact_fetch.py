@@ -338,3 +338,69 @@ def test_cli_main_refuses_an_unsafe_plugin_id_without_fetching(
 
     assert exc.value.code == 1
     mock_fetch.assert_not_called()
+
+
+# --- only the selected set is left installed (review finding) -----------------------------------------
+
+
+def _install_env(monkeypatch, root):
+    monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
+    monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
+    monkeypatch.setenv("RENDER_PLUGIN_INSTALL_PATH", str(root))
+
+
+@patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
+@patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
+def test_an_empty_selection_removes_plugins_left_by_an_earlier_attempt(
+    mock_store_cls, mock_fetch, monkeypatch, tmp_path
+):
+    # A retried init container in the same pod: the failed attempt's files are still on the volume, and
+    # the set to install is now empty (nothing active). The loader must not find them.
+    _install_env(monkeypatch, tmp_path)
+    (tmp_path / "_dynamic" / "from-failed-attempt").mkdir(parents=True)
+    (tmp_path / "_dynamic" / "from-failed-attempt" / "plugin.yaml").write_text("kind: Plugin\n")
+    mock_store_cls.return_value.get.return_value = {"active_artifacts": []}
+
+    cli_main()
+
+    assert not (tmp_path / "_dynamic").exists()
+    mock_fetch.assert_not_called()
+
+
+@patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
+@patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
+def test_only_the_selected_set_is_left_in_the_dynamic_folder(
+    mock_store_cls, mock_fetch, monkeypatch, tmp_path
+):
+    _install_env(monkeypatch, tmp_path)
+    leftover = tmp_path / "_dynamic" / "from-failed-attempt"
+    leftover.mkdir(parents=True)
+    (leftover / "plugin.yaml").write_text("kind: Plugin\n")
+    mock_store_cls.return_value.get.return_value = {"active_artifacts": [_artifact("selected")]}
+
+    def fake_fetch(url, digest, checksum, dest, token):
+        (tmp_path / "_dynamic" / "selected").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "_dynamic" / "selected" / "plugin.yaml").write_text("kind: Plugin\n")
+
+    mock_fetch.side_effect = fake_fetch
+
+    cli_main()
+
+    assert sorted(p.name for p in (tmp_path / "_dynamic").iterdir()) == ["selected"]
+
+
+@patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
+@patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
+def test_static_plugins_outside_the_dynamic_folder_are_never_touched(
+    mock_store_cls, mock_fetch, monkeypatch, tmp_path
+):
+    _install_env(monkeypatch, tmp_path)
+    (tmp_path / "static-plugin").mkdir()
+    (tmp_path / "static-plugin" / "plugin.yaml").write_text("kind: Plugin\n")
+    (tmp_path / "_dynamic" / "old").mkdir(parents=True)
+    mock_store_cls.return_value.get.return_value = {"active_artifacts": []}
+
+    cli_main()
+
+    assert (tmp_path / "static-plugin" / "plugin.yaml").exists()
+    assert not (tmp_path / "_dynamic").exists()
