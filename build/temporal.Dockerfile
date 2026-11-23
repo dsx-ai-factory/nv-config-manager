@@ -11,7 +11,7 @@ ARG TEMPORAL_SERVER_VERSION=1.31.5@sha256:2796f5d67fb5632771afe1fd13ae14d8ad1ddd
 # command-line tools.
 ARG TEMPORAL_ADMIN_TOOLS_VERSION=1.31.5@sha256:c48b48626c503660ef2b82811c702d24f17ba6f11a7d8e613ac7bcbfd9111fde
 # The UI is independently deployable and does not change Temporal persistence.
-ARG TEMPORAL_UI_VERSION=2.54.1@sha256:ff0943fe532b8e33c46cd28b29e81e0ce0b6f55b9ee50a38ef1b437cc4de3fa5
+ARG TEMPORAL_UI_VERSION=2.58.1@sha256:ac3c13eddb4547d830991bb5eee93a5d97140134522b7297fdb2be1fe25ef925
 
 # The version-matched official server and admin-tools binaries use patched Go
 # toolchains with the CA distrust mitigation for CVE-2026-111943.
