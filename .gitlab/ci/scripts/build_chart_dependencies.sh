@@ -38,11 +38,14 @@ if [[ "${GITLAB_CI:-}" == true ]]; then
 fi
 
 # Internal deployments never run with user-supplied template plugins: the shipped values must keep the gate off.
+# The chart opens it from either block (templatePreview, or the render service's own keys), so both are checked.
 values_file="${chart_dir}/values.yaml"
 [[ -f "$values_file" ]] || die "${values_file} not found."
-for key in enabled acknowledgeArbitraryCodeExecution; do
-  value="$(yq -r ".templatePreview.unsafeDynamicTemplatePlugins.${key} // false" "$values_file")"
-  [[ "$value" != true ]] || die "templatePreview.unsafeDynamicTemplatePlugins.${key} is true in ${values_file}; the chart built here must ship with it off."
+for block in templatePreview renderService; do
+  for key in enabled acknowledgeArbitraryCodeExecution; do
+    value="$(yq -r ".${block}.unsafeDynamicTemplatePlugins.${key} // false" "$values_file")"
+    [[ "$value" != true ]] || die "${block}.unsafeDynamicTemplatePlugins.${key} is true in ${values_file}; the chart built here must ship with it off."
+  done
 done
 
 chart_file="${chart_dir}/Chart.yaml"

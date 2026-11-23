@@ -84,6 +84,17 @@ check "the refusal says why" grep -q "unsafeDynamicTemplatePlugins" "$work/out.l
 check "enabled dynamic plugins leave Chart.yaml alone" lacks_dep "$dir"
 check "enabled dynamic plugins do not call helm" no_helm
 
+# 3b. The render service opens the same plugin path from its own keys (the chart enables the gate when either
+# block is true), so a values file that sets only those must be refused too, naming the key.
+for gate_key in enabled acknowledgeArbitraryCodeExecution; do
+    dir="$(new_chart "render-gate-${gate_key}")"
+    printf 'renderService:\n  unsafeDynamicTemplatePlugins:\n    %s: true\n' "$gate_key" >> "$dir/values.yaml"
+    if run "$dir" "${TRUSTED[@]}" "${OPT_IN[@]}"; then fail "renderService ${gate_key} true is refused"; else pass "renderService ${gate_key} true is refused"; fi
+    check "the refusal names renderService.unsafeDynamicTemplatePlugins.${gate_key}" grep -q "renderService.unsafeDynamicTemplatePlugins.${gate_key}" "$work/out.log"
+    check "renderService ${gate_key} leaves Chart.yaml alone" lacks_dep "$dir"
+    check "renderService ${gate_key} does not call helm" no_helm
+done
+
 # 4. Opted in without a version: refuse.
 dir="$(new_chart no-version)"
 if run "$dir" "${TRUSTED[@]}" NVCM_TEMPLATE_PREVIEW_CHART_REPOSITORY=https://charts.example/internal; then fail "a missing version is refused"; else pass "a missing version is refused"; fi

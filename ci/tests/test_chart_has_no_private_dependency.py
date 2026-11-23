@@ -26,7 +26,7 @@ from pathlib import Path
 
 import yaml
 
-HELM_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
+HELM_DIR = Path(__file__).resolve().parents[2] / "deploy" / "helm"
 PRIVATE_CHART = "nvcm-template-preview"
 
 
