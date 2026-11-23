@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 from itertools import product
 from pathlib import Path
@@ -2021,6 +2023,146 @@ class TestTemplatePreview:
             "tag": "dev",
         }
         assert "frontend" not in section
+
+    @staticmethod
+    def _gate_open(release_name):
+        return _make_config(
+            cluster=ClusterConfig(
+                hostname="test.example.com", environment="prod", release_name=release_name
+            ),
+            template_preview=TemplatePreviewConfig(
+                enabled=True, dynamic_plugins=True, acknowledge_arbitrary_code_execution=True
+            ),
+        )
+
+    def test_activation_targets_follow_the_default_release_name(self):
+        env = _gen(self._gate_open("nv-config-manager"))["templatePreview"]["backend"]["env"]
+
+        assert (
+            env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"] == "http://nv-config-manager-render-api:9000"
+        )
+        assert env["KIWI_RENDER_RENDER_DEPLOYMENTS"] == (
+            "nv-config-manager-render-api,"
+            "nv-config-manager-render-consumer-nautobot,"
+            "nv-config-manager-render-consumer-device"
+        )
+
+    def test_activation_targets_follow_another_release_name(self):
+        # The chart names its resources <release>-nv-config-manager-...; Template Preview's own default
+        # names nv-config-manager-render-api, so under another release it would resolve nothing.
+        env = _gen(self._gate_open("prod"))["templatePreview"]["backend"]["env"]
+
+        assert (
+            env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"]
+            == "http://prod-nv-config-manager-render-api:9000"
+        )
+        assert env["KIWI_RENDER_RENDER_DEPLOYMENTS"].split(",") == [
+            "prod-nv-config-manager-render-api",
+            "prod-nv-config-manager-render-consumer-nautobot",
+            "prod-nv-config-manager-render-consumer-device",
+        ]
+
+    def test_a_release_name_that_already_contains_the_chart_name_is_not_doubled(self):
+        env = _gen(self._gate_open("team-nv-config-manager"))["templatePreview"]["backend"]["env"]
+
+        assert (
+            env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"]
+            == "http://team-nv-config-manager-render-api:9000"
+        )
+
+    def test_a_release_name_too_long_to_derive_the_names_from_is_refused_clearly(self):
+        # The chart shortens the render resources unpredictably for a long release name; guessing would
+        # point Template Preview at resources that do not exist.
+        with pytest.raises(ValueError, match="too long"):
+            _gen(self._gate_open("r" * 40))
+
+    def test_a_long_release_name_does_not_matter_while_the_gate_is_closed(self):
+        config = _make_config(
+            cluster=ClusterConfig(
+                hostname="test.example.com", environment="prod", release_name="r" * 40
+            ),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+
+        assert "env" not in _gen(config)["templatePreview"].get("backend", {})
+
+    def test_nothing_is_set_for_activation_while_the_gate_is_closed(self):
+        config = _make_config(template_preview=TemplatePreviewConfig(enabled=True))
+
+        assert "env" not in _gen(config)["templatePreview"].get("backend", {})
+
+    @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+    @pytest.mark.parametrize(
+        "release", ["nv-config-manager", "prod", "team-nv-config-manager", "production-east"]
+    )
+    def test_the_derived_names_are_the_ones_the_chart_creates(self, release):
+        chart = Path(__file__).resolve().parents[2] / "deploy" / "helm"
+        if not (chart / "charts").is_dir():
+            pytest.skip("vendored chart dependencies are required")
+        rendered = subprocess.run(
+            ["helm", "template", release, str(chart), "--values", str(chart / "values-ci.yaml")],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        created = {
+            doc["metadata"]["name"]
+            for doc in yaml.safe_load_all(rendered)
+            if doc and doc.get("kind") in ("Deployment", "Service")
+        }
+
+        env = _gen(self._gate_open(release))["templatePreview"]["backend"]["env"]
+        deployments = env["KIWI_RENDER_RENDER_DEPLOYMENTS"].split(",")
+        service = env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"].removeprefix("http://").split(":")[0]
+
+        assert set(deployments) <= created
+        assert service in created
+
+    def test_an_empty_registry_is_refused_when_image_names_would_be_built_from_it(self):
+        # "<empty>/nvcm-template-preview-backend" would be "/nvcm-template-preview-backend", which is not
+        # a valid image reference: say what is wrong instead of producing pods that cannot pull.
+        config = _make_config(
+            images=ImagesConfig(registry=""),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+
+        with pytest.raises(ValueError, match="images.registry"):
+            _gen(config)
+
+    def test_an_empty_registry_is_fine_when_every_repository_is_given(self):
+        config = _make_config(
+            images=ImagesConfig(registry=""),
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                backend_image=TemplatePreviewImage(repository="mirror.example.com/tp-api"),
+                frontend_image=TemplatePreviewImage(repository="mirror.example.com/tp-ui"),
+            ),
+        )
+
+        section = _gen(config)["templatePreview"]
+
+        assert section["backend"]["image"]["repository"] == "mirror.example.com/tp-api"
+        assert section["frontend"]["image"]["repository"] == "mirror.example.com/tp-ui"
+
+    def test_an_empty_registry_is_refused_when_only_one_repository_is_given(self):
+        config = _make_config(
+            images=ImagesConfig(registry=""),
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                backend_image=TemplatePreviewImage(repository="mirror.example.com/tp-api"),
+            ),
+        )
+
+        with pytest.raises(ValueError, match="frontend"):
+            _gen(config)
+
+    def test_an_empty_registry_does_not_matter_to_a_local_deployment(self):
+        config = _make_config(
+            images=ImagesConfig(source=ImageSource.LOCAL, registry=""),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+
+        assert "image" not in _gen(config)["templatePreview"].get("backend", {})
 
     def test_plugins_must_be_acknowledged(self):
         with pytest.raises(ValidationError, match="acknowledge_arbitrary_code_execution"):

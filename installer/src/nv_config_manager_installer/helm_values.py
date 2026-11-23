@@ -992,6 +992,31 @@ def _build_rbac(config: NVConfigManagerInstallConfig) -> dict[str, Any]:
     return {"admin_roles": list(config.rbac.admin_roles), "workflows": workflows}
 
 
+_CHART_NAME = "nv-config-manager"
+_DNS_LABEL_MAX = 63
+
+
+def _chart_fullname(release_name: str) -> str:
+    """The chart's ``nv-config-manager.fullname``: the release name if it already contains the chart
+    name, else ``<release>-nv-config-manager``."""
+    return release_name if _CHART_NAME in release_name else f"{release_name}-{_CHART_NAME}"
+
+
+def _chart_component_name(fullname: str, component: str, release_name: str) -> str:
+    """The chart's ``nv-config-manager.componentName``: ``<fullname>-<component>``.
+
+    The chart cuts names at 63 characters, and for a long release name shortens the render resources
+    unpredictably, so the names cannot be derived there: refuse, and say how to fix it."""
+    name = f"{fullname}-{component}"
+    if len(name) > _DNS_LABEL_MAX:
+        raise ValueError(
+            f"cluster.release_name {release_name!r} is too long to derive the render service names "
+            f"Template Preview needs ({name!r} is {len(name)} characters, the limit is "
+            f"{_DNS_LABEL_MAX}): use a shorter release name"
+        )
+    return name
+
+
 def _build_template_preview(
     config: NVConfigManagerInstallConfig, *, is_local: bool
 ) -> dict[str, Any]:
@@ -1018,9 +1043,34 @@ def _build_template_preview(
     for key, image in (("backend", tp.backend_image), ("frontend", tp.frontend_image)):
         image_values = {k: v for k, v in image.model_dump().items() if v}
         if not is_local and "repository" not in image_values:
+            if not registry:
+                raise ValueError(
+                    f"template_preview is enabled and images.source is 'registry', but images.registry is "
+                    f"empty, so the {key} image has no repository: set images.registry, or give "
+                    f"template_preview.{key}_image.repository"
+                )
             image_values["repository"] = f"{registry}/nvcm-template-preview-{key}"
         if image_values:
             section[key] = {"image": image_values}
+    if tp.dynamic_plugins:
+        # Template Preview asks NVCM's render service to activate a plugin set and restarts its Deployments.
+        # Both are named by the chart from the release name, and the Template Preview chart's own defaults
+        # assume the release "nv-config-manager", so under any other release they must be given here.
+        release = config.cluster.release_name
+        fullname = _chart_fullname(release)
+        section.setdefault("backend", {})["env"] = {
+            "KIWI_RENDER_NVCM_RENDER_SERVICE_URL": (
+                f"http://{_chart_component_name(fullname, 'render-api', release)}:9000"
+            ),
+            "KIWI_RENDER_RENDER_DEPLOYMENTS": ",".join(
+                _chart_component_name(fullname, component, release)
+                for component in (
+                    "render-api",
+                    "render-consumer-nautobot",
+                    "render-consumer-device",
+                )
+            ),
+        }
     if tp.internal_artifact_token_secret:
         section.setdefault("backend", {})["internalArtifactToken"] = {
             "existingSecret": tp.internal_artifact_token_secret
