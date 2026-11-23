@@ -15,7 +15,6 @@
 """Compatibility exports for package-owned cable-validation workflows."""
 
 from nv_config_manager_workflows.workflows.cable_validation import (
-    CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID,
     CABLE_STATUS_RETRY_PATCH_ID,
     CABLE_STATUS_UPDATE_PATCH_ID,
     CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
@@ -31,7 +30,6 @@ from nv_config_manager_workflows.workflows.cable_validation import (
 )
 
 __all__ = [
-    "CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID",
     "CABLE_STATUS_RETRY_PATCH_ID",
     "CABLE_STATUS_UPDATE_PATCH_ID",
     "CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID",

@@ -50,8 +50,6 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   device cable validations allow a manual retry of transient persistence failures
   without collecting device tables again; site children still fail promptly, and
   released workflow histories retain their previous failure behavior on replay.
-  Histories from the earlier QA batching implementation keep their recorded
-  activity boundaries and deadlines; current runs delegate batching to the provider.
 - Bundled Nautobot now assigns the MCP read-only token to the dedicated
   `nvcm-mcp-read-only` inventory account. Before upgrading, ensure
   `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already

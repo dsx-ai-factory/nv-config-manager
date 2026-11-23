@@ -110,7 +110,6 @@ with workflow.unsafe.imports_passed_through():
     )
 
 __all__ = [
-    "CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID",
     "CABLE_STATUS_RETRY_PATCH_ID",
     "CABLE_STATUS_UPDATE_PATCH_ID",
     "CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID",
@@ -149,7 +148,6 @@ DEVICE_CABLE_VALIDATION_DEVICE_DESCRIPTION = (
 )
 CABLE_STATUS_UPDATE_PATCH_ID = "cable-validation-dcim-status-v1"
 CABLE_STATUS_RETRY_PATCH_ID = "cable-validation-dcim-status-retry-v1"
-CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID = "cable-validation-provider-persistence-v1"
 CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID = "cable-validation-child-timeout-v1"
 DCIM_PERSISTENCE_PENDING_MESSAGE = (
     "\n\n> **The report is ready. DCIM cable status persistence is still running.**"
@@ -242,32 +240,19 @@ class CableStatusPersistenceMixin(StageMixin):
 
     async def persist_cable_statuses(self, updates: list[UpdateCableStatusesInput]) -> None:
         """Pass each device's full change set to the provider in one activity."""
-        provider_persistence = workflow.patched(CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID)
-        legacy_batches = not provider_persistence and workflow.patched(CABLE_STATUS_RETRY_PATCH_ID)
         # Child workflows can complete together; sort before scheduling commands
-        # so set iteration order cannot affect replay.
+        # so set iteration order cannot affect replay. Activity options are not
+        # replay-checked, so the timeout and heartbeat need no patch marker.
         for update in sorted(updates, key=lambda item: item.device_id):
             if not update.cable_statuses:
                 continue
-            activity_inputs = [update]
-            if legacy_batches:
-                # Preserve recorded activity batches when replaying existing workflows.
-                # New runs delegate batching and concurrency to the provider.
-                statuses = sorted(update.cable_statuses.items())
-                activity_inputs = [
-                    update.model_copy(update={"cable_statuses": dict(statuses[start : start + 25])})
-                    for start in range(0, len(statuses), 25)
-                ]
-            for activity_input in activity_inputs:
-                await workflow.execute_activity(
-                    update_cable_statuses,
-                    activity_input,
-                    start_to_close_timeout=(
-                        timedelta(hours=1) if provider_persistence else timedelta(minutes=15)
-                    ),
-                    heartbeat_timeout=timedelta(minutes=2),
-                    retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
-                )
+            await workflow.execute_activity(
+                update_cable_statuses,
+                update,
+                start_to_close_timeout=timedelta(hours=1),
+                heartbeat_timeout=timedelta(minutes=2),
+                retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
+            )
 
     async def persist_cable_statuses_after_report(
         self,

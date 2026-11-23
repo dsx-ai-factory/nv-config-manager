@@ -72,7 +72,6 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
     from nv_config_manager_workflows.stage import StageRuntimeFailure
     from nv_config_manager_workflows.workflows.cable_validation import (
-        CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID,
         CABLE_STATUS_RETRY_PATCH_ID,
         CABLE_STATUS_UPDATE_PATCH_ID,
         CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
@@ -2134,7 +2133,7 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("history_version", ["released", "qa_batched", "current"])
+@pytest.mark.parametrize("history_version", ["released", "current"])
 async def test_persistence_retry_and_history_replay(
     env: Any, monkeypatch: pytest.MonkeyPatch, history_version: str
 ) -> None:
@@ -2146,8 +2145,6 @@ async def test_persistence_retry_and_history_replay(
     def patched(patch_id: str) -> bool:
         # Simulate pre-change code without recording the new patch marker.
         if history_version == "released" and patch_id == CABLE_STATUS_RETRY_PATCH_ID:
-            return False
-        if history_version != "current" and patch_id == CABLE_STATUS_PROVIDER_PERSISTENCE_PATCH_ID:
             return False
         return original_patched(patch_id)
 
@@ -2163,12 +2160,10 @@ async def test_persistence_retry_and_history_replay(
     async def persist_statuses(activity_input: UpdateCableStatusesInput) -> None:
         nonlocal persistence_calls, persistence_failures
         persistence_calls += 1
-        if history_version != "qa_batched":
-            assert len(activity_input.cable_statuses) == 51
-        if history_version != "qa_batched" or "Ethernet1/025" in activity_input.cable_statuses:
-            persistence_failures += 1
-            if persistence_failures <= 3:
-                raise ApplicationError("temporary DCIM request timeout", type="TimeoutError")
+        assert len(activity_input.cable_statuses) == 51
+        persistence_failures += 1
+        if persistence_failures <= 3:
+            raise ApplicationError("temporary DCIM request timeout", type="TimeoutError")
 
     @activity.defn(name="validate_device_neighbors")
     async def validate_many_statuses(
@@ -2217,11 +2212,11 @@ async def test_persistence_retry_and_history_replay(
             async with asyncio.timeout(15):
                 while not await handle.query("failed_stage"):
                     await asyncio.sleep(0.05)
-            assert persistence_calls == (4 if history_version == "qa_batched" else 3)
+            assert persistence_calls == 3
             await handle.signal("retry", "validate_connections")
             await handle.result()
 
-            assert persistence_calls == (7 if history_version == "qa_batched" else 4)
+            assert persistence_calls == 4
             stages = {stage["name"]: stage for stage in await handle.query("stages")}
             assert stages["validate_connections"]["state"] == "COMPLETE"
             assert stages["validate_connections"]["retry_count"] == 1
