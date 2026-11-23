@@ -2590,24 +2590,32 @@ Renders nothing when the probe is disabled.
 {{/*
 Dynamic template plugin gate (SRD FR-251/FR-252).
 
-The operator-facing switch is templatePreview.unsafeDynamicTemplatePlugins.{enabled,
-acknowledgeArbitraryCodeExecution}: the Template Preview subchart reads that same block, so setting it
-once configures both Template Preview and NVCM's render service. The older
-renderService.unsafeDynamicTemplatePlugins.{enabled,acknowledgeArbitraryCodeExecution} keys still work on
-their own (for a Template Preview run outside this chart). The effective value is either, and renders the
-string "true" or "false".
+Plugins run as arbitrary code in the render service, so the gate opens only when BOTH flags are true AND
+they are set in the SAME block. The operator-facing block is templatePreview.unsafeDynamicTemplatePlugins
+(the Template Preview subchart reads that same block, so setting it once configures both Template Preview
+and NVCM's render service; it also needs templatePreview.enabled). The older
+renderService.unsafeDynamicTemplatePlugins block still works on its own (for a Template Preview run outside
+this chart). The two blocks are not mixed: enabled from one and acknowledged from the other leaves the
+gate closed. Everything that depends on the gate (the activation endpoint, the artifact-fetch init
+container, NVCM_DYNAMIC_PLUGINS_DIR, the flags written into the service config) follows this one value,
+and it renders the string "true" or "false".
 Usage: {{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
 */}}
 {{- define "nv-config-manager.dynamicPlugins.enabled" -}}
 {{- $tp := .Values.templatePreview | default dict -}}
-{{- $tpGate := dig "unsafeDynamicTemplatePlugins" "enabled" false $tp -}}
-{{- if or .Values.renderService.unsafeDynamicTemplatePlugins.enabled (and $tp.enabled $tpGate) -}}true{{- else -}}false{{- end -}}
+{{- $tpEnabled := dig "unsafeDynamicTemplatePlugins" "enabled" false $tp -}}
+{{- $tpAck := dig "unsafeDynamicTemplatePlugins" "acknowledgeArbitraryCodeExecution" false $tp -}}
+{{- $rs := .Values.renderService.unsafeDynamicTemplatePlugins -}}
+{{- if or (and $rs.enabled $rs.acknowledgeArbitraryCodeExecution) (and $tp.enabled $tpEnabled $tpAck) -}}true{{- else -}}false{{- end -}}
 {{- end }}
 
+{{/*
+The acknowledgement the render service is configured with. It is the same value as the gate: the
+acknowledgement only counts together with the enabled flag of its own block, so it is never "true" while
+the gate is closed (see nv-config-manager.dynamicPlugins.enabled).
+*/}}
 {{- define "nv-config-manager.dynamicPlugins.acknowledged" -}}
-{{- $tp := .Values.templatePreview | default dict -}}
-{{- $tpAck := dig "unsafeDynamicTemplatePlugins" "acknowledgeArbitraryCodeExecution" false $tp -}}
-{{- if or .Values.renderService.unsafeDynamicTemplatePlugins.acknowledgeArbitraryCodeExecution (and $tp.enabled $tpAck) -}}true{{- else -}}false{{- end -}}
+{{- include "nv-config-manager.dynamicPlugins.enabled" . -}}
 {{- end }}
 
 {{/*
