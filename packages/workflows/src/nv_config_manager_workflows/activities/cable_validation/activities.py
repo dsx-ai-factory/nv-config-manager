@@ -129,6 +129,16 @@ async def validate_device_neighbors(
 @activity.defn
 async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> None:
     """Persist cable statuses when the selected provider exposes that capability."""
+    try:
+        await _persist_cable_statuses(activity_input)
+    except ApplicationError as error:
+        if not error.non_retryable:
+            raise
+        # Use bounded save retries, then allow manual stage Retry after DCIM repairs.
+        raise ApplicationError(error.message, *error.details, type=error.type) from error
+
+
+async def _persist_cable_statuses(activity_input: UpdateCableStatusesInput) -> None:
     client = get_dcim_client()
     if not isinstance(client, DCIMCableStatusBulkClient | DCIMCableStatusClient):
         await client.close()
@@ -145,34 +155,28 @@ async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> Non
         for interface_name, status in activity_input.cable_statuses.items()
     ]
     errors: list[Exception] = []
-    try:
-        async with _cable_status_heartbeats(activity_input), client:
-            if isinstance(client, DCIMCableStatusBulkClient):
-                await client.update_cable_statuses(updates)
-            else:
-                # Preserve the existing single-update API's concurrency. Bulk providers
-                # receive the complete collection above and control their own limits.
-                semaphore = asyncio.Semaphore(_SINGLE_UPDATE_COMPAT_CONCURRENCY)
+    async with _cable_status_heartbeats(activity_input), client:
+        if isinstance(client, DCIMCableStatusBulkClient):
+            await client.update_cable_statuses(updates)
+        else:
+            # Preserve the existing single-update API's concurrency. Bulk providers
+            # receive the complete collection above and control their own limits.
+            semaphore = asyncio.Semaphore(_SINGLE_UPDATE_COMPAT_CONCURRENCY)
 
-                async def update_one(update: CableStatusUpdate) -> None:
-                    async with semaphore:
-                        await client.update_cable_status(update)
+            async def update_one(update: CableStatusUpdate) -> None:
+                async with semaphore:
+                    await client.update_cable_status(update)
 
-                results = await asyncio.gather(
-                    *(update_one(update) for update in updates), return_exceptions=True
-                )
-                for result in results:
-                    if isinstance(result, asyncio.CancelledError):
-                        raise result
-                    if isinstance(result, Exception):
-                        errors.append(result)
-        if errors:
-            raise errors[0]
-    except ApplicationError as error:
-        if not error.non_retryable:
-            raise
-        # Use bounded save retries, then allow manual stage Retry after DCIM repairs.
-        raise ApplicationError(error.message, *error.details, type=error.type) from error
+            results = await asyncio.gather(
+                *(update_one(update) for update in updates), return_exceptions=True
+            )
+            for result in results:
+                if isinstance(result, asyncio.CancelledError):
+                    raise result
+                if isinstance(result, Exception):
+                    errors.append(result)
+    if errors:
+        raise errors[0]
 
 
 @activity.defn

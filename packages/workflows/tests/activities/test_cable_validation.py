@@ -22,6 +22,7 @@ import pytest
 import responses
 from nv_config_manager_dcim import CableStatus
 from nv_config_manager_dcim.workflow_models import InterfaceData, Platform
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from nv_config_manager_workflows.activities import cable_validation
@@ -324,6 +325,46 @@ async def test_update_cable_statuses_is_noop_for_unsupported_provider(
     )
 
     assert client.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_point", ["client", "provider"])
+async def test_update_cable_statuses_keeps_permanent_errors_manually_retryable(
+    monkeypatch: pytest.MonkeyPatch, failure_point: str
+) -> None:
+    failure = ApplicationError("DCIM unavailable", "detail", type="DCIMError", non_retryable=True)
+
+    class FailingClient:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def update_cable_statuses(self, updates: Any) -> None:
+            raise failure
+
+    def get_client() -> Any:
+        if failure_point == "client":
+            raise failure
+        return FailingClient()
+
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", get_client)
+
+    with pytest.raises(ApplicationError) as raised:
+        await update_cable_statuses(
+            UpdateCableStatusesInput(
+                device_id="device-1",
+                cable_statuses={"Ethernet1/1": CableStatus.CONNECTED},
+                workflow_id="workflow-1",
+            )
+        )
+
+    assert raised.value.non_retryable is False
+    assert raised.value.type == "DCIMError"
+    assert raised.value.message == "DCIM unavailable"
+    assert raised.value.details == ("detail",)
+    assert raised.value.__cause__ is failure
 
 
 @pytest.mark.asyncio
