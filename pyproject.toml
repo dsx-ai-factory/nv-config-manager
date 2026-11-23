@@ -268,6 +268,7 @@ markers = [
     "integration: marks tests as integration tests (require running NVIDIA Config Manager cluster)",
     "spiffe: marks tests that require a live SPIFFE/Workload-Identity setup (opt-in via --spiffe)",
     "rbac: marks tests that require live group-mapping RBAC (opt-in via --rbac)",
+    "needs_subchart: Helm tests that render the private Template Preview chart; deselected unless it is added to Chart.yaml",
 ]
 
 [tool.coverage.report]
@@ -301,6 +302,7 @@ module = [
     "py_markdown_table.*",
     "ruamel.*",
     "brotli.*",
+    "kubernetes.*",
     "netaddr.*",
     "macaddress",
     "requests",

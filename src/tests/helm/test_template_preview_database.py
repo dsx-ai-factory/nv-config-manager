@@ -28,18 +28,10 @@ HELM_DIR = Path(__file__).resolve().parents[3] / "deploy" / "helm"
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 
 
-def _has_template_preview_subchart() -> bool:
-    chart = yaml.safe_load((HELM_DIR / "Chart.yaml").read_text())
-    return "nvcm-template-preview" in {d["name"] for d in chart.get("dependencies", [])}
-
-
 # The Template Preview chart is private, so the checked-in Chart.yaml does not depend on it: trusted
 # CI jobs, or a developer, add it with .gitlab/ci/scripts/build_chart_dependencies.sh. The tests that
-# render its Deployments run only when it has been added.
-needs_subchart = pytest.mark.skipif(
-    not _has_template_preview_subchart(),
-    reason="Template Preview subchart not added (see .gitlab/ci/README.md, Template Preview Chart Dependency)",
-)
+# render its Deployments are marked, and conftest.py deselects them until it has been added.
+needs_subchart = pytest.mark.needs_subchart
 
 
 def _render(*sets: str) -> list[dict]:
