@@ -18,6 +18,7 @@
 
 from nv_config_manager_dcim.api import (
     DCIM_PROVIDER_API_VERSION,
+    DCIMCableStatusBulkClient,
     DCIMCableStatusClient,
     DCIMClient,
     DCIMEventProvider,

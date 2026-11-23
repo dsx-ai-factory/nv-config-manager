@@ -15,7 +15,6 @@
 """Compatibility exports for package-owned cable validation activities."""
 
 from nv_config_manager_workflows.activities.cable_validation import (
-    CABLE_STATUS_UPDATE_CONCURRENCY,
     CABLE_VALIDATION_ACTIVITIES,
     CSV_EXCLUDE_COLUMNS,
     DETAIL_SHEET_NAME,
@@ -54,7 +53,6 @@ from nv_config_manager_workflows.activities.cable_validation import (
 )
 
 __all__ = [
-    "CABLE_STATUS_UPDATE_CONCURRENCY",
     "CABLE_VALIDATION_ACTIVITIES",
     "CSV_EXCLUDE_COLUMNS",
     "DETAIL_SHEET_NAME",

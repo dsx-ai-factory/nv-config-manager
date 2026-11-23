@@ -33,6 +33,23 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
 
 ### Changed
 
+- Cable-status persistence now passes each device's full change set to bulk-capable
+  DCIM providers, which control their write strategy. The Nautobot plugin uses
+  two concurrent updates and one GraphQL interface-to-cable lookup per device
+  filtered to the requested names,
+  replacing per-batch REST interface lookups. Cable statuses are read live before
+  deciding to skip or write each update. Malformed records do not prevent valid
+  matches from being saved. The full-device activity timeout increases from
+  fifteen minutes to one hour per attempt, with up to three attempts in total;
+  single-update providers remain supported.
+  Persistence sends background heartbeats with a two-minute heartbeat timeout
+  to detect lost workers promptly. Single-update providers keep ten concurrent
+  writes; bulk-capable providers control their own concurrency.
+  REST GETs retry transient connection failures, timeouts, and HTTP 502/503/504
+  once with jittered backoff, excluding TLS verification failures. New standalone
+  device cable validations allow a manual retry of transient persistence failures
+  without collecting device tables again; site children still fail promptly, and
+  released workflow histories retain their previous failure behavior on replay.
 - Bundled Nautobot now assigns the MCP read-only token to the dedicated
   `nvcm-mcp-read-only` inventory account. Before upgrading, ensure
   `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
