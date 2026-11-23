@@ -227,7 +227,7 @@ publish-images-release:
       artifacts: false
 
 # Serialize mutable tags across stable releases. Fetch tags inside the lock so
-# queued or retried older releases cannot move latest backward.
+# queued or retried older releases cannot move latest or minor aliases backward.
 publish-latest-release:
   <<: *release-job-timeout
   stage: release

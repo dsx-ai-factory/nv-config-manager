@@ -18,3 +18,5 @@ RUN /tmp/configure-apt-mirror.sh "$APT_MIRROR_DEBIAN" "$APT_MIRROR_GPG_KEY_URL" 
 # final-image trust audit checks the resulting image before publication.
 FROM quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048
 COPY --from=trust-source /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+# Match the non-root runtime identity enforced by the Helm deployment.
+USER 65532:65532

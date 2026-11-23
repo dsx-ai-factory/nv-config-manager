@@ -2091,6 +2091,8 @@ temporal:
   archive:
     enabled: false
     replicas: 1
+    # Port the archive consumer serves its Prometheus metrics on
+    metricsPort: 8000
     resources:
       requests:
         cpu: 200m
