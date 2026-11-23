@@ -43,6 +43,20 @@ templatePreview:
   #     mode: bearer            # bearer | header | client_credentials | none
   #     existingSecret: llm-credentials
   #   # caBundle: {existingConfigMap: internal-ca}   # when the endpoint's CA is not publicly trusted
+  #
+  # Or let each user sign in with their own Azure account (Microsoft Entra ID), with no shared key. The
+  # Secret holds client-id and client-secret of an Entra app registration (redirect URI
+  # <publicBaseUrl>/api/v1/assistant/callback) and an encryption-key (a Fernet key); users need the
+  # "Cognitive Services OpenAI User" role on the Azure OpenAI resource:
+  # assistant:
+  #   endpoint: https://<resource>.openai.azure.com/openai/deployments/<deployment>
+  #   model: <deployment>
+  #   apiVersion: "2024-10-21"
+  #   auth:
+  #     mode: azure_user
+  #     existingSecret: azure-assistant
+  #     tenantId: <tenant id>
+  #     publicBaseUrl: https://template-preview.config-manager.local
   #   # timeoutSeconds: 60                           # keep below gateway.timeout.requestTimeout
   # Smaller volumes than the production defaults.
   persistence:
