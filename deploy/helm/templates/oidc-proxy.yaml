@@ -52,7 +52,7 @@
   {{- $proxies = append $proxies (dict "name" "mcp" "port" 9108 "upstream" (printf "http://%s:9000" $mcpName) "timeout" $timeout) }}
 {{- end }}
 {{- if .Values.templatePreview.enabled }}
-  {{- $proxies = append $proxies (dict "name" "template-preview" "port" 9110 "upstream" (printf "http://%s-frontend:3000" (include "nv-config-manager.templatePreview.name" .)) "timeout" $timeout) }}
+  {{- $proxies = append $proxies (dict "name" "tp-preview" "port" 9110 "upstream" (printf "http://%s-frontend:3000" (include "nv-config-manager.templatePreview.name" .)) "timeout" $timeout) }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap

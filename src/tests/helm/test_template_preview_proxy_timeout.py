@@ -32,7 +32,7 @@ CHART = Path(__file__).resolve().parents[3] / "deploy/helm"
 
 
 def proxy_configs(*settings: str) -> dict[str, str]:
-    """The OAuth2 Proxy config files by name (for example template-preview.cfg), with Template Preview on."""
+    """The OAuth2 Proxy config files by name (for example tp-preview.cfg), with Template Preview on."""
     if shutil.which("helm") is None or not (CHART / "charts").is_dir():
         pytest.skip("Helm and vendored chart dependencies are required")
     command = [
@@ -71,18 +71,53 @@ def upstream_timeout(config: str) -> str | None:
 def test_the_template_preview_proxy_waits_as_long_as_the_gateway_does():
     configs = proxy_configs()
 
-    assert upstream_timeout(configs["template-preview.cfg"]) == "300s"
+    assert upstream_timeout(configs["tp-preview.cfg"]) == "300s"
 
 
 def test_it_follows_the_gateways_request_timeout_when_that_is_changed():
     configs = proxy_configs("gateway.timeout.requestTimeout=600s")
 
-    assert upstream_timeout(configs["template-preview.cfg"]) == "600s"
+    assert upstream_timeout(configs["tp-preview.cfg"]) == "600s"
 
 
 def test_it_matches_the_other_browser_facing_proxies():
     configs = proxy_configs()
 
-    assert upstream_timeout(configs["template-preview.cfg"]) == upstream_timeout(
-        configs["render.cfg"]
-    )
+    assert upstream_timeout(configs["tp-preview.cfg"]) == upstream_timeout(configs["render.cfg"])
+
+
+def _rendered_documents() -> list[dict]:
+    """Every object of the chart rendered with OIDC and Template Preview on."""
+    if shutil.which("helm") is None or not (CHART / "charts").is_dir():
+        pytest.skip("Helm and vendored chart dependencies are required")
+    command = [
+        "helm", "template", "test", str(CHART),
+        "--values", str(CHART / "values-ci.yaml"),
+        "--set", "oidc.enabled=true",
+        "--set-string", "oidc.issuerUrl=https://issuer.example",
+        "--set-string", "oidc.clientId=ci",
+        "--set", "templatePreview.enabled=true",
+    ]  # fmt: skip
+    rendered = subprocess.run(command, capture_output=True, text=True, check=True).stdout
+    return [document for document in yaml.safe_load_all(rendered) if document]
+
+
+def test_every_container_port_name_and_named_target_port_fits_the_kubernetes_limit():
+    # IANA service names (container port names, and a Service's named targetPort) are at most 15 characters.
+    # The SSO proxy named its port after the component, and "template-preview" is 16: the shared proxy
+    # Deployment would be rejected by the API server, which `helm template` does not notice.
+    too_long = []
+    for document in _rendered_documents():
+        name = (document.get("metadata") or {}).get("name", "?")
+        if document.get("kind") == "Deployment":
+            for container in document["spec"]["template"]["spec"]["containers"]:
+                for port in container.get("ports", []):
+                    if len(port.get("name", "")) > 15:
+                        too_long.append(f"{name}/{container['name']} port {port['name']}")
+        if document.get("kind") == "Service":
+            for port in document["spec"].get("ports", []):
+                target = port.get("targetPort")
+                if isinstance(target, str) and len(target) > 15:
+                    too_long.append(f"{name} targetPort {target}")
+
+    assert too_long == []
