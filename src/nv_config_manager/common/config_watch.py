@@ -31,6 +31,7 @@ import random
 import signal
 import socket
 import threading
+import time
 
 from nv_config_manager.common.ini import (
     config_path,
@@ -68,6 +69,31 @@ def _restart_delay(max_jitter: float) -> float:
     """
     # Spreading load, not cryptography.
     return random.Random(socket.gethostname()).uniform(0, max_jitter)  # noqa: S311
+
+
+def _seconds_until_restart(path: str, poll_interval: float, max_jitter: float) -> float:
+    """Return how long to wait so that a pod's containers signal together.
+
+    Each container polls on its own phase and notices a change up to one poll
+    apart, so counting the pod's delay from the moment of noticing would still
+    restart them at different times. They all see the same file, so they count
+    from when it changed instead, allowing one poll for the last to notice.
+
+    Args:
+        path: File that changed
+        poll_interval: Seconds between checks
+        max_jitter: Upper bound on the pod's delay
+
+    Returns:
+        Seconds to wait before signalling, never more than a delay counted
+        from now
+    """
+    from_now = poll_interval + _restart_delay(max_jitter)
+    try:
+        changed_at = os.stat(path).st_mtime
+    except OSError:
+        return from_now
+    return min(max(0.0, changed_at + from_now - time.time()), from_now)
 
 
 # How long a process gets to shut down cleanly before it is stopped outright.
@@ -198,18 +224,25 @@ def _watch(
             path,
             ", ".join(changed),
         )
-        if stop.wait(_restart_delay(max_jitter)):
+        if stop.wait(_seconds_until_restart(path, poll_interval, max_jitter)):
             return
 
-        # A value that changed and changed back during the delay leaves nothing
-        # to pick up, so look again before disturbing the process.
+        # The file can change again during the delay, so look once more before
+        # disturbing the process. Restart only into a file it can load and
+        # that still differs from what it holds.
         latest = read_config_snapshot(path)
-        if latest is not None:
-            latest_settings = _settings(_decode(latest[1]))
-            if latest_settings is not None and not _differing(settings, latest_settings):
-                logger.info("Configuration file %s changed back, not restarting", path)
-                digest = latest[0]
-                continue
+        latest_settings = _settings(_decode(latest[1])) if latest is not None else None
+        if latest is None or latest_settings is None:
+            logger.error(
+                "Configuration file %s can no longer be loaded, "
+                "keeping the configuration already loaded",
+                path,
+            )
+            continue
+        if not _differing(settings, latest_settings):
+            logger.info("Configuration file %s changed back, not restarting", path)
+            digest = latest[0]
+            continue
 
         # Each service already shuts down cleanly on SIGTERM, the same way it
         # would if Kubernetes had replaced the pod, so reuse that path instead

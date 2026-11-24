@@ -1007,6 +1007,36 @@ def test_sigterm_stops_a_loop_cleanly(caplog: pytest.LogCaptureFixture) -> None:
     assert "Received SIGTERM, stopping" in caplog.text
 
 
+@pytest.mark.parametrize(("refresh_interval", "handled"), [(300, True), (0, False)])
+async def test_only_a_periodic_refresh_stops_cleanly_on_sigterm(
+    refresh_interval: int, handled: bool
+) -> None:
+    """A one-shot run must not report success for work a shutdown cut short."""
+    with (
+        patch.object(cli, "_cancel_on_sigterm") as cancel_on_sigterm,
+        patch.object(cli, "load_config", side_effect=_StopLoop),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._refresh_loop_async(4, False, refresh_interval)
+
+    assert cancel_on_sigterm.called is handled
+
+
+@pytest.mark.parametrize(("refresh_interval", "handled"), [(10, True), (0, False)])
+async def test_only_a_periodic_sync_stops_cleanly_on_sigterm(
+    refresh_interval: int, handled: bool
+) -> None:
+    """A one-shot sync has the same contract as a one-shot refresh."""
+    with (
+        patch.object(cli, "_cancel_on_sigterm") as cancel_on_sigterm,
+        patch.object(cli, "load_config", side_effect=_StopLoop),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._sync_kea_configuration_async(4, refresh_interval, True)
+
+    assert cancel_on_sigterm.called is handled
+
+
 def test_exception_handler_redacts_credentials(caplog: pytest.LogCaptureFixture) -> None:
     """Tracked operations re-raise, so the unhandled-exception path must redact too.
 

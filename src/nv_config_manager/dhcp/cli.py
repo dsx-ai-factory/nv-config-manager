@@ -449,7 +449,7 @@ async def _refresh_cycle_async(
 
 
 def _cancel_on_sigterm() -> None:
-    """Stop the calling loop when the process is asked to shut down.
+    """Stop the calling periodic loop when the process is asked to shut down.
 
     These loops run as PID 1 in their containers, where the kernel drops a
     SIGTERM that has no handler. Without one they ran on until they were
@@ -474,7 +474,10 @@ async def _refresh_loop_async(
     refresh_interval: int,
 ) -> None:
     """Async loop for configuration refresh."""
-    _cancel_on_sigterm()
+    # A one-shot run reports through its exit status whether the work was
+    # done, so only the periodic service treats a shutdown as a clean stop.
+    if refresh_interval:
+        _cancel_on_sigterm()
     config = load_config()
     kea_client = KeaClient.from_config(config)
     redis_client = RedisClient.from_config(config)
@@ -647,7 +650,8 @@ async def _sync_kea_configuration_async(
     heartbeat_file: str = DEFAULT_HEARTBEAT_FILE,
 ) -> None:
     """Async implementation of sync configuration."""
-    _cancel_on_sigterm()
+    if refresh_interval:
+        _cancel_on_sigterm()
     # Connect to the KEA server running in the same pod
     ini_config = load_config()
     kea_client = KeaClient.from_config(ini_config, attached=True)

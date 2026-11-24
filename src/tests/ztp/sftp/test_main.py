@@ -487,7 +487,7 @@ def test_start_server(mock_socket, mock_start_http_server):
     mock_start_http_server.assert_called_once_with(9100, addr="0.0.0.0")
 
 
-def test_shutdown_waits_one_deadline_for_all_sessions():
+def test_shutdown_waits_one_deadline_for_all_sessions() -> None:
     """Open sessions share one wait, so exit stays inside the grace period."""
     sessions = [MagicMock(is_alive=MagicMock(return_value=True)) for _ in range(3)]
     with patch(
@@ -499,7 +499,7 @@ def test_shutdown_waits_one_deadline_for_all_sessions():
     assert [s.join.call_args.kwargs["timeout"] for s in sessions] == [30.0, 10.0, 0.0]
 
 
-def test_shutdown_does_not_wait_on_finished_sessions():
+def test_shutdown_does_not_wait_on_finished_sessions() -> None:
     """A session that already closed must not use up the shared deadline."""
     finished = MagicMock(is_alive=MagicMock(return_value=False))
 
@@ -511,7 +511,9 @@ def test_shutdown_does_not_wait_on_finished_sessions():
 @pytest.mark.timeout(0)  # override default timeout, sftp startup takes a bit
 @patch("nv_config_manager.ztp.sftp.main.start_http_server")
 @patch("nv_config_manager.ztp.sftp.main.socket.socket")
-def test_shutdown_ignores_threads_that_are_not_sessions(mock_socket, mock_start_http_server):
+def test_shutdown_ignores_threads_that_are_not_sessions(
+    mock_socket: MagicMock, mock_start_http_server: MagicMock
+) -> None:
     """The metrics server and config watcher never end, so they are not joined."""
     background = MagicMock(is_alive=MagicMock(return_value=True))
     shutdown_event.set()
@@ -524,9 +526,11 @@ def test_shutdown_ignores_threads_that_are_not_sessions(mock_socket, mock_start_
 @pytest.mark.timeout(0)  # override default timeout, sftp startup takes a bit
 @patch("nv_config_manager.ztp.sftp.main.start_http_server")
 @patch("nv_config_manager.ztp.sftp.main.socket.socket")
-def test_shutdown_stops_listening_before_waiting_on_sessions(mock_socket, mock_start_http_server):
+def test_shutdown_stops_listening_before_waiting_on_sessions(
+    mock_socket: MagicMock, mock_start_http_server: MagicMock
+) -> None:
     """A client that connects during the wait must be refused, not left queued."""
-    order = []
+    order: list[str] = []
     mock_socket.return_value.close.side_effect = lambda: order.append("close")
     shutdown_event.set()
     with patch(

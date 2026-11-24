@@ -236,12 +236,42 @@ def test_the_containers_of_a_pod_restart_together() -> None:
     assert len(delays) == 1
 
 
+def test_containers_that_notice_at_different_times_signal_at_the_same_time(ini: Path) -> None:
+    """Each container polls on its own phase, so they count from the file's change."""
+    changed_at = ini.stat().st_mtime
+    signal_times = set()
+    with patch("nv_config_manager.common.config_watch._restart_delay", return_value=40.0):
+        for noticed_after in (1.0, 12.0, 29.0):
+            now = changed_at + noticed_after
+            with patch("nv_config_manager.common.config_watch.time.time", return_value=now):
+                wait = config_watch._seconds_until_restart(str(ini), 30.0, 120.0)
+            signal_times.add(round(now + wait, 6))
+
+    assert signal_times == {round(changed_at + 30.0 + 40.0, 6)}
+
+
+def test_a_change_noticed_late_is_not_delayed_further(ini: Path) -> None:
+    """A file that changed long ago must not wait, or wait longer than a fresh delay."""
+    changed_at = ini.stat().st_mtime
+    with patch("nv_config_manager.common.config_watch._restart_delay", return_value=40.0):
+        with patch(
+            "nv_config_manager.common.config_watch.time.time", return_value=changed_at + 600.0
+        ):
+            assert config_watch._seconds_until_restart(str(ini), 30.0, 120.0) == 0.0
+        with patch(
+            "nv_config_manager.common.config_watch.time.time", return_value=changed_at - 600.0
+        ):
+            assert config_watch._seconds_until_restart(str(ini), 30.0, 120.0) == 70.0
+
+
 def test_the_watch_waits_out_its_delay_before_signalling(ini: Path) -> None:
-    """The delay drawn for this pod is the one the watch sleeps for."""
-    with patch("nv_config_manager.common.config_watch._restart_delay", return_value=0.0) as delay:
+    """The wait computed for this pod is the one the watch sleeps for."""
+    with patch(
+        "nv_config_manager.common.config_watch._seconds_until_restart", return_value=0.0
+    ) as wait:
         signals = _watch_while(ini, change=lambda: ini.write_text(ROTATED), max_jitter=20.0)
 
-    delay.assert_called_once_with(20.0)
+    wait.assert_called_once_with(str(ini), POLL_INTERVAL, 20.0)
     assert signals == [(os.getpid(), signal.SIGTERM)]
 
 
@@ -256,13 +286,38 @@ def test_a_change_that_is_undone_during_the_delay_does_not_restart(
         ini.write_text(ORIGINAL)
 
     with (
-        patch("nv_config_manager.common.config_watch._restart_delay", return_value=0.3),
+        patch("nv_config_manager.common.config_watch._seconds_until_restart", return_value=0.3),
         caplog.at_level("INFO", logger=config_watch.logger.name),
     ):
         signals = _watch_while(ini, change=flip_and_flip_back)
 
     assert signals == []
     assert f"Configuration file {ini} changed back, not restarting" in caplog.messages
+
+
+@pytest.mark.parametrize(
+    "replace",
+    [
+        lambda ini: ini.write_text(NO_SECTION_HEADER),
+        lambda ini: ini.write_bytes(b"[nats]\npassword = \xff\xfe\n"),
+        lambda ini: ini.unlink(),
+    ],
+    ids=["unparseable", "not-utf8", "missing"],
+)
+def test_a_change_that_breaks_during_the_delay_does_not_restart(
+    ini: Path, replace: Callable[[Path], object]
+) -> None:
+    """A working process must not be stopped for a file it could not load."""
+
+    def change_then_break() -> None:
+        ini.write_text(ROTATED)
+        time.sleep(POLL_INTERVAL * 10)
+        replace(ini)
+
+    with patch("nv_config_manager.common.config_watch._seconds_until_restart", return_value=0.3):
+        signals = _watch_while(ini, change=change_then_break)
+
+    assert signals == []
 
 
 def test_a_process_that_ignores_the_signal_is_stopped_outright(ini: Path) -> None:
