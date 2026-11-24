@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import sys
 import textwrap
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -89,7 +90,7 @@ def make_plugin(
 
 
 @pytest.fixture
-def plugins_root(tmp_path, monkeypatch):
+def plugins_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     """A dynamic-plugins directory, wired into the environment like the Helm chart does."""
     root = tmp_path / "_dynamic"
     root.mkdir()
@@ -102,7 +103,9 @@ def plugins_root(tmp_path, monkeypatch):
         del sys.modules[name]
 
 
-def test_nothing_is_loaded_when_the_directory_is_not_configured(monkeypatch):
+def test_nothing_is_loaded_when_the_directory_is_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv(DYNAMIC_PLUGINS_DIR_ENV, raising=False)
 
     result = load_dynamic_plugins()
@@ -111,13 +114,15 @@ def test_nothing_is_loaded_when_the_directory_is_not_configured(monkeypatch):
     assert not any(p.get("dynamic") for p in Renderer().plugins)
 
 
-def test_a_missing_directory_means_nothing_has_been_activated(tmp_path, monkeypatch):
+def test_a_missing_directory_means_nothing_has_been_activated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv(DYNAMIC_PLUGINS_DIR_ENV, str(tmp_path / "does-not-exist"))
 
     assert load_dynamic_plugins().plugins == []
 
 
-def test_a_dynamic_plugin_changes_what_the_renderer_can_do(plugins_root):
+def test_a_dynamic_plugin_changes_what_the_renderer_can_do(plugins_root: Path) -> None:
     make_plugin(plugins_root, "site-overrides")
 
     renderer = Renderer()
@@ -137,7 +142,7 @@ def test_a_dynamic_plugin_changes_what_the_renderer_can_do(plugins_root):
     assert renderer.dynamic_plugin_errors == []
 
 
-def test_several_plugins_in_one_set_all_load(plugins_root):
+def test_several_plugins_in_one_set_all_load(plugins_root: Path) -> None:
     make_plugin(plugins_root, "plugin-a")
     make_plugin(plugins_root, "plugin-b")
 
@@ -151,7 +156,9 @@ def test_several_plugins_in_one_set_all_load(plugins_root):
     assert renderer.environment.get_template("plugin_b.j2").render(name="y") == "hello Y!"
 
 
-def test_an_incompatible_plugin_is_skipped_and_reported_without_affecting_others(plugins_root):
+def test_an_incompatible_plugin_is_skipped_and_reported_without_affecting_others(
+    plugins_root: Path,
+) -> None:
     make_plugin(plugins_root, "plugin-ok")
     make_plugin(plugins_root, "plugin-future", api=">=2")
 
@@ -163,7 +170,7 @@ def test_an_incompatible_plugin_is_skipped_and_reported_without_affecting_others
     assert "requires template engine API" in renderer.dynamic_plugin_errors[0]
 
 
-def test_a_plugin_that_fails_to_import_is_skipped_and_reported(plugins_root):
+def test_a_plugin_that_fails_to_import_is_skipped_and_reported(plugins_root: Path) -> None:
     make_plugin(plugins_root, "plugin-ok")
     make_plugin(plugins_root, "plugin-broken", plugin_py="raise RuntimeError('boom')\n")
 
@@ -178,7 +185,9 @@ def test_a_plugin_that_fails_to_import_is_skipped_and_reported(plugins_root):
     ["../../etc", "/etc", "templates/../../outside"],
     ids=["parent", "absolute", "embedded-parent"],
 )
-def test_template_paths_cannot_leave_the_plugin_directory(plugins_root, bad_path):
+def test_template_paths_cannot_leave_the_plugin_directory(
+    plugins_root: Path, bad_path: str
+) -> None:
     good = MANIFEST.format(plugin_id="evil", api=">=1,<2", package="evil", query_name="q")
     make_plugin(plugins_root, "evil", manifest=good.replace("evil/templates/", bad_path))
 
@@ -188,7 +197,7 @@ def test_template_paths_cannot_leave_the_plugin_directory(plugins_root, bad_path
     assert "points outside the plugin directory" in result.errors[0]
 
 
-def test_graphql_files_cannot_leave_the_plugin_directory(plugins_root):
+def test_graphql_files_cannot_leave_the_plugin_directory(plugins_root: Path) -> None:
     good = MANIFEST.format(plugin_id="evil", api=">=1,<2", package="evil", query_name="q")
     make_plugin(
         plugins_root, "evil", manifest=good.replace("graphql/extra.graphql", "../../secret")
@@ -215,7 +224,9 @@ def test_graphql_files_cannot_leave_the_plugin_directory(plugins_root):
         ),
     ],
 )
-def test_malformed_manifests_are_skipped_with_a_clear_reason(plugins_root, manifest, message):
+def test_malformed_manifests_are_skipped_with_a_clear_reason(
+    plugins_root: Path, manifest: str, message: str
+) -> None:
     make_plugin(plugins_root, "bad", manifest=manifest)
 
     result = load_dynamic_plugins()
@@ -224,7 +235,9 @@ def test_malformed_manifests_are_skipped_with_a_clear_reason(plugins_root, manif
     assert message in result.errors[0]
 
 
-def test_a_directory_without_a_manifest_is_not_a_plugin_and_is_not_an_error(plugins_root):
+def test_a_directory_without_a_manifest_is_not_a_plugin_and_is_not_an_error(
+    plugins_root: Path,
+) -> None:
     (plugins_root / "just-a-folder").mkdir()
 
     result = load_dynamic_plugins()
@@ -232,7 +245,9 @@ def test_a_directory_without_a_manifest_is_not_a_plugin_and_is_not_an_error(plug
     assert result.plugins == [] and result.errors == []
 
 
-def test_installed_plugins_keep_precedence_over_dynamic_ones(plugins_root, monkeypatch):
+def test_installed_plugins_keep_precedence_over_dynamic_ones(
+    plugins_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     make_plugin(plugins_root, "site-overrides")
     static = {
         "name": "static",
@@ -248,7 +263,7 @@ def test_installed_plugins_keep_precedence_over_dynamic_ones(plugins_root, monke
     assert [p["name"] for p in renderer.plugins] == ["static", "dynamic:site-overrides"]
 
 
-def test_a_plugin_cannot_shadow_a_standard_library_module(plugins_root):
+def test_a_plugin_cannot_shadow_a_standard_library_module(plugins_root: Path) -> None:
     # The plugin directory is appended to sys.path, never prepended.
     make_plugin(plugins_root, "site-overrides")
 
@@ -285,7 +300,7 @@ def make_top_level_plugin(root: Path, plugin_id: str, filter_name: str) -> Path:
     return plugin_dir
 
 
-def test_two_plugins_with_the_same_entrypoint_name_are_not_mixed_up(plugins_root):
+def test_two_plugins_with_the_same_entrypoint_name_are_not_mixed_up(plugins_root: Path) -> None:
     # Python checks sys.modules before searching sys.path, so the second import of "plugin" would
     # return the first plugin's module and register the second plugin with the first one's filters.
     make_top_level_plugin(plugins_root, "same-a", "from_a")
@@ -300,7 +315,7 @@ def test_two_plugins_with_the_same_entrypoint_name_are_not_mixed_up(plugins_root
     assert any("same-b" in e and "plugin" in e and "unique" in e for e in errors)
 
 
-def test_an_entrypoint_that_resolves_to_an_installed_module_is_refused(plugins_root):
+def test_an_entrypoint_that_resolves_to_an_installed_module_is_refused(plugins_root: Path) -> None:
     # "json" is already imported from the standard library; the plugin's own json.py must not be
     # taken for it.
     plugin_dir = make_top_level_plugin(plugins_root, "shadow", "from_shadow")

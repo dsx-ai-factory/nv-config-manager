@@ -31,7 +31,9 @@ def _not_found():
 
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
-def test_get_returns_empty_default_when_configmap_missing(mock_core_v1_cls, _mock_load_config):
+def test_get_returns_empty_default_when_configmap_missing(
+    mock_core_v1_cls: MagicMock, _mock_load_config: MagicMock
+) -> None:
     core_v1 = mock_core_v1_cls.return_value
     core_v1.read_namespaced_config_map.side_effect = _not_found()
 
@@ -44,7 +46,9 @@ def test_get_returns_empty_default_when_configmap_missing(mock_core_v1_cls, _moc
 
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
-def test_get_parses_existing_configmap_data(mock_core_v1_cls, _mock_load_config):
+def test_get_parses_existing_configmap_data(
+    mock_core_v1_cls: MagicMock, _mock_load_config: MagicMock
+) -> None:
     core_v1 = mock_core_v1_cls.return_value
     stored = {"active_digest": "sha256:aaaa", "in_progress_digest": None, "requests": {}}
     cm = MagicMock()
@@ -58,7 +62,9 @@ def test_get_parses_existing_configmap_data(mock_core_v1_cls, _mock_load_config)
 
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
-def test_update_creates_configmap_when_missing(mock_core_v1_cls, _mock_load_config):
+def test_update_creates_configmap_when_missing(
+    mock_core_v1_cls: MagicMock, _mock_load_config: MagicMock
+) -> None:
     core_v1 = mock_core_v1_cls.return_value
     core_v1.read_namespaced_config_map.side_effect = _not_found()
 
@@ -72,7 +78,9 @@ def test_update_creates_configmap_when_missing(mock_core_v1_cls, _mock_load_conf
 
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
-def test_update_replaces_existing_configmap(mock_core_v1_cls, _mock_load_config):
+def test_update_replaces_existing_configmap(
+    mock_core_v1_cls: MagicMock, _mock_load_config: MagicMock
+) -> None:
     core_v1 = mock_core_v1_cls.return_value
     existing = dict(_EMPTY_STATE)
     cm = MagicMock()
@@ -90,7 +98,9 @@ def test_update_replaces_existing_configmap(mock_core_v1_cls, _mock_load_config)
 @patch("nv_config_manager.render.activation_state.time.sleep", lambda _s: None)
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
-def test_update_retries_on_write_conflict(mock_core_v1_cls, _mock_load_config):
+def test_update_retries_on_write_conflict(
+    mock_core_v1_cls: MagicMock, _mock_load_config: MagicMock
+) -> None:
     core_v1 = mock_core_v1_cls.return_value
     cm = MagicMock()
     cm.data = {"state.json": json.dumps(_EMPTY_STATE)}
@@ -110,7 +120,9 @@ def test_update_retries_on_write_conflict(mock_core_v1_cls, _mock_load_config):
 
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
-def test_state_written_by_an_older_version_is_filled_in_with_the_newer_keys(_cfg, core_cls):
+def test_state_written_by_an_older_version_is_filled_in_with_the_newer_keys(
+    _cfg: MagicMock, core_cls: MagicMock
+) -> None:
     stored = {"active_digest": "sha256:aaaa", "in_progress_digest": None, "requests": {}}
     core_cls.return_value.read_namespaced_config_map.return_value = MagicMock(
         data={"state.json": json.dumps(stored)}
@@ -124,7 +136,9 @@ def test_state_written_by_an_older_version_is_filled_in_with_the_newer_keys(_cfg
 
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
-def test_changing_a_returned_empty_state_does_not_change_the_default(_cfg, core_cls):
+def test_changing_a_returned_empty_state_does_not_change_the_default(
+    _cfg: MagicMock, core_cls: MagicMock
+) -> None:
     core_cls.return_value.read_namespaced_config_map.side_effect = ApiException(status=404)
     state = ActivationStateStore("cm", "ns").get()
 
@@ -138,8 +152,8 @@ def test_changing_a_returned_empty_state_does_not_change_the_default(_cfg, core_
 @patch("nv_config_manager.render.activation_state.load_k8s_config")
 @patch("nv_config_manager.render.activation_state.client.CoreV1Api")
 def test_update_gives_the_mutator_every_key_even_when_the_stored_state_lacks_some(
-    mock_core_v1_cls, _mock_load_config
-):
+    mock_core_v1_cls: MagicMock, _mock_load_config: MagicMock
+) -> None:
     # A state written by an older version has no in_progress_artifacts; get() fills it in, and update()
     # must too, or a mutator reading it raises KeyError and the write never happens.
     core_v1 = mock_core_v1_cls.return_value

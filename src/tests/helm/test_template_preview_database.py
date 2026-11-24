@@ -51,11 +51,11 @@ def _cluster(docs: list[dict]) -> dict | None:
     return None
 
 
-def test_the_database_is_not_created_unless_asked_for():
+def test_the_database_is_not_created_unless_asked_for() -> None:
     assert _cluster(_render()) is None
 
 
-def test_enabling_it_creates_a_cloudnativepg_cluster_for_template_preview():
+def test_enabling_it_creates_a_cloudnativepg_cluster_for_template_preview() -> None:
     cluster = _cluster(_render("cnpg.templatePreview.enabled=true"))
 
     assert cluster is not None
@@ -64,7 +64,7 @@ def test_enabling_it_creates_a_cloudnativepg_cluster_for_template_preview():
     assert cluster["spec"]["instances"] == 3  # highly available unless a local overlay lowers it
 
 
-def test_by_default_the_credentials_secret_must_already_exist_like_the_other_clusters():
+def test_by_default_the_credentials_secret_must_already_exist_like_the_other_clusters() -> None:
     cluster = _cluster(_render("cnpg.templatePreview.enabled=true"))
 
     assert cluster["spec"]["bootstrap"]["initdb"]["secret"] == {
@@ -72,7 +72,7 @@ def test_by_default_the_credentials_secret_must_already_exist_like_the_other_clu
     }
 
 
-def test_generated_credentials_leave_the_secret_to_the_operator():
+def test_generated_credentials_leave_the_secret_to_the_operator() -> None:
     cluster = _cluster(
         _render(
             "cnpg.templatePreview.enabled=true", "cnpg.templatePreview.generateCredentials=true"
@@ -82,7 +82,7 @@ def test_generated_credentials_leave_the_secret_to_the_operator():
     assert "secret" not in cluster["spec"]["bootstrap"]["initdb"]
 
 
-def test_the_other_clusters_still_require_their_precreated_secrets():
+def test_the_other_clusters_still_require_their_precreated_secrets() -> None:
     docs = _render(
         "cnpg.templatePreview.enabled=true", "cnpg.templatePreview.generateCredentials=true"
     )
@@ -118,7 +118,7 @@ def _backend_env(docs: list[dict], container: str = "backend") -> dict[str, dict
 
 
 @needs_subchart
-def test_template_preview_connects_with_a_username_and_password_from_the_secret():
+def test_template_preview_connects_with_a_username_and_password_from_the_secret() -> None:
     env = _backend_env(_render(*GATE_ON))
 
     assert env["KIWI_RENDER_DATABASE_HOST"]["value"] == "cluster-template-preview-rw"
@@ -130,7 +130,7 @@ def test_template_preview_connects_with_a_username_and_password_from_the_secret(
 
 
 @needs_subchart
-def test_the_migration_step_uses_the_same_connection():
+def test_the_migration_step_uses_the_same_connection() -> None:
     env = _backend_env(_render(*GATE_ON), container="migrate-control-plane-db")
 
     assert {
@@ -141,7 +141,7 @@ def test_the_migration_step_uses_the_same_connection():
 
 
 @needs_subchart
-def test_archives_are_kept_in_the_database_and_no_artifacts_volume_is_created():
+def test_archives_are_kept_in_the_database_and_no_artifacts_volume_is_created() -> None:
     docs = _render(*GATE_ON)
 
     assert _backend_env(docs)["KIWI_RENDER_ARTIFACT_STORAGE"]["value"] == "database"
@@ -150,7 +150,7 @@ def test_archives_are_kept_in_the_database_and_no_artifacts_volume_is_created():
 
 
 @needs_subchart
-def test_a_volume_for_archives_can_still_be_asked_for():
+def test_a_volume_for_archives_can_still_be_asked_for() -> None:
     docs = _render(*GATE_ON, "templatePreview.controlPlane.artifacts.storage=volume")
 
     assert "KIWI_RENDER_ARTIFACT_STORAGE" not in _backend_env(docs)
@@ -169,7 +169,7 @@ def _render_error(*sets: str) -> str:
 
 
 @needs_subchart
-def test_the_install_is_refused_if_the_plugin_control_plane_would_silently_use_sqlite():
+def test_the_install_is_refused_if_the_plugin_control_plane_would_silently_use_sqlite() -> None:
     error = _render_error(*GATE_ON, "templatePreview.controlPlane.database.existingSecret=")
 
     assert "controlPlane.database.existingSecret is empty" in error
@@ -177,7 +177,7 @@ def test_the_install_is_refused_if_the_plugin_control_plane_would_silently_use_s
 
 
 @needs_subchart
-def test_sqlite_is_allowed_only_when_asked_for_explicitly():
+def test_sqlite_is_allowed_only_when_asked_for_explicitly() -> None:
     docs = _render(
         *GATE_ON,
         "templatePreview.controlPlane.database.existingSecret=",
@@ -189,11 +189,11 @@ def test_sqlite_is_allowed_only_when_asked_for_explicitly():
     assert env["KIWI_RENDER_CONTROL_PLANE_DATABASE_URL"]["value"].startswith("sqlite:")
 
 
-def test_with_the_plugin_control_plane_off_no_database_is_required():
+def test_with_the_plugin_control_plane_off_no_database_is_required() -> None:
     assert _render("templatePreview.enabled=true")  # renders without a database Secret configured
 
 
-def test_production_vault_provides_the_same_secret_through_external_secrets():
+def test_production_vault_provides_the_same_secret_through_external_secrets() -> None:
     docs = _render("secrets.method=eso", "cnpg.templatePreview.enabled=true")
 
     external = next(
@@ -212,7 +212,7 @@ def test_production_vault_provides_the_same_secret_through_external_secrets():
     ]
 
 
-def test_no_external_secret_is_created_unless_the_database_is_enabled():
+def test_no_external_secret_is_created_unless_the_database_is_enabled() -> None:
     docs = _render("secrets.method=eso")
 
     assert not [

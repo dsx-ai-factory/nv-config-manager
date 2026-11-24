@@ -54,7 +54,7 @@ def _named(docs: list[dict], kind: str, name_part: str) -> dict | None:
     return next((d for d in docs if d["kind"] == kind and name_part in d["metadata"]["name"]), None)
 
 
-def test_the_backend_is_scraped_when_monitoring_and_the_control_plane_are_on():
+def test_the_backend_is_scraped_when_monitoring_and_the_control_plane_are_on() -> None:
     monitor = _named(
         _render(*MONITORING, *TEMPLATE_PREVIEW_ON), "PodMonitor", "template-preview-backend"
     )
@@ -76,11 +76,11 @@ def test_the_backend_is_scraped_when_monitoring_and_the_control_plane_are_on():
         (*TEMPLATE_PREVIEW_ON, "monitoring.podMonitors.enabled=false"),  # monitoring off
     ],
 )
-def test_nothing_is_scraped_otherwise(sets):
+def test_nothing_is_scraped_otherwise(sets: list[str]) -> None:
     assert _named(_render(*sets), "PodMonitor", "template-preview-backend") is None
 
 
-def test_the_dashboard_is_provided_to_grafana_only_when_grafana_is_on():
+def test_the_dashboard_is_provided_to_grafana_only_when_grafana_is_on() -> None:
     assert _named(_render(), "ConfigMap", "grafana-dashboard-template-preview") is None
 
     config_map = _named(

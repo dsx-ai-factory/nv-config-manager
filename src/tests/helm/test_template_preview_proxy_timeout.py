@@ -68,19 +68,19 @@ def upstream_timeout(config: str) -> str | None:
     return match.group(1) if match else None
 
 
-def test_the_template_preview_proxy_waits_as_long_as_the_gateway_does():
+def test_the_template_preview_proxy_waits_as_long_as_the_gateway_does() -> None:
     configs = proxy_configs()
 
     assert upstream_timeout(configs["tp-preview.cfg"]) == "300s"
 
 
-def test_it_follows_the_gateways_request_timeout_when_that_is_changed():
+def test_it_follows_the_gateways_request_timeout_when_that_is_changed() -> None:
     configs = proxy_configs("gateway.timeout.requestTimeout=600s")
 
     assert upstream_timeout(configs["tp-preview.cfg"]) == "600s"
 
 
-def test_it_matches_the_other_browser_facing_proxies():
+def test_it_matches_the_other_browser_facing_proxies() -> None:
     configs = proxy_configs()
 
     assert upstream_timeout(configs["tp-preview.cfg"]) == upstream_timeout(configs["render.cfg"])
@@ -102,7 +102,7 @@ def _rendered_documents() -> list[dict]:
     return [document for document in yaml.safe_load_all(rendered) if document]
 
 
-def test_every_container_port_name_and_named_target_port_fits_the_kubernetes_limit():
+def test_every_container_port_name_and_named_target_port_fits_the_kubernetes_limit() -> None:
     # IANA service names (container port names, and a Service's named targetPort) are at most 15 characters.
     # The SSO proxy named its port after the component, and "template-preview" is 16: the shared proxy
     # Deployment would be rejected by the API server, which `helm template` does not notice.

@@ -20,9 +20,11 @@ with an in-memory double."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from configparser import ConfigParser
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -45,7 +47,7 @@ def _make_config(**sections: dict[str, str]) -> ConfigParser:
 
 
 @pytest.fixture(autouse=True)
-def _clear_auth_caches():
+def _clear_auth_caches() -> Iterator[None]:
     """Same reset pattern as src/tests/common/test_auth.py -- require_group()
     reads the module-level auth config cache, which must not leak between
     tests."""
@@ -60,7 +62,7 @@ class FakeStateStore:
     """In-memory stand-in for ActivationStateStore -- same get()/update()
     contract, backed by a plain dict instead of a Kubernetes ConfigMap."""
 
-    def __init__(self, *_args, **_kwargs):
+    def __init__(self, *_args, **_kwargs) -> None:
         pass
 
     _shared_state: dict = deepcopy(_EMPTY_STATE)
@@ -68,18 +70,18 @@ class FakeStateStore:
     def get(self) -> dict:
         return deepcopy(self._shared_state)
 
-    def update(self, mutator):
+    def update(self, mutator: Callable[[dict[str, Any]], dict[str, Any]]):
         new_state = mutator(deepcopy(self._shared_state))
         FakeStateStore._shared_state = new_state
         return deepcopy(new_state)
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         cls._shared_state = deepcopy(_EMPTY_STATE)
 
 
 @pytest.fixture(autouse=True)
-def _reset_fake_store():
+def _reset_fake_store() -> Iterator[None]:
     FakeStateStore.reset()
     yield
     FakeStateStore.reset()
@@ -115,12 +117,12 @@ def _body(request_id: str = "req-1", digest: str = "sha256:aaaa") -> dict:
 STORE = "nv_config_manager.render.api.activation_v1.ActivationStateStore"
 
 
-def _allow_headers():
+def _allow_headers() -> None:
     load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
 
 
 @patch(STORE, FakeStateStore)
-def test_activate_records_the_set_and_its_artifacts_but_changes_nothing_else():
+def test_activate_records_the_set_and_its_artifacts_but_changes_nothing_else() -> None:
     _allow_headers()
     resp = _client().post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
 
@@ -136,7 +138,7 @@ def test_activate_records_the_set_and_its_artifacts_but_changes_nothing_else():
 
 
 @patch(STORE, FakeStateStore)
-def test_the_in_flight_set_is_what_a_restarted_pod_installs():
+def test_the_in_flight_set_is_what_a_restarted_pod_installs() -> None:
     _allow_headers()
     _client().post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
 
@@ -145,7 +147,7 @@ def test_the_in_flight_set_is_what_a_restarted_pod_installs():
     assert [a["plugin_id"] for a in installed] == ["site-overrides"]
 
 
-def test_without_an_in_flight_activation_pods_install_the_active_set():
+def test_without_an_in_flight_activation_pods_install_the_active_set() -> None:
     state = deepcopy(_EMPTY_STATE)
     state["active_artifacts"] = [{"plugin_id": "old"}]
     state["in_progress_artifacts"] = [{"plugin_id": "stale-leftover"}]  # ignored: nothing in flight
@@ -154,7 +156,7 @@ def test_without_an_in_flight_activation_pods_install_the_active_set():
 
 
 @patch(STORE, FakeStateStore)
-def test_a_ready_report_promotes_the_in_flight_set():
+def test_a_ready_report_promotes_the_in_flight_set() -> None:
     _allow_headers()
     client = _client()
     client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
@@ -172,7 +174,7 @@ def test_a_ready_report_promotes_the_in_flight_set():
 
 
 @patch(STORE, FakeStateStore)
-def test_a_failed_report_keeps_the_previous_set_active():
+def test_a_failed_report_keeps_the_previous_set_active() -> None:
     _allow_headers()
     client = _client()
     client.post("/v1/activation/activate", json=_body("req-1", "sha256:old"), headers=AUTH_HEADERS)
@@ -194,7 +196,7 @@ def test_a_failed_report_keeps_the_previous_set_active():
 
 
 @patch(STORE, FakeStateStore)
-def test_a_retried_activate_returns_accepted_until_it_is_completed_then_the_outcome():
+def test_a_retried_activate_returns_accepted_until_it_is_completed_then_the_outcome() -> None:
     _allow_headers()
     client = _client()
 
@@ -208,7 +210,7 @@ def test_a_retried_activate_returns_accepted_until_it_is_completed_then_the_outc
 
 
 @patch(STORE, FakeStateStore)
-def test_an_already_active_digest_needs_no_restart():
+def test_an_already_active_digest_needs_no_restart() -> None:
     _allow_headers()
     client = _client()
     client.post("/v1/activation/activate", json=_body("req-1"), headers=AUTH_HEADERS)
@@ -222,7 +224,7 @@ def test_an_already_active_digest_needs_no_restart():
 
 
 @patch(STORE, FakeStateStore)
-def test_a_different_digest_while_one_is_in_flight_is_rejected():
+def test_a_different_digest_while_one_is_in_flight_is_rejected() -> None:
     _allow_headers()
     client = _client()
     client.post("/v1/activation/activate", json=_body("req-1", "sha256:aaaa"), headers=AUTH_HEADERS)
@@ -243,7 +245,7 @@ class StaleReadStore(FakeStateStore):
 
 
 @patch(STORE, StaleReadStore)
-def test_two_simultaneous_different_activations_cannot_both_be_accepted():
+def test_two_simultaneous_different_activations_cannot_both_be_accepted() -> None:
     _allow_headers()
     client = _client()
     first = client.post(
@@ -267,7 +269,7 @@ def test_a_stale_in_flight_activation_is_replaced_by_the_next_one():
     client = _client()
     client.post("/v1/activation/activate", json=_body("req-1", "sha256:aaaa"), headers=AUTH_HEADERS)
 
-    def _age(s):
+    def _age(s: dict[str, Any]):
         s["in_progress_since"] = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         return s
 
@@ -284,7 +286,7 @@ def test_a_stale_in_flight_activation_is_replaced_by_the_next_one():
 
 
 @patch(STORE, FakeStateStore)
-def test_completing_an_unknown_request_is_404():
+def test_completing_an_unknown_request_is_404() -> None:
     _allow_headers()
 
     resp = _client().post(
@@ -295,7 +297,7 @@ def test_completing_an_unknown_request_is_404():
 
 
 @patch(STORE, FakeStateStore)
-def test_repeating_a_completion_is_safe_but_changing_it_is_a_conflict():
+def test_repeating_a_completion_is_safe_but_changing_it_is_a_conflict() -> None:
     _allow_headers()
     client = _client()
     client.post("/v1/activation/activate", json=_body(), headers=AUTH_HEADERS)
@@ -312,7 +314,7 @@ def test_repeating_a_completion_is_safe_but_changing_it_is_a_conflict():
     assert changed.status_code == 409
 
 
-def test_completing_without_the_activation_group_is_forbidden():
+def test_completing_without_the_activation_group_is_forbidden() -> None:
     _allow_headers()
 
     resp = _client().post(
@@ -327,7 +329,7 @@ def test_completing_without_the_activation_group_is_forbidden():
     assert resp.status_code == 403
 
 
-def test_completion_outcomes_are_limited_to_ready_and_failed():
+def test_completion_outcomes_are_limited_to_ready_and_failed() -> None:
     _allow_headers()
 
     resp = _client().post(
@@ -337,7 +339,7 @@ def test_completion_outcomes_are_limited_to_ready_and_failed():
     assert resp.status_code == 422
 
 
-def test_activate_without_matching_group_is_forbidden():
+def test_activate_without_matching_group_is_forbidden() -> None:
     load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
 
     resp = _client().post(
@@ -352,7 +354,7 @@ def test_activate_without_matching_group_is_forbidden():
     assert resp.status_code == 403
 
 
-def test_activate_unauthenticated_is_forbidden():
+def test_activate_unauthenticated_is_forbidden() -> None:
     load_auth_config(_make_config(auth={"accept_request_headers": "false"}))
 
     resp = _client().post("/v1/activation/activate", json=_body())
@@ -360,7 +362,7 @@ def test_activate_unauthenticated_is_forbidden():
     assert resp.status_code == 403
 
 
-def test_activate_rejects_malformed_body():
+def test_activate_rejects_malformed_body() -> None:
     load_auth_config(_make_config(auth={"accept_request_headers": "true"}))
 
     resp = _client().post(
@@ -388,7 +390,7 @@ def _activate(client: TestClient, request_id: str, digest: str):
 
 
 @patch(STORE, FakeStateStore)
-def test_a_request_for_an_already_active_set_is_recorded_and_stays_ready_on_retry():
+def test_a_request_for_an_already_active_set_is_recorded_and_stays_ready_on_retry() -> None:
     _allow_headers()
     client = _client()
     _activate(client, "req-1", "sha256:aaaa")
@@ -411,7 +413,7 @@ def test_a_request_for_an_already_active_set_is_recorded_and_stays_ready_on_retr
 
 
 @patch(STORE, FakeStateStore)
-def test_a_completion_that_is_stale_by_the_time_it_is_written_cannot_promote_another_set():
+def test_a_completion_that_is_stale_by_the_time_it_is_written_cannot_promote_another_set() -> None:
     _allow_headers()
     client = _client()
     _activate(client, "req-a", "sha256:aaaa")
@@ -434,7 +436,7 @@ def test_a_completion_that_is_stale_by_the_time_it_is_written_cannot_promote_ano
 
 
 @patch(STORE, FakeStateStore)
-def test_two_requests_for_the_same_set_are_finished_together():
+def test_two_requests_for_the_same_set_are_finished_together() -> None:
     _allow_headers()
     client = _client()
     assert _activate(client, "req-a", "sha256:aaaa").json()["status"] == "ACCEPTED"

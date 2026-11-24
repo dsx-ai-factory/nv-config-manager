@@ -22,14 +22,16 @@ route introspection, not by POSTing and reading the status code.
 """
 
 import importlib
+from collections.abc import Callable, Iterator
 
 import pytest
+from fastapi import FastAPI
 
 from nv_config_manager.render.api import main
 
 
 @pytest.fixture(autouse=True)
-def _restore_main_module_after_test(custom_ini):
+def _restore_main_module_after_test(custom_ini: Callable[[str], None]) -> Iterator[None]:
     """Every test here reloads the shared `main` module in place (mutating
     sys.modules, not just a local binding) -- restore it to the flag-off
     state afterward so any other test importing `main` fresh later in the
@@ -44,7 +46,7 @@ def _restore_main_module_after_test(custom_ini):
     importlib.reload(main)
 
 
-def _activation_route_mounted(app) -> bool:
+def _activation_route_mounted(app: FastAPI) -> bool:
     for route in app.routes:
         if type(route).__name__ == "_IncludedRouter":
             if any("/activation" in sub.path for sub in route.original_router.routes):
@@ -52,7 +54,7 @@ def _activation_route_mounted(app) -> bool:
     return False
 
 
-def test_activation_route_absent_by_default(custom_ini):
+def test_activation_route_absent_by_default(custom_ini: Callable[[str], None]) -> None:
     custom_ini(
         """
         [render]
@@ -64,7 +66,9 @@ def test_activation_route_absent_by_default(custom_ini):
     assert not _activation_route_mounted(main.app)
 
 
-def test_activation_route_absent_when_only_enabled_is_true(custom_ini):
+def test_activation_route_absent_when_only_enabled_is_true(
+    custom_ini: Callable[[str], None],
+) -> None:
     """Both flags are required -- enabled alone is not enough (FR-241:
     'both values required to expose the upload and activation APIs')."""
     custom_ini(
@@ -78,7 +82,9 @@ def test_activation_route_absent_when_only_enabled_is_true(custom_ini):
     assert not _activation_route_mounted(main.app)
 
 
-def test_activation_route_absent_when_only_acknowledgement_is_true(custom_ini):
+def test_activation_route_absent_when_only_acknowledgement_is_true(
+    custom_ini: Callable[[str], None],
+) -> None:
     custom_ini(
         """
         [render]
@@ -90,7 +96,7 @@ def test_activation_route_absent_when_only_acknowledgement_is_true(custom_ini):
     assert not _activation_route_mounted(main.app)
 
 
-def test_activation_route_present_when_both_flags_true(custom_ini):
+def test_activation_route_present_when_both_flags_true(custom_ini: Callable[[str], None]) -> None:
     custom_ini(
         """
         [render]
