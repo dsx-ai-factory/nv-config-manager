@@ -237,7 +237,7 @@ export default function HomePage() {
     services.push({
       name: "Template Preview",
       description:
-        "Preview rendered device configs from any template branch or plugin. Dynamic plugin management available when enabled.",
+        "Develop and try templates before merging.",
       url: config.templatePreviewUrl,
       icon: <FileText className="h-6 w-6" />,
       type: "internal",
