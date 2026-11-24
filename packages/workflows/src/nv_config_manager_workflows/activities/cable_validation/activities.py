@@ -18,21 +18,26 @@
 import asyncio
 import copy
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager, suppress
 
-from nv_config_manager_dcim import CableStatusUpdate, DCIMCableStatusClient
+from nv_config_manager_dcim import (
+    CableStatusUpdate,
+    DCIMCableStatusBulkClient,
+    DCIMCableStatusClient,
+)
 from nv_config_manager_logging import LogCategory, get_logger
 from py_markdown_table.markdown_table import markdown_table
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from nv_config_manager_workflows.activities.cable_validation import helpers as _cable_helpers
 from nv_config_manager_workflows.activities.cable_validation.helpers import (
     is_mac_address,
 )
 from nv_config_manager_workflows.activities.cable_validation.models import (
-    CABLE_STATUS_UPDATE_CONCURRENCY,
     CSV_EXCLUDE_COLUMNS,
     MARKDOWN_EXCLUDE_COLUMNS,
-    CableStatus,
     DecorateResultActivityInput,
     DecorateResultActivityOutput,
     FormatDeviceValidationResultInput,
@@ -45,6 +50,37 @@ from nv_config_manager_workflows.runtime import get_dcim_client
 
 logger = get_logger(__name__, category=LogCategory.TEMPORAL_ACTIVITY)
 logger.setLevel(logging.INFO)
+
+_CABLE_STATUS_HEARTBEAT_INTERVAL_SECONDS = 20
+_SINGLE_UPDATE_COMPAT_CONCURRENCY = 10
+
+
+@asynccontextmanager
+async def _cable_status_heartbeats(
+    activity_input: UpdateCableStatusesInput,
+) -> AsyncGenerator[None]:
+    """Keep worker liveness visible while the provider controls persistence."""
+    if not activity.in_activity():
+        yield
+        return
+    details = {
+        "device_id": activity_input.device_id,
+        "interface_count": len(activity_input.cable_statuses),
+    }
+    activity.heartbeat(details)
+
+    async def heartbeat() -> None:
+        while True:
+            await asyncio.sleep(_CABLE_STATUS_HEARTBEAT_INTERVAL_SECONDS)
+            activity.heartbeat(details)
+
+    task = asyncio.create_task(heartbeat())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 @activity.defn
@@ -93,39 +129,54 @@ async def validate_device_neighbors(
 @activity.defn
 async def update_cable_statuses(activity_input: UpdateCableStatusesInput) -> None:
     """Persist cable statuses when the selected provider exposes that capability."""
+    try:
+        await _persist_cable_statuses(activity_input)
+    except ApplicationError as error:
+        if not error.non_retryable:
+            raise
+        # Use bounded save retries, then allow manual stage Retry after DCIM repairs.
+        raise ApplicationError(error.message, *error.details, type=error.type) from error
+
+
+async def _persist_cable_statuses(activity_input: UpdateCableStatusesInput) -> None:
     client = get_dcim_client()
-    if not isinstance(client, DCIMCableStatusClient):
+    if not isinstance(client, DCIMCableStatusBulkClient | DCIMCableStatusClient):
         await client.close()
         logger.info("Selected DCIM provider does not support cable status updates")
         return
 
-    semaphore = asyncio.Semaphore(CABLE_STATUS_UPDATE_CONCURRENCY)
-
-    async def update_one(interface_name: str, status: CableStatus) -> None:
-        async with semaphore:
-            await client.update_cable_status(
-                CableStatusUpdate(
-                    device_id=activity_input.device_id,
-                    interface_name=interface_name,
-                    status=status,
-                    workflow_id=activity_input.workflow_id,
-                )
-            )
-
-    async with client:
-        results = await asyncio.gather(
-            *(
-                update_one(interface_name, status)
-                for interface_name, status in activity_input.cable_statuses.items()
-            ),
-            return_exceptions=True,
+    updates = [
+        CableStatusUpdate(
+            device_id=activity_input.device_id,
+            interface_name=interface_name,
+            status=status,
+            workflow_id=activity_input.workflow_id,
         )
+        for interface_name, status in activity_input.cable_statuses.items()
+    ]
+    errors: list[Exception] = []
+    async with _cable_status_heartbeats(activity_input), client:
+        if isinstance(client, DCIMCableStatusBulkClient):
+            await client.update_cable_statuses(updates)
+        else:
+            # Preserve the existing single-update API's concurrency. Bulk providers
+            # receive the complete collection above and control their own limits.
+            semaphore = asyncio.Semaphore(_SINGLE_UPDATE_COMPAT_CONCURRENCY)
 
-    for result in results:
-        if isinstance(result, asyncio.CancelledError):
-            raise result
-        if isinstance(result, Exception):
-            raise result
+            async def update_one(update: CableStatusUpdate) -> None:
+                async with semaphore:
+                    await client.update_cable_status(update)
+
+            results = await asyncio.gather(
+                *(update_one(update) for update in updates), return_exceptions=True
+            )
+            for result in results:
+                if isinstance(result, asyncio.CancelledError):
+                    raise result
+                if isinstance(result, Exception):
+                    errors.append(result)
+    if errors:
+        raise errors[0]
 
 
 @activity.defn
