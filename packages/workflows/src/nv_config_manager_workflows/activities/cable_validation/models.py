@@ -31,7 +31,6 @@ from nv_config_manager_workflows.clients.device.models import (
 )
 from nv_config_manager_workflows.markdown import escape_markdown_cell
 
-CABLE_STATUS_UPDATE_CONCURRENCY = 10
 CSV_EXCLUDE_COLUMNS: frozenset[str] = frozenset({"Troubleshooting Info"})
 MARKDOWN_EXCLUDE_COLUMNS: frozenset[str] = frozenset(
     {"Troubleshooting Info", "Start Rack", "Intended End Rack", "ID"}
@@ -186,7 +185,6 @@ class FormatDeviceValidationResultInput(BaseModel):
 
 
 __all__ = [
-    "CABLE_STATUS_UPDATE_CONCURRENCY",
     "CSV_EXCLUDE_COLUMNS",
     "DETAIL_SHEET_NAME",
     "EXCEL_MIME_TYPE",

@@ -296,16 +296,21 @@ automatic render-on-change requires the provider's event integration.
 
 ## Optional cable-status capability
 
-Providers with a dedicated, mutable cable object can implement
-`DCIMCableStatusClient.update_cable_status()`. Cable validation supplies a
-`CableStatusUpdate` containing the local device ID, interface name, normalized
-status, and Temporal workflow ID. The normalized statuses are `Connected`,
-`Disconnected`, and `Invalid`.
+Providers with mutable cable objects can implement
+`DCIMCableStatusBulkClient.update_cable_statuses(updates)`. Cable validation passes
+the device's full collection of `CableStatusUpdate` objects in one call. Each
+update contains the device ID, interface name, normalized status, and Temporal
+workflow ID. The normalized statuses are `Connected`, `Disconnected`, and `Invalid`.
 
 The provider owns resolving the attached cable and recording workflow
-provenance in the native DCIM. Updates must be idempotent because a Temporal
-activity can be retried. Providers without a cable object omit this optional
-capability; cable validation treats its absence as a no-op.
+provenance in the native DCIM. It also controls request sizes, concurrency, and
+backend-specific retries. A provider with a native bulk API can persist the full
+collection in a single request; batching is not required by the SDK. Updates
+must be idempotent because the persistence activity can be retried.
+
+The single-update capability `DCIMCableStatusClient.update_cable_status()` is
+also supported; those providers receive up to ten concurrent individual updates. Providers
+without either capability treat cable-status persistence as a no-op.
 
 ## Optional Nautobot MCP capability
 

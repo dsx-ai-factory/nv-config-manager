@@ -31,7 +31,6 @@ from nv_config_manager_workflows.activities.cable_validation.helpers import (
     is_mac_address,
 )
 from nv_config_manager_workflows.activities.cable_validation.models import (
-    CABLE_STATUS_UPDATE_CONCURRENCY,
     CSV_EXCLUDE_COLUMNS,
     DETAIL_SHEET_NAME,
     EXCEL_MIME_TYPE,
@@ -69,7 +68,6 @@ CABLE_VALIDATION_ACTIVITIES = (
 )
 
 __all__ = [
-    "CABLE_STATUS_UPDATE_CONCURRENCY",
     "CABLE_VALIDATION_ACTIVITIES",
     "CSV_EXCLUDE_COLUMNS",
     "DETAIL_SHEET_NAME",
