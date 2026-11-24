@@ -216,12 +216,53 @@ def test_a_valid_file_after_a_broken_one_still_stops_the_process(ini: Path) -> N
     assert _watch_while(ini, change=break_then_fix) == [(os.getpid(), signal.SIGTERM)]
 
 
-def test_the_restart_is_spread_across_replicas(ini: Path) -> None:
+def test_the_restart_is_spread_across_replicas() -> None:
     """Every replica sees the change at once, so they must not all exit at once."""
-    with patch("nv_config_manager.common.config_watch.random.uniform", return_value=0.0) as uniform:
-        _watch_while(ini, change=lambda: ini.write_text(ROTATED), max_jitter=20.0)
+    with patch(
+        "nv_config_manager.common.config_watch.socket.gethostname",
+        side_effect=[f"render-api-{replica}" for replica in range(20)],
+    ):
+        delays = {config_watch._restart_delay(120.0) for _ in range(20)}
 
-    uniform.assert_called_once_with(0, 20.0)
+    assert len(delays) == 20
+    assert all(0 <= delay <= 120.0 for delay in delays)
+
+
+def test_the_containers_of_a_pod_restart_together() -> None:
+    """A pod whose containers drew separate delays would go unready once for each."""
+    with patch("nv_config_manager.common.config_watch.socket.gethostname", return_value="dhcp-0"):
+        delays = {config_watch._restart_delay(120.0) for _ in range(3)}
+
+    assert len(delays) == 1
+
+
+def test_the_watch_waits_out_its_delay_before_signalling(ini: Path) -> None:
+    """The delay drawn for this pod is the one the watch sleeps for."""
+    with patch("nv_config_manager.common.config_watch._restart_delay", return_value=0.0) as delay:
+        signals = _watch_while(ini, change=lambda: ini.write_text(ROTATED), max_jitter=20.0)
+
+    delay.assert_called_once_with(20.0)
+    assert signals == [(os.getpid(), signal.SIGTERM)]
+
+
+def test_a_change_that_is_undone_during_the_delay_does_not_restart(
+    ini: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A value that flips and flips back leaves a process nothing to pick up."""
+
+    def flip_and_flip_back() -> None:
+        ini.write_text(ROTATED)
+        time.sleep(POLL_INTERVAL * 10)
+        ini.write_text(ORIGINAL)
+
+    with (
+        patch("nv_config_manager.common.config_watch._restart_delay", return_value=0.3),
+        caplog.at_level("INFO", logger=config_watch.logger.name),
+    ):
+        signals = _watch_while(ini, change=flip_and_flip_back)
+
+    assert signals == []
+    assert f"Configuration file {ini} changed back, not restarting" in caplog.messages
 
 
 def test_a_process_that_ignores_the_signal_is_stopped_outright(ini: Path) -> None:

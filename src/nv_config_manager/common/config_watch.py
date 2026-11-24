@@ -29,6 +29,7 @@ import configparser
 import os
 import random
 import signal
+import socket
 import threading
 
 from nv_config_manager.common.ini import (
@@ -50,6 +51,24 @@ DEFAULT_POLL_INTERVAL_SECONDS = 30.0
 # the time a replica takes to start and become ready, or the replicas of one
 # service are still likely to be down together.
 DEFAULT_MAX_JITTER_SECONDS = 120.0
+
+
+def _restart_delay(max_jitter: float) -> float:
+    """Pick this pod's share of the restart spread.
+
+    The containers of a pod share a hostname, so they draw the same delay and
+    the pod goes unready once. Drawn per process, each container would take
+    the pod out of service at a different moment in the window.
+
+    Args:
+        max_jitter: Upper bound on the delay
+
+    Returns:
+        Seconds to wait before signalling, the same for every call in this pod
+    """
+    # Spreading load, not cryptography.
+    return random.Random(socket.gethostname()).uniform(0, max_jitter)  # noqa: S311
+
 
 # How long a process gets to shut down cleanly before it is stopped outright.
 # This is the grace period Kubernetes gives a container by default.
@@ -179,8 +198,18 @@ def _watch(
             path,
             ", ".join(changed),
         )
-        if stop.wait(random.uniform(0, max_jitter)):  # noqa: S311 - spreading load, not crypto
+        if stop.wait(_restart_delay(max_jitter)):
             return
+
+        # A value that changed and changed back during the delay leaves nothing
+        # to pick up, so look again before disturbing the process.
+        latest = read_config_snapshot(path)
+        if latest is not None:
+            latest_settings = _settings(_decode(latest[1]))
+            if latest_settings is not None and not _differing(settings, latest_settings):
+                logger.info("Configuration file %s changed back, not restarting", path)
+                digest = latest[0]
+                continue
 
         # Each service already shuts down cleanly on SIGTERM, the same way it
         # would if Kubernetes had replaced the pod, so reuse that path instead

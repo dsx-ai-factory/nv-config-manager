@@ -18,6 +18,7 @@ import asyncio
 import logging
 import os
 import signal
+from collections.abc import Awaitable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
@@ -139,16 +140,22 @@ async def main() -> None:
     configure_workflow_runtime()
     runtime = setup_telemetry("nv-config-manager-temporal-worker")
 
-    client = await Client.connect(
-        temporal_address(),
-        **client_connect_options(),
-        data_converter=get_data_converter(),
-        interceptors=[
-            TracingInterceptor(always_create_workflow_spans=True),
-            FailedStageRetryTimeoutInterceptor(retry_timeout_seconds),
-        ],
-        runtime=runtime,
+    client = await _unless_shutdown(
+        Client.connect(
+            temporal_address(),
+            **client_connect_options(),
+            data_converter=get_data_converter(),
+            interceptors=[
+                TracingInterceptor(always_create_workflow_spans=True),
+                FailedStageRetryTimeoutInterceptor(retry_timeout_seconds),
+            ],
+            runtime=runtime,
+        ),
+        shutdown,
     )
+    if client is None:
+        logger.info("Shutdown requested before the worker connected")
+        return
 
     registry = build_workflow_registry()
     workflows = _registered_workflows(registry)
@@ -170,6 +177,24 @@ async def main() -> None:
     )
 
     await _run_until_shutdown(worker, shutdown)
+
+
+async def _unless_shutdown[T](step: Awaitable[T], shutdown: asyncio.Event) -> T | None:
+    """Wait for a startup step, giving up once a shutdown has been requested.
+
+    Connecting has no timeout of its own, so against an unreachable server a
+    shutdown request would otherwise go unanswered for as long as it hangs.
+    """
+    pending = asyncio.ensure_future(step)
+    requested = asyncio.create_task(shutdown.wait())
+    try:
+        await asyncio.wait({pending, requested}, return_when=asyncio.FIRST_COMPLETED)
+        if pending.done():
+            return pending.result()
+        pending.cancel()
+        return None
+    finally:
+        requested.cancel()
 
 
 async def _run_until_shutdown(worker: Worker, shutdown: asyncio.Event) -> None:

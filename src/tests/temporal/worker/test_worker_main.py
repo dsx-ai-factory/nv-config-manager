@@ -289,6 +289,40 @@ async def test_a_startup_failure_during_a_drain_still_surfaces() -> None:
         await asyncio.wait_for(worker_main._run_until_shutdown(worker, requested), timeout=5.0)
 
 
+async def test_a_shutdown_request_abandons_a_pending_connect(mocker: MockerFixture) -> None:
+    """Connecting has no timeout, so a shutdown must not wait for it to return."""
+    worker_constructor = _mock_worker_startup(mocker)
+    connecting = asyncio.Event()
+    abandoned = asyncio.Event()
+
+    async def connect(*_args: Any, **_kwargs: Any) -> Any:
+        connecting.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            abandoned.set()
+
+    mocker.patch.object(worker_main.Client, "connect", side_effect=connect)
+
+    running = asyncio.create_task(worker_main.main())
+    await asyncio.wait_for(connecting.wait(), timeout=5.0)
+    os.kill(os.getpid(), signal.SIGTERM)
+    await asyncio.wait_for(running, timeout=5.0)
+    await asyncio.wait_for(abandoned.wait(), timeout=5.0)
+
+    worker_constructor.assert_not_called()
+
+
+async def test_a_failed_connect_still_surfaces() -> None:
+    """Racing the connect against shutdown must not hide why startup failed."""
+
+    async def connect() -> None:
+        raise RuntimeError("temporal unreachable")
+
+    with pytest.raises(RuntimeError, match="temporal unreachable"):
+        await worker_main._unless_shutdown(connect(), asyncio.Event())
+
+
 async def test_sigterm_drains_the_worker(mocker: MockerFixture) -> None:
     """The worker is PID 1, where a SIGTERM with no handler is dropped."""
     worker_constructor = _mock_worker_startup(mocker)

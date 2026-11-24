@@ -843,6 +843,10 @@ def start_server(host: str = "0.0.0.0", port: int = 8222, level: str = "INFO") -
 
         logger.info("Server shutting down gracefully")
 
+        # Stop accepting first, so a client that connects during the wait is
+        # refused rather than left in the backlog with nothing to serve it.
+        server_socket.close()
+
         # Wait for all active connections to complete
         _join_sessions(sessions, SHUTDOWN_JOIN_TIMEOUT_SECONDS)
 

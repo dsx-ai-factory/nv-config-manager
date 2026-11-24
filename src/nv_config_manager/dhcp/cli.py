@@ -20,9 +20,10 @@ import hashlib
 import json
 import os
 import re
+import signal
 import sys
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Coroutine
 from traceback import format_tb
 from types import TracebackType
 from typing import Any
@@ -447,12 +448,33 @@ async def _refresh_cycle_async(
             await asyncio.sleep(CANCELLED_READ_RETRY_DELAY_SECONDS)
 
 
+def _cancel_on_sigterm() -> None:
+    """Stop the calling loop when the process is asked to shut down.
+
+    These loops run as PID 1 in their containers, where the kernel drops a
+    SIGTERM that has no handler. Without one they ran on until they were
+    killed, so they outlasted the other containers in the pod on every restart.
+    """
+    task = asyncio.current_task()
+    if task is not None:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
+
+
+def _run_until_sigterm(loop: Coroutine[Any, Any, None]) -> None:
+    """Run a loop to completion, treating a shutdown request as a clean exit."""
+    try:
+        asyncio.run(loop)
+    except asyncio.CancelledError:
+        logger.info("Received SIGTERM, stopping")
+
+
 async def _refresh_loop_async(
     ip_version: int,
     check: bool,
     refresh_interval: int,
 ) -> None:
     """Async loop for configuration refresh."""
+    _cancel_on_sigterm()
     config = load_config()
     kea_client = KeaClient.from_config(config)
     redis_client = RedisClient.from_config(config)
@@ -539,7 +561,7 @@ def refresh_kea_configuration(
     if refresh_interval:
         restart_on_config_change()
 
-    asyncio.run(_refresh_loop_async(ip_version, check, refresh_interval))
+    _run_until_sigterm(_refresh_loop_async(ip_version, check, refresh_interval))
 
 
 async def _load_kea_config_with_timeout(
@@ -625,6 +647,7 @@ async def _sync_kea_configuration_async(
     heartbeat_file: str = DEFAULT_HEARTBEAT_FILE,
 ) -> None:
     """Async implementation of sync configuration."""
+    _cancel_on_sigterm()
     # Connect to the KEA server running in the same pod
     ini_config = load_config()
     kea_client = KeaClient.from_config(ini_config, attached=True)
@@ -969,7 +992,9 @@ def sync_kea_configuration(
     if refresh_interval:
         restart_on_config_change()
 
-    asyncio.run(_sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file))
+    _run_until_sigterm(
+        _sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file)
+    )
 
 
 @cli.command("check-sync-heartbeat")

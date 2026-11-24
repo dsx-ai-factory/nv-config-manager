@@ -21,7 +21,6 @@ the Redis cache with device metadata from the selected DCIM provider.
 import asyncio
 import signal
 import sys
-from typing import Any
 
 from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
@@ -38,7 +37,7 @@ logger = get_logger(__name__, category=LogCategory.CACHE)
 shutdown_event = asyncio.Event()
 
 
-def signal_handler(signum: int, frame: Any) -> None:
+def signal_handler(signum: int) -> None:
     """Handle shutdown signals."""
     logger.info("Received signal %s, initiating shutdown", signum)
     shutdown_event.set()
@@ -50,6 +49,13 @@ async def main() -> None:
 
     cache_service = None
     refresh_task = None
+
+    # Registered on the loop rather than with signal.signal: setting the event
+    # from a plain signal handler does not wake a loop that is waiting on it,
+    # so the shutdown sat until the refresh loop's sleep happened to return.
+    loop = asyncio.get_running_loop()
+    for process_signal in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(process_signal, signal_handler, process_signal)
 
     try:
         # Create cache service using factory method
@@ -110,10 +116,6 @@ async def main() -> None:
 
 def cli_main() -> None:
     """CLI entrypoint for cache refresh service."""
-    # Setup signal handlers for graceful shutdown
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
     restart_on_config_change()
 
     # Run the service

@@ -14,8 +14,11 @@
 # limitations under the License.
 """Tests for DHCP sync hash reconciliation and reconcile-loop observability."""
 
+import asyncio
 import contextlib
 import logging
+import os
+import signal
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -983,6 +986,25 @@ def test_sync_kea_configuration_watches_the_ini_only_when_looping(
         )
 
     assert config_watch.called is watched
+
+
+def test_sigterm_stops_a_loop_cleanly(caplog: pytest.LogCaptureFixture) -> None:
+    """The loops are PID 1 in their containers, where an unhandled SIGTERM is dropped."""
+    closed = []
+
+    async def loop() -> None:
+        cli._cancel_on_sigterm()
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+            await asyncio.sleep(30)
+        finally:
+            closed.append(True)
+
+    with caplog.at_level(logging.INFO):
+        cli._run_until_sigterm(loop())
+
+    assert closed == [True]
+    assert "Received SIGTERM, stopping" in caplog.text
 
 
 def test_exception_handler_redacts_credentials(caplog: pytest.LogCaptureFixture) -> None:
