@@ -432,6 +432,7 @@ Metric: `nv_config_manager_dhcp_query_errors_total`
 | `error_type` | Meaning |
 | :----------- | :------ |
 | `read_cancelled` | A periodic refresh cycle was skipped after DCIM reads exhausted their retries |
+| `unavailable` | A periodic refresh cycle was skipped because the DCIM timed out, could not be reached, or returned a server error |
 
 The counter increments once per skipped periodic cycle. The service keeps the
 last-good Kea configuration; a one-shot refresh instead propagates the read

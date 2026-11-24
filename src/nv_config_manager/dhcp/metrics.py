@@ -87,12 +87,15 @@ class QueryErrorType:
     mean the cycle was skipped on purpose and Kea kept its last config.
     ``READ_CANCELLED`` means the DCIM's datastore killed the read, which points
     at the DCIM's database rather than at the request or its data.
+    ``UNAVAILABLE`` means the DCIM timed out, could not be reached, or answered
+    with a server error, as it does while its database fails over.
     """
 
     READ_CANCELLED = "read_cancelled"
+    UNAVAILABLE = "unavailable"
 
 
-REFRESH_PROCESS_QUERY_ERRORS = (QueryErrorType.READ_CANCELLED,)
+REFRESH_PROCESS_QUERY_ERRORS = (QueryErrorType.READ_CANCELLED, QueryErrorType.UNAVAILABLE)
 
 
 DHCP_CONFIG_GENERATION_ERRORS = Counter(
