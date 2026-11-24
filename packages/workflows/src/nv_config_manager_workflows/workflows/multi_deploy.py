@@ -20,43 +20,19 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import Annotated, Any, ClassVar
 
-from nv_config_manager_dcim import (
-    DCIMLocationIdentifier,
-    DCIMLocationType,
-    dcim_location_id,
-    dcim_location_reference,
-)
-from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
-from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
-from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
-from nv_config_manager_workflows.search_attributes import (
-    EXECUTE_ROLES_SEARCH_ATTRIBUTE,
-    READ_ROLES_SEARCH_ATTRIBUTE,
-    SITE_SEARCH_ATTRIBUTE,
-    USER_SEARCH_ATTRIBUTE,
-    upsert_missing_search_attributes,
-)
-from nv_config_manager_workflows.stage import (
-    StageInput,
-    StageMixin,
-    StageOutput,
-    StateEnum,
-    stage_executor,
-)
-from nv_config_manager_workflows.ui import FormSchema, api_options, location_field
-from nv_config_manager_workflows.workflow_references import OptionalLocationReference
-from nv_config_manager_workflows.workflows._form_sources import (
-    MANAGED_ROLE_SOURCE,
-    SITE_FILTER_SOURCE,
-    STATUS_FILTER_SOURCE,
-    TENANT_FILTER_SOURCE,
-)
-
 with workflow.unsafe.imports_passed_through():
+    from nv_config_manager_dcim import (
+        DCIMLocationIdentifier,
+        DCIMLocationType,
+        dcim_location_id,
+        dcim_location_reference,
+    )
+    from pydantic import BaseModel, Field
+
     from nv_config_manager_workflows.activities.config import get_ui_base_url
     from nv_config_manager_workflows.activities.dcim import (
         GetNetworkDevicesInput,
@@ -65,20 +41,46 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.activities.deploy import (
         ConfigApplyActivityInput,
         DiffActivityInput,
+        apply_activity_timeout,
         apply_approved_configuration,
+        diff_activity_timeout,
         load_intended_configuration,
         perform_candidate_diff,
     )
     from nv_config_manager_workflows.activities.device import NetworkDeviceData
+    from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
+    from nv_config_manager_workflows.metadata import WorkflowMetadataMixin
     from nv_config_manager_workflows.mixins.archive import ArchiveMixin
     from nv_config_manager_workflows.mixins.device import DeviceMixin
+    from nv_config_manager_workflows.search_attributes import (
+        EXECUTE_ROLES_SEARCH_ATTRIBUTE,
+        READ_ROLES_SEARCH_ATTRIBUTE,
+        SITE_SEARCH_ATTRIBUTE,
+        USER_SEARCH_ATTRIBUTE,
+        upsert_missing_search_attributes,
+    )
+    from nv_config_manager_workflows.secret_redaction import redact_device_secrets
+    from nv_config_manager_workflows.stage import (
+        StageInput,
+        StageMixin,
+        StageOutput,
+        StateEnum,
+        stage_executor,
+    )
+    from nv_config_manager_workflows.ui import FormSchema, api_options, location_field
+    from nv_config_manager_workflows.workflow_references import OptionalLocationReference
     from nv_config_manager_workflows.workflow_urls import build_workflow_url
+    from nv_config_manager_workflows.workflows._form_sources import (
+        MANAGED_ROLE_SOURCE,
+        SITE_FILTER_SOURCE,
+        STATUS_FILTER_SOURCE,
+        TENANT_FILTER_SOURCE,
+    )
     from nv_config_manager_workflows.workflows.backup import (
         BackupInput,
         BackupWorkflow,
         TriggerEnum,
     )
-
 
 CLONE_SEARCH_ATTRS = [
     USER_SEARCH_ATTRIBUTE,
@@ -319,7 +321,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
 
         markdown += (
             f"**Devices in this batch:**\n{device_list}\n\n"
-            f"**Configuration Changes:**\n```\n{stage_input.diff_group.diff_content}\n```"
+            f"**Configuration Changes:**\n```\n{redact_device_secrets(stage_input.diff_group.diff_content)}\n```"
         )
 
         output = BatchDeployWorkflow.ReviewDiffStageOutput(approved=False, display=markdown)
@@ -350,7 +352,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
             markdown = f"**Shared Configuration Diff {approval_state} by {reviewmd}**\n\n"
         markdown += (
             f"**Devices in this batch ({stage_input.device_count}):**\n{device_list}\n\n"
-            f"**Configuration Changes:**\n```\n{stage_input.diff_group.diff_content}\n```"
+            f"**Configuration Changes:**\n```\n{redact_device_secrets(stage_input.diff_group.diff_content)}\n```"
         )
         return BatchDeployWorkflow.ReviewDiffStageOutput(approved=approved, display=markdown)
 
@@ -395,7 +397,7 @@ class BatchDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
                         approved_diff=stage_input.approved_diff,
                         commit_confirm=stage_input.commit_confirm,
                     ),
-                    start_to_close_timeout=timedelta(minutes=5),
+                    start_to_close_timeout=apply_activity_timeout(device_data.device),
                     retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 )
                 return device_data.device.name, None
@@ -743,7 +745,7 @@ class MultiDeployWorkflow(WorkflowMetadataMixin, StageMixin, DeviceMixin, Archiv
                 diff = await workflow.execute_activity(
                     perform_candidate_diff,
                     DiffActivityInput(device_data=device, configuration=content),
-                    start_to_close_timeout=timedelta(minutes=1),
+                    start_to_close_timeout=diff_activity_timeout(device),
                     retry_policy=DEFAULT_ACTIVITY_RETRY_POLICY,
                 )
 

@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from nv_config_manager_dcim.models import (
@@ -264,6 +264,15 @@ class DCIMCableStatusClient(Protocol):
         Providers without a dedicated cable object omit this capability; callers
         treat its absence as a no-op.
         """
+        ...
+
+
+@runtime_checkable
+class DCIMCableStatusBulkClient(Protocol):
+    """Optional persistence of a full collection using the provider's write strategy."""
+
+    async def update_cable_statuses(self, updates: Sequence[CableStatusUpdate]) -> None:
+        """Persist all desired changes, choosing native bulk writes or internal batching."""
         ...
 
 

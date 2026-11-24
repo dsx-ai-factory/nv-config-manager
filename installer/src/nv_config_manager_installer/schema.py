@@ -28,13 +28,23 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 _KUBERNETES_NAMESPACE_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
+_CPU_QUANTITY_RE = re.compile(r"^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$")
 _KUBERNETES_LABEL_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$")
 _KUBERNETES_DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$")
 _RESERVED_CUSTOM_LABEL_KEYS = frozenset({"app", "component", "instance", "job"})
 _RESERVED_CUSTOM_LABEL_PREFIXES = ("app.kubernetes.io/", "helm.sh/")
+# 365 days; mirrors MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS (workflows package is not a dependency).
+_MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS = 31_536_000
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -554,6 +564,70 @@ class ServicesConfig(BaseModel):
     external_nautobot_url: str = ""
 
 
+class KeaMultiThreadingConfig(BaseModel):
+    """Kea DHCPv4 multi-threading settings.
+
+    With everything left at its default Kea auto-detects the worker count
+    (``thread-pool-size`` 0) and keeps a 64-packet queue. ``size_from_cpu_request``
+    sizes the pool from the DHCP container CPU request instead, rounding up to
+    at least one thread. It cannot be combined with an explicit
+    ``thread_pool_size``, which the chart also rejects. The queue defaults to
+    eight packets per worker unless ``packet_queue_size`` is set.
+    """
+
+    size_from_cpu_request: bool = False
+    thread_pool_size: StrictInt | None = Field(default=None, ge=0)
+    packet_queue_size: StrictInt | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_pool_sizing(self) -> KeaMultiThreadingConfig:
+        if self.size_from_cpu_request and self.thread_pool_size is not None:
+            raise ValueError(
+                "size_from_cpu_request and thread_pool_size are mutually exclusive; set only one"
+            )
+        return self
+
+
+class DHCPConfig(BaseModel):
+    """DHCP service tuning.
+
+    ``cpu_request`` overrides ``networkDhcp.resources.dhcp.requests.cpu``. Leave
+    it blank to keep the size profile, which requests 1 CPU, so sizing Kea
+    threads from that request yields one thread and an 8-packet queue.
+    """
+
+    kea_multi_threading: KeaMultiThreadingConfig = Field(default_factory=KeaMultiThreadingConfig)
+    cpu_request: str = ""
+
+    @field_validator("cpu_request")
+    @classmethod
+    def _validate_cpu_request(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        if _CPU_QUANTITY_RE.fullmatch(value) is None:
+            raise ValueError(
+                "cpu_request must be a Kubernetes CPU quantity such as 1, 500m, or 1.5"
+            )
+        return value
+
+
+class TemporalDeploymentConfig(BaseModel):
+    """Optional Temporal deployment overrides.
+
+    ``history_replicas`` and ``num_history_shards`` size the installer-managed
+    Temporal server. ``failed_stage_retry_timeout_seconds`` sets the workflow
+    failed-stage manual retry window and applies with managed or external Temporal.
+    Zero leaves each value at the chart default.
+    """
+
+    history_replicas: int = Field(default=0, ge=0)
+    num_history_shards: int = Field(default=0, ge=0)
+    failed_stage_retry_timeout_seconds: StrictInt = Field(
+        default=0, ge=0, le=_MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS
+    )
+
+
 class RedfishVendorCreds(BaseModel):
     """Per-vendor Redfish/BMC credentials."""
 
@@ -938,6 +1012,7 @@ NV_CONFIG_MANAGER_IMAGE_KEYS: list[tuple[str, str]] = [
     ("temporalServer", "nv-config-manager-temporal"),
     ("temporalBootstrap", "nv-config-manager-temporal-bootstrap"),
     ("temporalUi", "nv-config-manager-temporal-ui"),
+    ("oidcProxy", "nv-config-manager-oidc-proxy"),
 ]
 
 # Image override keys accepted by the installer. The second field is the
@@ -965,7 +1040,7 @@ IMAGE_OVERRIDE_KEYS: list[tuple[str, str]] = [
     ("temporalUi", "temporalio/ui"),
     ("nautobotNginx", "docker.io/nginxinc/nginx-unprivileged"),
     ("spiffeHelper", "ghcr.io/spiffe/spiffe-helper"),
-    ("oidcProxy", "quay.io/oauth2-proxy/oauth2-proxy"),
+    ("oidcProxy", "nvcr.io/nvidian/cfa/nv-config-manager-oidc-proxy"),
     ("templatePluginInstaller", "docker.io/library/python"),
     ("dcimProviderInstaller", "docker.io/library/python"),
     ("envoyGateway", "docker.io/envoyproxy/gateway"),
@@ -1092,6 +1167,8 @@ class NVConfigManagerInstallConfig(BaseModel):
     content: ContentConfig = Field(default_factory=ContentConfig)
     dcim: DCIMConfig = Field(default_factory=DCIMConfig)
     services: ServicesConfig = Field(default_factory=ServicesConfig)
+    dhcp: DHCPConfig = Field(default_factory=DHCPConfig)
+    temporal: TemporalDeploymentConfig = Field(default_factory=TemporalDeploymentConfig)
     external_services: ExternalServicesConfig = Field(default_factory=ExternalServicesConfig)
     infrastructure: InfrastructureConfig = Field(default_factory=InfrastructureConfig)
     images: ImagesConfig = Field(default_factory=ImagesConfig)
@@ -1131,6 +1208,18 @@ class NVConfigManagerInstallConfig(BaseModel):
             )
             raise ValueError(msg)
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_temporal_deployment(self) -> NVConfigManagerInstallConfig:
+        """Allow sizing overrides only for the installer-managed Temporal server."""
+        configured = self.temporal.history_replicas or self.temporal.num_history_shards
+        managed_server = self.services.temporal and not self.external_services.temporal.address
+        if configured and not managed_server:
+            raise ValueError(
+                "Temporal sizing requires an enabled, managed Temporal server; "
+                "remove temporal overrides or clear external_services.temporal.address"
+            )
         return self
 
     # -- Serialization helpers -----------------------------------------------
@@ -1173,6 +1262,7 @@ def _prune_inactive_sections(data: dict[str, Any]) -> None:
     _prune_sso(_as_dict(data.get("sso")))
     _prune_spiffe(_as_dict(data.get("spiffe")))
     _prune_services(_as_dict(data.get("services")))
+    _prune_temporal(data)
     _prune_external_services(_as_dict(data.get("external_services")))
     _prune_infrastructure(_as_dict(data.get("infrastructure")))
     _prune_images(_as_dict(data.get("images")))
@@ -1257,6 +1347,17 @@ def _prune_spiffe(spiffe: dict[str, Any]) -> None:
 def _prune_services(services: dict[str, Any]) -> None:
     if services.get("nautobot", True):
         services.pop("external_nautobot_url", None)
+
+
+def _prune_temporal(data: dict[str, Any]) -> None:
+    temporal = _as_dict(data.get("temporal"))
+    if not temporal.get("failed_stage_retry_timeout_seconds"):
+        temporal.pop("failed_stage_retry_timeout_seconds", None)
+    if not temporal.get("history_replicas") and not temporal.get("num_history_shards"):
+        temporal.pop("history_replicas", None)
+        temporal.pop("num_history_shards", None)
+    if not temporal:
+        data.pop("temporal", None)
 
 
 def _prune_external_services(external_services: dict[str, Any]) -> None:

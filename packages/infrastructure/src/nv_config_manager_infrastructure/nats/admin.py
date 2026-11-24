@@ -26,6 +26,13 @@ CONSUMER_ACK_WAIT_SECONDS = 360
 # the lock can be held.
 CONSUMER_MAX_DELIVER = 20
 
+# The archive handles every in-flight message concurrently under its own
+# deadline below the ack wait, so this bounds concurrent backend writes.
+ARCHIVE_CONSUMER_MAX_ACK_PENDING = 2
+# A record that gives up is never archived, so with the archive's 5-minute
+# retry delay this rides out about a day of backend outage.
+ARCHIVE_CONSUMER_MAX_DELIVER = 288
+
 
 def is_nats_permissions_error(exc: Exception) -> bool:
     """Return whether an exception represents a NATS authorization failure."""

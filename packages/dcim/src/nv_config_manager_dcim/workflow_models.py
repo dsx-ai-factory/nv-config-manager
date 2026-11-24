@@ -33,6 +33,7 @@ class Platform(StrEnum):
     NV_OS = "nv-os"
     MLNX_OS = "mlnx-os"
     JUNIPER_JUNOS = "juniper-junos"
+    CISCO_IOS_XR = "cisco-ios-xr"
     UFM = "ufm"
 
 
@@ -94,7 +95,12 @@ class NetworkDeviceData(DeviceData):
     @property
     def intended_config_file(self) -> str:
         match self.platform:
-            case Platform.ARISTA_EOS | Platform.MLNX_OS | Platform.JUNIPER_JUNOS:
+            case (
+                Platform.ARISTA_EOS
+                | Platform.MLNX_OS
+                | Platform.JUNIPER_JUNOS
+                | Platform.CISCO_IOS_XR
+            ):
                 return "full-config"
             case Platform.CUMULUS_LINUX | Platform.NV_OS:
                 return "startup.yaml"

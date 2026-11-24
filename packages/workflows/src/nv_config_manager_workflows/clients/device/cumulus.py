@@ -30,6 +30,7 @@ import requests
 from netmiko import ConnectHandler  # type: ignore[import-untyped]
 from netmiko.exceptions import NetmikoAuthenticationException  # type: ignore[import-untyped]
 from nv_config_manager_logging import LogCategory, get_logger
+from packaging.version import InvalidVersion, Version
 from requests.adapters import HTTPAdapter, Retry
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
@@ -86,6 +87,13 @@ class CumulusConnection(NetworkConnection):
         self._session.verify = False
         self._base_url = f"https://{host}:{port}/nvue_v1/"
         self._authenticated = False
+
+    def disable_retries(self) -> None:
+        """Let the polling loop handle unreachable devices between heartbeats."""
+        if self._session is None:
+            raise NetworkDeviceException(f"NVUE session to {self._host} is closed")
+        adapter = cast(HTTPAdapter, self._session.get_adapter(self._base_url))
+        adapter.max_retries = Retry(total=0)
 
     def close(self) -> None:
         """Close the NVUE HTTP session."""
@@ -514,20 +522,42 @@ class CumulusConnection(NetworkConnection):
                     result.by_interface[new_entry.interface].append(new_entry.mac)
         return result
 
+    def _uses_split_ip_neighbor_api(self) -> bool:
+        """Cumulus 5.15 split the IP neighbor API into IPv4 and IPv6 paths."""
+        image = self.get_running_image()
+        try:
+            return Version(image) >= Version("5.15.0")
+        except InvalidVersion as exc:
+            raise NetworkDeviceException(
+                f"Unable to select the IP neighbor API for firmware {image!r}",
+                non_retryable=True,
+            ) from exc
+
     def get_arp_table(self) -> DeviceArpTable:
-        """Get the device ARP table."""
-        result = {}
+        """Collect IPv4 ARP and IPv6 neighbor discovery entries."""
+        split_ip_api = self._uses_split_ip_neighbor_api()
+        neighbor_paths = (
+            (("ipv4", "ipv4/neighbor"), ("ipv6", "ipv6/neighbor"))
+            if split_ip_api
+            else ((None, "ip/neighbor"),)
+        )
+        result: dict[str, dict[str, Any]] = {}
         for interface, data in self.get_interfaces().items():
             if data.get("type") not in ["swp", "eth"]:
                 # We only care about physical interfaces
                 continue
-            url = f"{self._base_url}interface/{interface}/ip/neighbor"
-            rsp = self.get(url, raise_on_failure=False)
-            if rsp.status_code == 200:
-                result[interface] = rsp.json()
-            elif rsp.status_code != 404:
-                # 404 means the interface didn't have any neighbor info
-                raise NetworkDeviceException(f"Error getting from url {url}: {rsp.text}")
+            for family, neighbor_path in neighbor_paths:
+                url = f"{self._base_url}interface/{interface}/{neighbor_path}"
+                rsp = self.get(url, raise_on_failure=False)
+                if rsp.status_code == 200:
+                    if family is None:
+                        result[interface] = rsp.json()
+                    else:
+                        # Normalize split responses to the legacy family-wrapped shape.
+                        result.setdefault(interface, {})[family] = rsp.json()
+                elif rsp.status_code != 404:
+                    # A missing family must not discard the other family's neighbors.
+                    raise NetworkDeviceException(f"Error getting from url {url}: {rsp.text}")
         return DeviceArpTable.from_nvue(result)
 
     def get_lldp_data(self, interface_name: str) -> InterfaceNeighborData | None:

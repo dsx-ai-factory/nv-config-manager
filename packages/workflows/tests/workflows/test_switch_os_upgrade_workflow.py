@@ -18,8 +18,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from time import sleep
-from typing import Any
-from unittest.mock import patch
+from typing import Any, cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from nv_config_manager_dcim.workflow_models import NetworkDeviceData, Platform
@@ -41,6 +41,7 @@ from nv_config_manager_workflows.activities.deploy import DiffActivityInput
 from nv_config_manager_workflows.activities.nats import PublishNatsInput
 from nv_config_manager_workflows.activities.os import (
     ExecuteZTPInput,
+    ExecuteZTPOutput,
     GetOSImageVersionsInput,
     GetOSImageVersionsOutput,
     PollImageInput,
@@ -66,6 +67,11 @@ def test_supported_platforms_include_juniper_junos() -> None:
     """Switch OS Upgrade accepts Juniper Junos in addition to Cumulus Linux."""
     assert Platform.CUMULUS_LINUX in SUPPORTED_PLATFORMS
     assert Platform.JUNIPER_JUNOS in SUPPORTED_PLATFORMS
+
+
+def test_cisco_ios_xr_is_not_a_supported_platform() -> None:
+    """IOS XR has no image install path yet, so the workflow must reject it up front."""
+    assert Platform.CISCO_IOS_XR not in SUPPORTED_PLATFORMS
 
 
 @activity.defn(name="get_network_device")
@@ -179,6 +185,36 @@ async def mock_perform_candidate_diff(activity_input: DiffActivityInput) -> str:
 async def mock_check_recorded_config_drift(activity_input: CheckRecordedConfigDriftInput) -> bool:
     """Mock check recorded config drift activity."""
     return False
+
+
+async def test_perform_upgrade_limits_image_poll_to_two_attempts() -> None:
+    device = await mock_get_network_device(GetNetworkDeviceInput(device_id="mock_device_uuid"))
+    with patch("nv_config_manager_workflows.stage.mixin.workflow.time", return_value=0.0):
+        workflow_instance = SwitchOSUpgradeWorkflow()
+    execute_activity = AsyncMock(
+        side_effect=[
+            ExecuteZTPOutput(start_time="2026-01-01T00:00:00"),
+            PollImageOutput(running_image="5.18.3"),
+            PollZTPStatusOutput(success=True),
+        ]
+    )
+    with patch(
+        "nv_config_manager_workflows.workflows.os_upgrade.workflow.execute_activity",
+        new=execute_activity,
+    ):
+        await cast(Any, SwitchOSUpgradeWorkflow.perform_upgrade).__wrapped__(
+            workflow_instance,
+            SwitchOSUpgradeWorkflow.PerformUpgradeStageInput(
+                device_data=device.device, desired_firmware="5.18.3"
+            ),
+        )
+
+    ztp_call, image_call, status_call = execute_activity.await_args_list
+    assert image_call.kwargs["retry_policy"].maximum_attempts == 2
+    assert image_call.kwargs["start_to_close_timeout"] == timedelta(hours=1)
+    assert image_call.kwargs["heartbeat_timeout"] == timedelta(minutes=3)
+    assert ztp_call.kwargs["retry_policy"].maximum_attempts == 3
+    assert status_call.kwargs["retry_policy"].maximum_attempts == 3
 
 
 @pytest.mark.asyncio

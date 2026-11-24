@@ -57,16 +57,18 @@ The workflow runs three stages. None require manual approval at the site level.
 
 1. **`get_devices` — Resolve the device list from the configured DCIM.**
 
-   Calls the provider with the supplied site, role, status, tenant, and backup-enabled filters. Supported platforms are Arista EOS, Cumulus Linux, NV-OS, and Juniper Junos. The stage display lists the devices that will be backed up.
+   Calls the provider with the supplied site, role, status, tenant, and backup-enabled filters. Supported platforms are Arista EOS, Cisco IOS XR, Cumulus Linux, Juniper Junos, and NV-OS. The stage display lists the devices that will be backed up.
 
 1. **`perform_backups` — Fan out a child backup per device.**
 
    For each device, the workflow starts a [Configuration Backup](../configuration-backup/index.mdx) child workflow with `trigger=WORKFLOW`. Children run in parallel; the stage display updates as each completes. A child that fails is recorded in the per-device result rather than stopping the run.
 
    These children retain interactive stage-retry behavior, unlike scheduled
-   backups. A failed stage can wait for a manual retry; each child has a
-   15-minute run timeout. Inspect its workflow page rather than expecting every
-   device failure to appear immediately in the site summary.
+   backups. A failed stage waits for a manual retry until the
+   [failed-stage retry window](../workflow-lifecycle/index.mdx#retry) or the
+   child's 15-minute run timeout ends, whichever comes first. Inspect its workflow
+   page rather than expecting every device failure to appear immediately in the
+   site summary.
 
 1. **`format_result` — Aggregate per-device results.**
 

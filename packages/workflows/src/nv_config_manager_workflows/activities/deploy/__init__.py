@@ -31,6 +31,10 @@ from nv_config_manager_workflows.activities.deploy.models import (
     WaitForTenantRenderInput,
     WaitForTenantRenderOutput,
 )
+from nv_config_manager_workflows.activities.deploy.timeouts import (
+    apply_activity_timeout,
+    diff_activity_timeout,
+)
 
 DEPLOY_ACTIVITIES = (
     load_intended_configuration,
@@ -50,7 +54,9 @@ __all__ = [
     "ValidateConfigDiffActivityOutput",
     "WaitForTenantRenderInput",
     "WaitForTenantRenderOutput",
+    "apply_activity_timeout",
     "apply_approved_configuration",
+    "diff_activity_timeout",
     "load_intended_configuration",
     "load_partial_configuration",
     "perform_candidate_diff",

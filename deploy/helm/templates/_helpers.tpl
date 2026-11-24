@@ -1,9 +1,76 @@
+{{- define "nv-config-manager.failedStageRetryTimeoutSeconds" -}}
+{{- $seconds := .Values.temporal.configManagerWorker.failedStageRetryTimeoutSeconds -}}
+{{- /*
+Missing or null, e.g. after helm upgrade --reuse-values from a release that predates
+this key: use the three-hour default, as the services do for an unset INI value.
+*/ -}}
+{{- if kindIs "invalid" $seconds -}}
+{{- $seconds = 10800 -}}
+{{- end -}}
+{{- /*
+Values files decode numbers as float64, which toString renders in exponent form
+from 1e+06 upward. Convert whole floats within the exactly representable integer
+range (2^53) to int64 so they render as decimal digits; fractional and larger
+floats stay floats and fail the check below.
+*/ -}}
+{{- if kindIs "float64" $seconds -}}
+{{- if and (eq $seconds (floor $seconds)) (le $seconds 9007199254740992.0) -}}
+{{- $seconds = int64 $seconds -}}
+{{- end -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*$" (toString $seconds)) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must be a positive integer" -}}
+{{- end -}}
+{{- /*
+365 days, matching MAX_FAILED_STAGE_RETRY_TIMEOUT_SECONDS in the workflows package.
+The value is decimal digits here; more than eight digits always exceeds the limit.
+*/ -}}
+{{- $digits := toString $seconds -}}
+{{- if or (gt (len $digits) 8) (gt (int64 $digits) 31536000) -}}
+{{- fail "temporal.configManagerWorker.failedStageRetryTimeoutSeconds must not exceed 31536000 seconds (365 days)" -}}
+{{- end -}}
+{{- $seconds -}}
+{{- end -}}
+
 {{/*
 Expand the name of the chart.
 */}}
 {{- define "nv-config-manager.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
+
+{{/*
+Historical upstream defaults identify an upgrade migration, not a custom image.
+Keep this old tag fixed when the active binary pin changes in the Dockerfile.
+*/}}
+{{- define "nv-config-manager.oidcProxyCustomImage" -}}
+{{- $legacy := .Values.oidc.proxy.image -}}
+{{- $oldRepository := "quay.io/oauth2-proxy/oauth2-proxy" -}}
+{{- $oldTag := "v7.15.5" -}}
+{{- $repository := $legacy.repository | default $oldRepository -}}
+{{- $tag := $legacy.tag | default $oldTag -}}
+{{- if and (or $legacy.repository $legacy.tag) (not (and (eq $repository $oldRepository) (eq $tag $oldTag))) -}}
+{{- printf "%s:%s" $repository $tag -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "nv-config-manager.oidcProxyImage" -}}
+{{- $custom := include "nv-config-manager.oidcProxyCustomImage" . -}}
+{{- if $custom -}}
+{{- $custom -}}
+{{- else -}}
+{{- $image := deepCopy (.Values.global.images.oidcProxy | default dict) -}}
+{{- if not $image.repository -}}
+{{- /* Follow the project registry when the wrapper repository is unset. */ -}}
+{{- $mainRepository := .Values.global.images.nvConfigManager.repository -}}
+{{- if not (hasSuffix "/nv-config-manager" $mainRepository) -}}
+{{- fail "set global.images.oidcProxy.repository to the CA-refreshed project image; it cannot be inferred from global.images.nvConfigManager.repository" -}}
+{{- end -}}
+{{- $_ := set $image "repository" (printf "%s-oidc-proxy" $mainRepository) -}}
+{{- end -}}
+{{- include "nv-config-manager.image" (dict "root" . "image" $image) -}}
+{{- end -}}
+{{- end -}}
 
 {{/*
 Create chart name and version as used by the chart label.
@@ -58,6 +125,14 @@ disabled, a user-managed Temporal endpoint is required instead.
 {{- else -}}
 {{- required "temporal.client.address is required when temporal.server.enabled=false" .Values.temporal.client.address -}}
 {{- end -}}
+{{- end }}
+
+{{/*
+Resolve the Temporal history shard count while preserving the legacy fallback
+to the number of History service replicas.
+*/}}
+{{- define "nv-config-manager.temporalShardCount" -}}
+{{- default .Values.temporal.services.history.replicas .Values.temporal.numHistoryShards -}}
 {{- end }}
 
 {{/*
@@ -118,6 +193,34 @@ The nats-ready binary embeds 20 GiB; the nats CLI path uses streamMaxBytes.
 {{- else -}}
 21474836480
 {{- end -}}
+{{- end -}}
+
+{{/*
+The NATS CLI parses a 32-bit integer before applying its binary unit suffix.
+Scale large stream limits exactly; never round the configured byte count.
+*/}}
+{{- define "nv-config-manager.natsCliStreamMaxBytes" -}}
+{{- $limit := include "nv-config-manager.localStreamMaxBytes" . | int64 -}}
+{{- $bytes := $limit -}}
+{{- $scale := int64 1 -}}
+{{- $suffix := "" -}}
+{{- range $unit := list "K" "M" "G" "T" -}}
+{{- if gt $bytes 2147483647 -}}
+{{- $bytes = div $bytes 1024 -}}
+{{- $scale = mul $scale 1024 -}}
+{{- $suffix = $unit -}}
+{{- end -}}
+{{- end -}}
+{{- $remainder := mod $limit $scale -}}
+{{- if ne $remainder 0 -}}
+{{- $suggestion := sub $limit $remainder -}}
+{{- $increase := sub $scale $remainder -}}
+{{- if le $limit (sub 9223372036854775807 $increase) -}}
+{{- $suggestion = add $limit $increase -}}
+{{- end -}}
+{{- fail (printf "nautobotNats.natsReady.streamMaxBytes=%d cannot be expressed exactly by the NATS CLI; try nautobotNats.natsReady.streamMaxBytes=%d" $limit $suggestion) -}}
+{{- end -}}
+{{- printf "%d%s" $bytes $suffix -}}
 {{- end -}}
 
 {{/*
@@ -399,7 +502,7 @@ Usage: {{ include "nv-config-manager.authSidecar" (dict "root" . "serviceName" "
 {{- if and $useSpiffe (eq $authMode "jwt") }}
 # SPIFFE Helper -- fetches JWT-SVIDs for outbound service-to-service calls
 - name: spiffe-helper
-  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.8.0" }}
+  image: {{ index $spiffeHelperImage "repository" | default "ghcr.io/spiffe/spiffe-helper" }}:{{ index $spiffeHelperImage "tag" | default "0.12.3" }}
   imagePullPolicy: {{ index $spiffeHelperImage "pullPolicy" | default "IfNotPresent" }}
   args:
     - -config
@@ -496,7 +599,7 @@ Usage: {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" .) | nin
 {{- $spiffe := .root.Values.spiffe | default dict }}
 {{- if and (index $spiffe "enabled") (eq (index $spiffe "authMode" | default "jwt") "jwt") }}
 - name: spiffe-helper
-  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.8.0" }}
+  image: {{ (index $spiffe "helper" | default dict).image.repository | default "ghcr.io/spiffe/spiffe-helper" }}:{{ (index $spiffe "helper" | default dict).image.tag | default "0.12.3" }}
   imagePullPolicy: {{ (index $spiffe "helper" | default dict).image.pullPolicy | default "IfNotPresent" }}
   {{- if .native }}
   restartPolicy: Always
@@ -1014,6 +1117,24 @@ Each secret must have an explicit path configured in values.
 {{- end -}}
 
 {{/*
+Keep optional Vault read-only token failures separate from the DCIM token.
+Kubernetes-only installs retain the installer's existing combined secret.
+*/}}
+{{- define "nv-config-manager.nautobotReadOnlyTokenSecretName" -}}
+{{- $tokenSecretName := .Values.dcim.tokenSecret.name | default "nautobot-token" -}}
+{{- if eq .Values.secrets.method "kubernetes" -}}
+{{- $tokenSecretName -}}
+{{- else -}}
+{{- $readerName := printf "%s-read-only" ($tokenSecretName | trunc 53 | trimSuffix "-") -}}
+{{- if eq $readerName $tokenSecretName -}}
+{{- printf "%s-ro-%s" ($tokenSecretName | trunc 51 | trimSuffix "-") ($tokenSecretName | sha256sum | trunc 8) -}}
+{{- else -}}
+{{- $readerName -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Get a key name from secrets.vault.paths configuration
 Usage: {{ include "nv-config-manager.vault.keyName" (dict "root" . "secret" "nautobot" "key" "token") }}
 */}}
@@ -1518,6 +1639,29 @@ cannot collapse monitors for different releases or clusters onto one name.
 {{- end }}
 
 {{/*
+Name of the method-matched rule on the browser HTTPRoutes. Shared so the rule
+and the BackendTrafficPolicy that targets it by sectionName cannot drift apart.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRuleName" -}}
+safe-methods
+{{- end }}
+
+{{/*
+True when the browser routes should carry a separate method-matched rule for
+the safe-method retry. Requires oauth2-proxy to actually be in the request
+path; the rule itself is plain Gateway API, and each controller attaches its
+own policy to it - a BackendTrafficPolicy on Envoy Gateway, a TrafficPolicy on
+kgateway - so it is emitted for both.
+*/}}
+{{- define "nv-config-manager.browserSafeMethodRetryEnabled" -}}
+{{- $r := .Values.gateway.retry | default dict -}}
+{{- $sm := $r.safeMethods | default dict -}}
+{{- if and .Values.oidc.enabled $r.enabled $sm.enabled -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
 Address of the Prometheus this release deploys, for KEDA's render-autoscaling
 trigger -- empty unless that in-cluster Prometheus is actually what KEDA will
 query.
@@ -1665,6 +1809,20 @@ mcp-auth.ini: |
 {{- $temporalName := include "nv-config-manager.componentName" (dict "root" . "component" "temporal") -}}
 {{- $suffix := .Values.temporal.configManagerWorker.nameSuffix | default "nv-config-manager-worker" -}}
 {{- printf "%s-%s" $temporalName $suffix | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Renders "true" when the NVIDIA Config Manager Temporal worker should serve its
+SDK metrics on a Prometheus endpoint (and a PodMonitor should scrape it), and
+nothing otherwise. Scraping, unlike OTLP push, labels every series with the
+pod's Kubernetes namespace. Port 8000 is already admitted from
+monitoring.prometheus.namespace by the namespace-isolation NetworkPolicy.
+Usage: {{- if include "nv-config-manager.temporalWorkerMetricsEnabled" . }}
+*/}}
+{{- define "nv-config-manager.temporalWorkerMetricsEnabled" -}}
+{{- if and .Values.temporal.enabled .Values.monitoring.enabled .Values.monitoring.podMonitors.enabled -}}
+true
 {{- end -}}
 {{- end }}
 
@@ -2171,6 +2329,139 @@ Fails fast when neither is available so pods never point at a dead OTLP target.
   value: {{ $endpoint | quote }}
 - name: OTEL_SERVICE_NAME
   value: {{ .serviceName | quote }}
+{{- end -}}
+
+{{/*
+Convert a Kubernetes CPU quantity to whole millicores.
+
+Accepts decimal cores ("1", "1.5", "+1"), exponent cores ("1e0", "1.5e0"), and
+millicore quantities ("500m", "1500m"). An exponent and a suffix together,
+such as "1e3m", are not a valid quantity.
+*/}}
+{{- define "nv-config-manager.dhcp.cpuMillicores" -}}
+{{- $raw := . | toString | trim -}}
+{{- if not (regexMatch `^[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)(([eE][+-]?[0-9]+)|m)?$` $raw) -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q is not a valid CPU quantity" $raw) -}}
+{{- end -}}
+{{- if hasSuffix "m" $raw -}}
+{{- $millis := trimSuffix "m" $raw | float64 | ceil | int -}}
+{{- if le $millis 0 -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q must request a positive amount of CPU" $raw) -}}
+{{- end -}}
+{{- $millis -}}
+{{- else -}}
+{{- $millis := mulf ($raw | float64) 1000.0 | ceil | int -}}
+{{- if le $millis 0 -}}
+{{- fail (printf "networkDhcp.resources.dhcp.requests.cpu %q must request a positive amount of CPU" $raw) -}}
+{{- end -}}
+{{- $millis -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Return an explicit multi-threading override, or an empty value when unset.
+
+The chart default is an empty string. A missing key or a null override is
+treated the same way. threadPoolSize may be zero; packetQueueSize may not.
+Context: (dict "root" . "name" "threadPoolSize|packetQueueSize" "allowZero" true)
+*/}}
+{{- define "nv-config-manager.dhcp.threadingOverride" -}}
+{{- $kea := .root.Values.networkDhcp.kea | default dict -}}
+{{- $threading := $kea.multiThreading | default dict -}}
+{{- $raw := "" -}}
+{{- if hasKey $threading .name -}}
+{{- $value := index $threading .name -}}
+{{- /* Values files decode numbers as float64. toString then prints 1000000 as 1e+06, which is not an integer. --set keeps the same number as an int and prints it in decimal. */ -}}
+{{- if or (kindIs "float64" $value) (kindIs "int" $value) (kindIs "int64" $value) -}}
+{{- $number := $value | float64 -}}
+{{- if ne $number (floor $number) -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.%s must be %s" .name (ternary "zero or a positive integer" "a positive integer" .allowZero)) -}}
+{{- end -}}
+{{- $raw = printf "%.0f" $number -}}
+{{- else -}}
+{{- $raw = $value | toString | trim -}}
+{{- end -}}
+{{- end -}}
+{{- if or (eq $raw "") (eq $raw "<no value>") (eq $raw "<nil>") -}}
+{{- "" -}}
+{{- else if not (regexMatch (ternary `^(0|[1-9][0-9]*)$` `^[1-9][0-9]*$` .allowZero) $raw) -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.%s must be %s" .name (ternary "zero or a positive integer" "a positive integer" .allowZero)) -}}
+{{- else -}}
+{{- $raw -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+True when the chart should size workers from the DHCP CPU request.
+
+Accepts a boolean or the strings "true" and "false". A quoted "false" must
+stay off; any other type or string fails the render.
+*/}}
+{{- define "nv-config-manager.dhcp.sizeFromCpuRequest" -}}
+{{- $kea := .Values.networkDhcp.kea | default dict -}}
+{{- $threading := $kea.multiThreading | default dict -}}
+{{- if hasKey $threading "sizeFromCpuRequest" -}}
+{{- $flag := index $threading "sizeFromCpuRequest" -}}
+{{- if or (kindIs "invalid" $flag) (eq ($flag | toString | trim) "<nil>") (eq ($flag | toString | trim) "<no value>") -}}
+{{- else if kindIs "bool" $flag -}}
+{{- if $flag }}true{{ end -}}
+{{- else if kindIs "string" $flag -}}
+{{- $normalized := $flag | trim | lower -}}
+{{- if eq $normalized "true" -}}
+true
+{{- else if ne $normalized "false" -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.sizeFromCpuRequest must be a boolean, got %q" $flag) -}}
+{{- end -}}
+{{- else -}}
+{{- fail (printf "networkDhcp.kea.multiThreading.sizeFromCpuRequest must be a boolean, got %q" ($flag | toString)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Kea worker count. An empty threadPoolSize keeps Kea auto-detection (0) unless
+sizeFromCpuRequest is set, in which case the DHCP CPU request is rounded up
+to at least one thread. Setting both is ambiguous, so the render fails; an
+explicit threadPoolSize of 0 counts as set.
+*/}}
+{{- define "nv-config-manager.dhcp.threadPoolSize" -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "threadPoolSize" "allowZero" true) -}}
+{{- $sizeFromCpu := include "nv-config-manager.dhcp.sizeFromCpuRequest" . -}}
+{{- if and (ne $override "") $sizeFromCpu -}}
+{{- fail "networkDhcp.kea.multiThreading.sizeFromCpuRequest and threadPoolSize are mutually exclusive; set only one" -}}
+{{- else if ne $override "" -}}
+{{- $override -}}
+{{- else if $sizeFromCpu -}}
+{{- $resources := .Values.networkDhcp.resources | default dict -}}
+{{- $dhcpResources := index $resources "dhcp" | default dict -}}
+{{- $requests := index $dhcpResources "requests" | default dict -}}
+{{- $cpu := index $requests "cpu" -}}
+{{- if or (not (hasKey $requests "cpu")) (kindIs "invalid" $cpu) (eq ($cpu | toString | trim) "") (eq ($cpu | toString | trim) "<nil>") (eq ($cpu | toString | trim) "<no value>") -}}
+{{- fail "networkDhcp.resources.dhcp.requests.cpu is required when networkDhcp.kea.multiThreading.sizeFromCpuRequest is true" -}}
+{{- end -}}
+{{- $millis := include "nv-config-manager.dhcp.cpuMillicores" $cpu | int -}}
+{{- div (add $millis 999) 1000 -}}
+{{- else -}}
+{{- 0 -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Kea packet queue. An empty packetQueueSize keeps 64 while the pool is
+auto-detected, and otherwise defaults to eight packets per worker.
+*/}}
+{{- define "nv-config-manager.dhcp.packetQueueSize" -}}
+{{- $override := include "nv-config-manager.dhcp.threadingOverride" (dict "root" . "name" "packetQueueSize" "allowZero" false) -}}
+{{- if ne $override "" -}}
+{{- $override -}}
+{{- else -}}
+{{- $threads := include "nv-config-manager.dhcp.threadPoolSize" . | int -}}
+{{- if eq $threads 0 -}}
+{{- 64 -}}
+{{- else -}}
+{{- mul $threads 8 -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

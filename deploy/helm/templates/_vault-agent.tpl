@@ -50,6 +50,8 @@ Vault Agent Injector annotations (merge under pod template metadata.annotations)
 */}}
 {{- define "nv-config-manager.vaultAgent.injectorAnnotations" -}}
 {{- if eq .Values.secrets.method "vault-agent" }}
+{{- /* The injector reads the agent ConfigMap at pod admission, so INI template changes need a rollout. */}}
+checksum/vault-agent-ini: {{ include "nv-config-manager.vaultAgent.configManagerIniTplFile" . | sha256sum }}
 vault.hashicorp.com/agent-inject: "true"
 vault.hashicorp.com/agent-configmap: {{ printf "%s-vault-agent" (include "nv-config-manager.fullname" .) }}
 vault.hashicorp.com/agent-pre-populate: {{ .Values.secrets.vaultAgent.prePopulate | default true | toString | quote }}
@@ -457,11 +459,22 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           {{- end }}
 
           # -----------------------------------------------------------------
+          # Temporal Worker Configuration
+          # -----------------------------------------------------------------
+          [temporal.worker]
+          max_cached_workflows = {{ $root.Values.temporal.configManagerWorker.maxCachedWorkflows }}
+          max_concurrent_workflow_tasks = {{ $root.Values.temporal.configManagerWorker.maxConcurrentWorkflowTasks }}
+          failed_stage_retry_timeout_seconds = {{ include "nv-config-manager.failedStageRetryTimeoutSeconds" $root }}
+
+          # -----------------------------------------------------------------
           # Device Credentials (for Temporal workflows)
           # -----------------------------------------------------------------
           [device]
           username = {{ include "nv-config-manager.vaultAgent.ctKv2Key" (dict "var" "network" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "network" "key" "user"))) }}
           password = {{ include "nv-config-manager.vaultAgent.ctKv2Key" (dict "var" "network" "key" (include "nv-config-manager.vault.keyName" (dict "root" $root "secret" "network" "key" "password"))) }}
+          {{- if $root.Values.localDev.mockDevices }}
+          mock = true
+          {{- end }}
 
           {{- if $root.Values.temporal.redfish.enabled }}
           # -----------------------------------------------------------------
@@ -529,6 +542,8 @@ nv-config-manager.ini body (consul-template): must stay in sync with vault-secre
           [dhcp.kea]
           server = {{ $dhcpName }}-internal
           port = 8000
+          thread_pool_size = {{ include "nv-config-manager.dhcp.threadPoolSize" $root }}
+          packet_queue_size = {{ include "nv-config-manager.dhcp.packetQueueSize" $root }}
 
           [dhcp.lease_db]
           local = false

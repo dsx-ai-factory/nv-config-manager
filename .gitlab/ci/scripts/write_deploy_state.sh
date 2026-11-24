@@ -11,7 +11,7 @@
 #          below): promote.env from test-promote-build (PR_NUM, PR_SHA),
 #          chart.env from test-promote-chart (PROMOTE_VERSION,
 #          BASELINE_REVISION, ENV_BRANCH_REVISION), and digests.env from
-#          test-promote-push-images (DIGEST_<IMAGE> x9)
+#          test-promote-push-images (DIGEST_<IMAGE> x10)
 # Requires (eval of test_env_config.sh): NVCM_ENV, NVCM_ENV_BRANCH,
 #          NVCM_ENV_NAMESPACE, NVCM_ENV_RELEASE_NAME, NVCM_ENV_STATE_DIR,
 #          NVCM_ENV_ARGOCD_APPLICATION, NVCM_ENV_BASELINE_VALUES,
@@ -70,6 +70,7 @@ DIGEST_NV_CONFIG_MANAGER_NATS_READY="$(attest DIGEST_NV_CONFIG_MANAGER_NATS_READ
 DIGEST_NV_CONFIG_MANAGER_TEMPORAL="$(attest DIGEST_NV_CONFIG_MANAGER_TEMPORAL "$digest_attest")"
 DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP="$(attest DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP "$digest_attest")"
 DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI="$(attest DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI "$digest_attest")"
+DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY="$(attest DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY "$digest_attest")"
 
 if [[ -n "${NV_CONFIG_MANAGER_VALUES_REPO_URL:-}" ]]; then
     # A full URL override is used as-is (provide any auth it needs in the URL).
@@ -87,7 +88,7 @@ else
 fi
 
 state_file="${NVCM_ENV_STATE_DIR}/deploy-state.yaml"
-occupant="${GITLAB_USER_LOGIN:-${GITLAB_USER_NAME:-ci}}"
+OCCUPANT="${GITLAB_USER_LOGIN:-${GITLAB_USER_NAME:-ci}}"
 deploy_attest="${CI_PROJECT_DIR}/deploy.env"
 
 write_deploy_attestation() {
@@ -134,9 +135,9 @@ if [[ "$current_env_rev" != "$ENV_BRANCH_REVISION" ]]; then
 fi
 
 # Honor a manual hold: an occupant who set hold: true is protecting the slot.
-current_hold=$(yq -r '.hold // false' "$state_file")
+CURRENT_HOLD=$(yq -r '.hold // false' "$state_file")
 current_occupant=$(yq -r '.occupant // "none"' "$state_file")
-if [[ "$current_hold" = "true" && "$current_occupant" != "$occupant" ]]; then
+if [[ "$CURRENT_HOLD" = "true" && "$current_occupant" != "$OCCUPANT" ]]; then
     echo "ERROR: ${NVCM_ENV} is on hold by '${current_occupant}' (deploy-state hold: true)." >&2
     echo "Coordinate with them or have them release the hold before promoting."
     exit 1
@@ -147,18 +148,19 @@ fi
 # Consuming that exact SHA - rather than re-resolving origin/main here - keeps
 # the deployed baseline identical to the one that was validated even if main
 # moved in between. Pinning (vs tracking main) also makes rollback exact.
-baseline_rev="$BASELINE_REVISION"
+BASELINE_REV="$BASELINE_REVISION"
 
 export NVCM_ENV NVCM_ENV_NAMESPACE NVCM_ENV_BRANCH NVCM_ENV_RELEASE_NAME \
-    NVCM_CHART_REPO PROMOTE_VERSION PR_SHA PR_NUM occupant baseline_rev \
-    current_hold \
+    NVCM_CHART_REPO PROMOTE_VERSION PR_SHA PR_NUM OCCUPANT BASELINE_REV \
+    CURRENT_HOLD \
     DIGEST_NV_CONFIG_MANAGER DIGEST_NV_CONFIG_MANAGER_UI \
     DIGEST_NV_CONFIG_MANAGER_KEA DIGEST_NV_CONFIG_MANAGER_KEA_ADMIN \
     DIGEST_NV_CONFIG_MANAGER_NAUTOBOT DIGEST_NV_CONFIG_MANAGER_NATS_READY \
     DIGEST_NV_CONFIG_MANAGER_TEMPORAL DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP \
-    DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI
-updated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-export updated_at
+    DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI \
+    DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY
+UPDATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export UPDATED_AT
 
 trap 'rm -f "${state_file}.new" "${state_file}.merged"' EXIT
 
@@ -169,7 +171,7 @@ yq -n '
   .releaseName = strenv(NVCM_ENV_RELEASE_NAME) |
   .chartRepo = strenv(NVCM_CHART_REPO) |
   .chartVersion = strenv(PROMOTE_VERSION) |
-  .baselineRevision = strenv(baseline_rev) |
+  .baselineRevision = strenv(BASELINE_REV) |
   .images.nvConfigManager = strenv(DIGEST_NV_CONFIG_MANAGER) |
   .images.nvConfigManagerUi = strenv(DIGEST_NV_CONFIG_MANAGER_UI) |
   .images.kea = strenv(DIGEST_NV_CONFIG_MANAGER_KEA) |
@@ -179,11 +181,12 @@ yq -n '
   .images.temporalServer = strenv(DIGEST_NV_CONFIG_MANAGER_TEMPORAL) |
   .images.temporalBootstrap = strenv(DIGEST_NV_CONFIG_MANAGER_TEMPORAL_BOOTSTRAP) |
   .images.temporalUi = strenv(DIGEST_NV_CONFIG_MANAGER_TEMPORAL_UI) |
+  .images.oidcProxy = strenv(DIGEST_NV_CONFIG_MANAGER_OIDC_PROXY) |
   .sourceSHA = strenv(PR_SHA) |
   .pr = (strenv(PR_NUM) | tonumber) |
-  .occupant = strenv(occupant) |
-  .updatedAt = strenv(updated_at) |
-  .hold = (strenv(current_hold) == "true")
+  .occupant = strenv(OCCUPANT) |
+  .updatedAt = strenv(UPDATED_AT) |
+  .hold = (strenv(CURRENT_HOLD) == "true")
 ' > "${state_file}.new"
 
 # Keep the leading DO-NOT-HAND-EDIT comment header from the existing file.
@@ -205,22 +208,22 @@ rm -f "${state_file}.new"
 #
 # Committing it here, alongside deploy-state.yaml, is what keeps rollback exact:
 # re-committing a prior deploy-state also restores the baseline it was rendered
-# against, with no dependency on main's history. baseline_rev stays in
+# against, with no dependency on main's history. BASELINE_REV stays in
 # deploy-state as provenance recording where this snapshot came from.
 baseline_files=("${NVCM_ENV_BASELINE_VALUES}")
 if [[ -n "${NVCM_ENV_SHARED_VALUES:-}" ]]; then
     baseline_files+=("$NVCM_ENV_SHARED_VALUES")
 fi
 for file in "${baseline_files[@]}"; do
-    if ! git cat-file -e "${baseline_rev}:${file}" 2>/dev/null; then
-        echo "ERROR: ${baseline_rev} does not contain ${file}." >&2
+    if ! git cat-file -e "${BASELINE_REV}:${file}" 2>/dev/null; then
+        echo "ERROR: ${BASELINE_REV} does not contain ${file}." >&2
         echo "Refusing to deploy values that were not validated by the render gate."
         exit 1
     fi
 done
 for file in "${baseline_files[@]}"; do
     mkdir -p "$(dirname "$file")"
-    git show "${baseline_rev}:${file}" > "$file"
+    git show "${BASELINE_REV}:${file}" > "$file"
 done
 # Stage before comparing so a newly introduced overlay is included too.
 git add "$state_file" "${baseline_files[@]}"
@@ -234,7 +237,7 @@ fi
 echo "Deploy-state diff:"
 git diff --cached -- "$state_file"
 if ! git diff --cached --quiet -- "${baseline_files[@]}"; then
-    echo "Baseline snapshots diff (from main @ ${baseline_rev}):"
+    echo "Baseline snapshots diff (from main @ ${BASELINE_REV}):"
     git diff --cached --stat -- "${baseline_files[@]}"
 fi
 
@@ -248,8 +251,8 @@ fi
 git commit -m "[nvcm CI] Promote ${source_label} (${PROMOTE_VERSION}) to ${NVCM_ENV}
 
 Source commit: ${PR_SHA}
-Baseline: ${baseline_rev}
-Triggered by: ${occupant}
+Baseline: ${BASELINE_REV}
+Triggered by: ${OCCUPANT}
 Pipeline: ${CI_PIPELINE_URL}"
 git push origin "HEAD:refs/heads/${NVCM_ENV_BRANCH}"
 write_deploy_attestation "$(git rev-parse HEAD)"

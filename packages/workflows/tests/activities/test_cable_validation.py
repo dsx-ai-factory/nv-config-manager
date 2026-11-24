@@ -19,12 +19,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
+import responses
 from nv_config_manager_dcim import CableStatus
 from nv_config_manager_dcim.workflow_models import InterfaceData, Platform
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from nv_config_manager_workflows.activities import cable_validation
 from nv_config_manager_workflows.activities.cable_validation import (
-    CABLE_STATUS_UPDATE_CONCURRENCY,
     CABLE_VALIDATION_ACTIVITIES,
     CableValidationResultData,
     DecorateResultActivityInput,
@@ -44,6 +46,7 @@ from nv_config_manager_workflows.activities.cable_validation import (
 from nv_config_manager_workflows.activities.cable_validation import (
     activities as cable_validation_activities,
 )
+from nv_config_manager_workflows.clients.device.cumulus import CumulusConnection
 from nv_config_manager_workflows.registration import activity_name
 
 
@@ -121,6 +124,61 @@ async def test_validation_classifies_cable_statuses() -> None:
         "link-state-only": CableStatus.CONNECTED,
     }
     assert set(result.interfaces) == {"down", "mismatch", "ignored-no-neighbor"}
+
+
+@pytest.mark.asyncio
+@responses.activate
+@pytest.mark.parametrize("firmware", ["5.14.0", "5.15.0"])
+@pytest.mark.parametrize(("family", "address"), [("ipv4", "192.0.2.10"), ("ipv6", "2001:db8::10")])
+@pytest.mark.parametrize(
+    ("intended_mac", "expected_status"),
+    [("00-11-22-33-44-55", CableStatus.CONNECTED), ("00-11-22-33-44-66", CableStatus.INVALID)],
+)
+async def test_cumulus_neighbors_support_mac_matching_without_lldp_or_fdb(
+    firmware: str, family: str, address: str, intended_mac: str, expected_status: CableStatus
+) -> None:
+    conn = CumulusConnection(
+        "192.0.2.1", settings={"username": "admin", "passwords": ["password"], "mock": False}
+    )
+    base = "https://192.0.2.1:8765/nvue_v1"
+    responses.get(f"{base}/system", json={"version": {"product-release": firmware}})
+    responses.get(f"{base}/interface", json={"swp1": {"type": "swp"}})
+    neighbors = {address: {"lladdr": "00:11:22:33:44:55"}}
+    if firmware == "5.14.0":
+        responses.get(f"{base}/interface/swp1/ip/neighbor", json={family: neighbors})
+    else:
+        for current_family in ("ipv4", "ipv6"):
+            responses.get(
+                f"{base}/interface/swp1/{current_family}/neighbor",
+                json=neighbors if current_family == family else {},
+            )
+
+    result = await validate_device_neighbors(
+        ValidateDeviceNeighborsInput(
+            device=NetworkDeviceData(
+                id="device-1",
+                name="leaf-1",
+                role="leaf",
+                site="site-1",
+                device_type="switch",
+                platform=Platform.CUMULUS_LINUX,
+                primary_ip4="192.0.2.1",
+                primary_ip6=None,
+            ),
+            intended=DeviceNeighborData(
+                neighbors={
+                    "swp1": InterfaceNeighborData(
+                        device_name="host-1", device_role="server", name="eth0", macs=[intended_mac]
+                    )
+                }
+            ),
+            actual=DeviceNeighborData(link_states={"swp1": True}),
+            mac_table=DeviceMacTable(),
+            arp_table=conn.get_arp_table(),
+        )
+    )
+
+    assert result.cable_statuses == {"swp1": expected_status}
 
 
 class TestPortDescriptionValidity:
@@ -270,6 +328,46 @@ async def test_update_cable_statuses_is_noop_for_unsupported_provider(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure_point", ["client", "provider"])
+async def test_update_cable_statuses_keeps_permanent_errors_manually_retryable(
+    monkeypatch: pytest.MonkeyPatch, failure_point: str
+) -> None:
+    failure = ApplicationError("DCIM unavailable", "detail", type="DCIMError", non_retryable=True)
+
+    class FailingClient:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def update_cable_statuses(self, updates: Any) -> None:
+            raise failure
+
+    def get_client() -> Any:
+        if failure_point == "client":
+            raise failure
+        return FailingClient()
+
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", get_client)
+
+    with pytest.raises(ApplicationError) as raised:
+        await update_cable_statuses(
+            UpdateCableStatusesInput(
+                device_id="device-1",
+                cable_statuses={"Ethernet1/1": CableStatus.CONNECTED},
+                workflow_id="workflow-1",
+            )
+        )
+
+    assert raised.value.non_retryable is False
+    assert raised.value.type == "DCIMError"
+    assert raised.value.message == "DCIM unavailable"
+    assert raised.value.details == ("detail",)
+    assert raised.value.__cause__ is failure
+
+
+@pytest.mark.asyncio
 async def test_update_cable_statuses_passes_workflow_provenance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -312,13 +410,12 @@ async def test_update_cable_statuses_passes_workflow_provenance(
 
 
 @pytest.mark.asyncio
-async def test_update_cable_statuses_writes_concurrently(
+async def test_bulk_only_provider_receives_all_changes_in_one_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class SupportedClient:
         def __init__(self) -> None:
-            self.active = 0
-            self.maximum_active = 0
+            self.calls: list[Any] = []
 
         async def __aenter__(self) -> Any:
             return self
@@ -326,11 +423,8 @@ async def test_update_cable_statuses_writes_concurrently(
         async def __aexit__(self, *args: object) -> None:
             return None
 
-        async def update_cable_status(self, update: Any) -> None:
-            self.active += 1
-            self.maximum_active = max(self.maximum_active, self.active)
-            await asyncio.sleep(0)
-            self.active -= 1
+        async def update_cable_statuses(self, updates: Any) -> None:
+            self.calls.append(updates)
 
     client = SupportedClient()
     monkeypatch.setattr(cable_validation_activities, "get_dcim_client", lambda: client)
@@ -338,15 +432,120 @@ async def test_update_cable_statuses_writes_concurrently(
     await update_cable_statuses(
         UpdateCableStatusesInput(
             device_id="device-1",
-            cable_statuses={
-                f"Ethernet1/{index}": CableStatus.CONNECTED
-                for index in range(CABLE_STATUS_UPDATE_CONCURRENCY * 2)
-            },
+            cable_statuses={f"Ethernet1/{index}": CableStatus.CONNECTED for index in range(500)},
             workflow_id="workflow-1",
         )
     )
 
-    assert client.maximum_active == CABLE_STATUS_UPDATE_CONCURRENCY
+    assert len(client.calls) == 1
+    assert len(client.calls[0]) == 500
+    assert {update.interface_name for update in client.calls[0]} == {
+        f"Ethernet1/{index}" for index in range(500)
+    }
+    assert all(
+        update.device_id == "device-1"
+        and update.workflow_id == "workflow-1"
+        and update.status == CableStatus.CONNECTED
+        for update in client.calls[0]
+    )
+
+
+@pytest.mark.asyncio
+async def test_single_update_provider_keeps_ten_concurrent_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    active = 0
+    maximum_active = 0
+
+    # Use a concrete class so the optional bulk capability is absent.
+    class SingleClient:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def update_cable_status(self, update: Any) -> None:
+            nonlocal active, maximum_active
+            active += 1
+            maximum_active = max(maximum_active, active)
+            await asyncio.sleep(0)
+            active -= 1
+
+    client = SingleClient()
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", lambda: client)
+    await update_cable_statuses(
+        UpdateCableStatusesInput(
+            device_id="device-1",
+            workflow_id="workflow-1",
+            cable_statuses={f"Ethernet1/{index}": CableStatus.CONNECTED for index in range(30)},
+        )
+    )
+    assert maximum_active == 10
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finish", ["success", "error", "cancel"])
+async def test_persistence_heartbeats_continue_and_stop_with_the_activity(
+    monkeypatch: pytest.MonkeyPatch, finish: str
+) -> None:
+    environment = ActivityEnvironment()
+    heartbeats: list[tuple[Any, ...]] = []
+    environment.on_heartbeat = lambda *details: heartbeats.append(details)
+    release = asyncio.Event()
+    failure = ValueError("provider failed")
+
+    class BulkClient:
+        async def __aenter__(self) -> Any:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def update_cable_statuses(self, updates: Any) -> None:
+            await release.wait()
+            if finish == "error":
+                raise failure
+
+    monkeypatch.setattr(cable_validation_activities, "get_dcim_client", BulkClient)
+    monkeypatch.setattr(
+        cable_validation_activities, "_CABLE_STATUS_HEARTBEAT_INTERVAL_SECONDS", 0.01
+    )
+    task = asyncio.create_task(
+        environment.run(
+            update_cable_statuses,
+            UpdateCableStatusesInput(
+                device_id="device-1",
+                workflow_id="workflow-1",
+                cable_statuses={"Ethernet1/1": CableStatus.CONNECTED},
+            ),
+        )
+    )
+    try:
+        async with asyncio.timeout(2):
+            while len(heartbeats) < 2:
+                await asyncio.sleep(0.005)
+        assert heartbeats[-1] == ({"device_id": "device-1", "interface_count": 1},)
+        if finish == "cancel":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            release.set()
+            if finish == "error":
+                with pytest.raises(ValueError) as raised:
+                    await task
+                assert raised.value is failure
+            else:
+                await task
+        count = len(heartbeats)
+        await asyncio.sleep(0.03)
+        assert len(heartbeats) == count
+    finally:
+        if not task.done():
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
 
 
 @pytest.mark.asyncio

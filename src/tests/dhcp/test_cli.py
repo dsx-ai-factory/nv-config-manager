@@ -23,9 +23,9 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import click
 import pytest
-from aiohttp import ClientError
+from aiohttp import ClientConnectionError, ClientError, ClientResponseError
 
-from nv_config_manager.dcim import DCIMReadCancelledError
+from nv_config_manager.dcim import DCIMConnectivityError, DCIMReadCancelledError
 from nv_config_manager.dhcp import cli
 from nv_config_manager.dhcp.kea import KeaException
 from nv_config_manager.dhcp.metrics import (
@@ -1089,6 +1089,113 @@ async def test_refresh_loop_fails_a_one_shot_run_whose_reads_were_cancelled() ->
 
     # A failed one-shot run is not a skipped periodic cycle.
     assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.READ_CANCELLED) == before
+
+
+def _server_error(status: int) -> ClientResponseError:
+    return ClientResponseError(request_info=MagicMock(), history=(), status=status, message="error")
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _server_error(500),
+        _server_error(503),
+        TimeoutError(),
+        ClientConnectionError("connection refused"),
+        DCIMConnectivityError("unreachable"),
+    ],
+    ids=["500", "503", "timeout", "connection", "provider-connectivity"],
+)
+async def test_refresh_reports_a_dcim_it_could_not_reach_as_unavailable(
+    error: BaseException,
+) -> None:
+    """A database failover answers 500s and timeouts for a minute or two, then recovers."""
+    kea_client = MagicMock()
+    kea_client.get_config = AsyncMock(return_value=[{"arguments": {}}])
+    redis_client = MagicMock()
+    redis_client.persist_kea_config = AsyncMock()
+
+    with (
+        patch.object(cli, "generate_config", AsyncMock(side_effect=error)),
+        pytest.raises(DCIMConnectivityError),
+    ):
+        await cli._refresh_kea_configuration_async(
+            MagicMock(), kea_client, redis_client, 4, check=False
+        )
+
+    redis_client.persist_kea_config.assert_not_awaited()
+
+
+async def test_refresh_does_not_report_a_dcim_client_error_as_unavailable() -> None:
+    """A rejected request fails identically every cycle, so it must still restart the pod."""
+    kea_client = MagicMock()
+    kea_client.get_config = AsyncMock(return_value=[{"arguments": {}}])
+
+    with (
+        patch.object(cli, "generate_config", AsyncMock(side_effect=_server_error(400))),
+        pytest.raises(ClientResponseError),
+    ):
+        await cli._refresh_kea_configuration_async(
+            MagicMock(), kea_client, MagicMock(), 4, check=False
+        )
+
+
+async def test_refresh_does_not_blame_the_dcim_for_a_kea_timeout() -> None:
+    """Kea raises the same timeout type; only a failure reading the DCIM is classified."""
+    kea_client = MagicMock()
+    kea_client.get_config = AsyncMock(return_value=[{"arguments": {}}])
+    kea_client.test_config = AsyncMock(side_effect=TimeoutError())
+
+    with (
+        patch.object(cli, "generate_config", AsyncMock(return_value=DESIRED_CONFIG)),
+        pytest.raises(TimeoutError),
+    ):
+        await cli._refresh_kea_configuration_async(
+            MagicMock(), kea_client, MagicMock(), 4, check=False
+        )
+
+
+async def test_refresh_loop_skips_a_cycle_while_the_dcim_is_unavailable() -> None:
+    """The crash this replaces: a DCIM failover restarted the pod into a CrashLoopBackOff."""
+    refresh = AsyncMock(side_effect=[DCIMConnectivityError("500 Internal Server Error"), True])
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.UNAVAILABLE)
+
+    async with _patched_refresh_loop(refresh) as sleep:
+        await cli._refresh_loop_async(4, check=False, refresh_interval=300)
+
+    # Not retried within the cycle: a failover outlasts any short retry.
+    assert refresh.await_count == 2
+    sleep.assert_any_await(300)
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.UNAVAILABLE) == before + 1
+
+
+async def test_refresh_loop_redacts_a_provider_connectivity_error_it_skips(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A provider raises this type directly, so its message never went through redaction."""
+    refresh = AsyncMock(
+        side_effect=[DCIMConnectivityError("connect failed: password=hunter2"), True]
+    )
+
+    async with _patched_refresh_loop(refresh):
+        with caplog.at_level(logging.ERROR):
+            await cli._refresh_loop_async(4, check=False, refresh_interval=300)
+
+    skip_logs = [r.getMessage() for r in caplog.records if "DCIM was unavailable" in r.getMessage()]
+    assert skip_logs
+    assert all("hunter2" not in message for message in skip_logs)
+
+
+async def test_refresh_loop_fails_a_one_shot_run_while_the_dcim_is_unavailable() -> None:
+    """Without an interval there is no later cycle to recover in, so it must surface."""
+    refresh = AsyncMock(side_effect=DCIMConnectivityError("500 Internal Server Error"))
+    before = _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.UNAVAILABLE)
+
+    async with _patched_refresh_loop(refresh):
+        with pytest.raises(DCIMConnectivityError):
+            await cli._refresh_loop_async(4, check=False, refresh_interval=0)
+
+    assert _counter_value(DHCP_QUERY_ERRORS, error_type=QueryErrorType.UNAVAILABLE) == before
 
 
 async def test_refresh_check_mode_reports_invalid_config() -> None:

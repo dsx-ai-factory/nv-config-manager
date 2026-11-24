@@ -28,7 +28,7 @@ import pytest
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.exceptions import ApplicationError, ChildWorkflowError
-from temporalio.worker import Worker
+from temporalio.worker import Replayer, Worker
 
 from .cable_validation_data import (
     DEVICE_CONNECTION_DATA_MAC_TABLE,
@@ -50,6 +50,7 @@ with workflow.unsafe.imports_passed_through():
         DecorateResultActivityOutput,
         InterfaceNeighborData,
         UpdateCableStatusesInput,
+        ValidateDeviceNeighborsInput,
         ValidateDeviceNeighborsResult,
         decorate_result,
         format_device_validation_result,
@@ -71,6 +72,7 @@ with workflow.unsafe.imports_passed_through():
     from nv_config_manager_workflows.decorators import run_nv_config_manager_workflow
     from nv_config_manager_workflows.stage import StageRuntimeFailure
     from nv_config_manager_workflows.workflows.cable_validation import (
+        CABLE_STATUS_RETRY_PATCH_ID,
         CABLE_STATUS_UPDATE_PATCH_ID,
         CABLE_VALIDATION_CHILD_TIMEOUT_PATCH_ID,
         DCIM_PERSISTENCE_PENDING_MESSAGE,
@@ -83,6 +85,12 @@ with workflow.unsafe.imports_passed_through():
     )
 
     from .conftest import mock_publish_nats
+
+
+def test_report_stage_initially_fails_fast() -> None:
+    with patch("temporalio.workflow.time", return_value=0.0):
+        instance = DeviceCableValidationWorkflow()
+    assert instance.get_stage_by_name("validate_connections").retryable is False
 
 
 @pytest.mark.asyncio
@@ -142,12 +150,62 @@ async def test_device_report_stage_waits_for_persistence(patch_enabled: Any, def
     ):
         await DeviceCableValidationWorkflow.validate_connections(instance, stage_input)
 
-    patched.assert_called_once_with(CABLE_STATUS_UPDATE_PATCH_ID)
+    assert patched.call_args_list == [call(CABLE_STATUS_UPDATE_PATCH_ID)] + (
+        [call(CABLE_STATUS_RETRY_PATCH_ID)] if patch_enabled and not defer else []
+    )
+    assert instance.get_stage_by_name("validate_connections").retryable is (
+        patch_enabled and not defer
+    )
     assert instance.persist_cable_statuses_after_report.await_count == int(
         patch_enabled and not defer
     )
     assert instance.set_stage_state.call_args == call("validate_connections", "COMPLETE")
     assert update_cable_statuses not in calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("defer", [False, True])
+async def test_report_generation_failure_does_not_wait_for_manual_retry(defer: bool) -> None:
+    instance = MagicMock(spec=DeviceCableValidationWorkflow)
+    instance.terminate_on_failure = False
+    # A previous persistence retry must not make report generation retryable.
+    instance.get_stage_by_name.return_value.retryable = True
+    stage_input = DeviceCableValidationWorkflow.ValidateConnectionsStageInput(
+        device=NetworkDeviceData.model_construct(id="device-1", name="leaf-1"),
+        intended=DeviceNeighborData(),
+        actual=DeviceNeighborData(),
+        mac_table=DeviceMacTable(),
+        arp_table=DeviceArpTable(),
+        defer_cable_status_updates=defer,
+    )
+    with patch(
+        "temporalio.workflow.execute_activity", side_effect=ApplicationError("report failed")
+    ):
+        with pytest.raises(StageRuntimeFailure, match="report failed"):
+            await DeviceCableValidationWorkflow.validate_connections(instance, stage_input)
+    instance.persist_cable_statuses_after_report.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_persistence_passes_a_large_device_to_one_provider_activity() -> None:
+    update = UpdateCableStatusesInput(
+        device_id="device-1",
+        cable_statuses={f"Ethernet1/{index}": CableStatus.CONNECTED for index in range(500)},
+        workflow_id="workflow-1",
+    )
+    with (
+        patch("temporalio.workflow.patched", return_value=True),
+        patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as execute,
+    ):
+        await SiteCableValidationWorkflow.persist_cable_statuses(MagicMock(), [update])
+
+    execute.assert_awaited_once_with(
+        update_cable_statuses,
+        update,
+        start_to_close_timeout=timedelta(hours=1),
+        heartbeat_timeout=timedelta(minutes=2),
+        retry_policy=ANY,
+    )
 
 
 @pytest.mark.asyncio
@@ -314,6 +372,8 @@ async def test_dcim_persistence_failure_preserves_report_and_propagates_error() 
     assert output.display.startswith(markdown)
     assert "persistence failed" in output.display
     assert "partially updated" in output.display
+    assert "use Retry on this stage if available" in output.display
+    assert "otherwise rerun cable validation" in output.display
     assert "still running" not in output.display
     assert report.display == markdown
 
@@ -336,7 +396,7 @@ async def test_site_records_child_timeout_and_continues(timeout_enabled: Any) ->
         started_event_id=2,
         retry_state=None,
     )
-    error.__cause__ = ApplicationError("Device validation exceeded ten minutes")
+    error.__cause__ = ApplicationError("Device validation exceeded its execution deadline")
     child.set_exception(error)
     with (
         patch(
@@ -357,10 +417,10 @@ async def test_site_records_child_timeout_and_continues(timeout_enabled: Any) ->
             instance, SiteCableValidationWorkflow.ValidateDevicesStageInput(devices=[device])
         )
     assert start_child.call_args.kwargs["execution_timeout"] == (
-        timedelta(minutes=10) if timeout_enabled else None
+        timedelta(minutes=30) if timeout_enabled else None
     )
     assert start_child.call_args.args[1].defer_cable_status_updates is True
-    assert result.failed_devices == {"leaf-1": "Device validation exceeded ten minutes"}
+    assert result.failed_devices == {"leaf-1": "Device validation exceeded its execution deadline"}
     assert result.devices == {}
 
 
@@ -2070,6 +2130,103 @@ async def test_cable_validation_workflow_hostname_mismatch(env: Any) -> None:
         )
         assert EXCEL_LINK_PREFIX in format_display
         assert format_display.endswith(EXPECTED_CABLE_TABLE)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history_version", ["released", "current"])
+async def test_persistence_retry_and_history_replay(
+    env: Any, monkeypatch: pytest.MonkeyPatch, history_version: str
+) -> None:
+    arp_calls = 0
+    persistence_calls = 0
+    persistence_failures = 0
+    original_patched = workflow.patched
+
+    def patched(patch_id: str) -> bool:
+        # Simulate pre-change code without recording the new patch marker.
+        if history_version == "released" and patch_id == CABLE_STATUS_RETRY_PATCH_ID:
+            return False
+        return original_patched(patch_id)
+
+    monkeypatch.setattr(workflow, "patched", patched)
+
+    @activity.defn(name="get_device_arp_table")
+    async def collect_arp(device: NetworkDeviceData) -> DeviceArpTable:
+        nonlocal arp_calls
+        arp_calls += 1
+        return cast(DeviceArpTable, await mock_get_device_arp_table(device))
+
+    @activity.defn(name="update_cable_statuses")
+    async def persist_statuses(activity_input: UpdateCableStatusesInput) -> None:
+        nonlocal persistence_calls, persistence_failures
+        persistence_calls += 1
+        assert len(activity_input.cable_statuses) == 51
+        persistence_failures += 1
+        if persistence_failures <= 3:
+            raise ApplicationError("temporary DCIM request timeout", type="TimeoutError")
+
+    @activity.defn(name="validate_device_neighbors")
+    async def validate_many_statuses(
+        activity_input: ValidateDeviceNeighborsInput,
+    ) -> ValidateDeviceNeighborsResult:
+        result = await validate_device_neighbors(activity_input)
+        result.cable_statuses = {
+            f"Ethernet1/{index:03d}": CableStatus.CONNECTED for index in range(51)
+        }
+        return result
+
+    task_queue = str(uuid.uuid4())
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[DeviceCableValidationWorkflow],
+        activities=[
+            mock_get_device_actual_neighbors_valid,
+            mock_get_device_intended_neighbors_valid,
+            validate_many_statuses,
+            persist_statuses,
+            decorate_result,
+            mock_get_device_mac_table,
+            collect_arp,
+            mock_publish_nats,
+            mock_validate_hostname_match,
+            format_device_validation_result,
+        ],
+        activity_executor=ThreadPoolExecutor(5),
+    ):
+        handle = await env.client.start_workflow(
+            DeviceCableValidationWorkflow.run,
+            DeviceCableValidationInput(
+                device=INVALID_NETWORK_DEVICE.model_copy(deep=True),
+                device_id=INVALID_NETWORK_DEVICE.id,
+            ),
+            id=str(uuid.uuid4()),
+            task_queue=task_queue,
+            run_timeout=timedelta(minutes=1),
+        )
+        if history_version == "released":
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+            assert persistence_calls == 3
+        else:
+            async with asyncio.timeout(15):
+                while not await handle.query("failed_stage"):
+                    await asyncio.sleep(0.05)
+            assert persistence_calls == 3
+            await handle.signal("retry", "validate_connections")
+            await handle.result()
+
+            assert persistence_calls == 4
+            stages = {stage["name"]: stage for stage in await handle.query("stages")}
+            assert stages["validate_connections"]["state"] == "COMPLETE"
+            assert stages["validate_connections"]["retry_count"] == 1
+        assert arp_calls == 1
+        history = await handle.fetch_history()
+
+    monkeypatch.setattr(workflow, "patched", original_patched)
+    await Replayer(
+        workflows=[DeviceCableValidationWorkflow], data_converter=env.client.data_converter
+    ).replay_workflow(history)
 
 
 @pytest.mark.asyncio

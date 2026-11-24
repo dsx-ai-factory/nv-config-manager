@@ -5,6 +5,7 @@ set -euo pipefail
 
 version="${1:?usage: publish_image_targets.sh VERSION [--latest]}"
 publish_latest=false
+mutable_tags=()
 case "${2:-}" in
     '') ;;
     --latest)
@@ -13,13 +14,25 @@ case "${2:-}" in
             exit 1
         fi
         # The CI job fetches tags after acquiring its shared resource lock.
-        newest_stable="$(git tag --list | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/' | sort -V | tail -n 1)"
+        stable_tags="$(git tag --list | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/' | sort -V)"
+        newest_stable="$(printf '%s\n' "$stable_tags" | tail -n 1)"
         if [[ -z "$newest_stable" ]]; then
             echo "No stable release tags found; refusing to update latest." >&2
             exit 1
         fi
-        if [[ "$version" != "$newest_stable" ]]; then
+        if [[ "$version" == "$newest_stable" ]]; then
+            mutable_tags+=(latest)
+        else
             echo "Skipping latest for ${version}; newest stable tag is ${newest_stable}."
+        fi
+        minor_version="${version%.*}"
+        newest_minor="$(printf '%s\n' "$stable_tags" | awk -v prefix="${minor_version}." 'index($0, prefix) == 1' | tail -n 1)"
+        if [[ "$version" == "$newest_minor" ]]; then
+            mutable_tags+=("${minor_version}-latest")
+        else
+            echo "Skipping ${minor_version}-latest for ${version}; newest stable tag in minor is ${newest_minor}."
+        fi
+        if ((${#mutable_tags[@]} == 0)); then
             exit 0
         fi
         publish_latest=true
@@ -102,7 +115,7 @@ done
 
 images=(nv-config-manager nv-config-manager-ui nv-config-manager-kea
     nv-config-manager-kea-admin nv-config-manager-nautobot nv-config-manager-nats-ready
-    nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui)
+    nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui nv-config-manager-oidc-proxy)
 digests=()
 for image in "${images[@]}"; do
     digest="$(skopeo inspect --authfile "$auth_dir/source.json" --format '{{.Digest}}' \
@@ -142,15 +155,17 @@ if [[ "$publish_latest" == true ]]; then
         image="${images[$image_index]}"
         digest="${digests[$image_index]}"
         for index in "${!repositories[@]}"; do
-            skopeo copy --all --preserve-digests --retry-times 3 \
-                --src-authfile "$auth_dir/source.json" --dest-authfile "$auth_dir/target-${index}.json" \
-                --digestfile "$auth_dir/digest" \
-                "docker://${source_repository}/${image}@${digest}" \
-                "docker://${repositories[$index]}/${image}:latest"
-            if [[ "$(cat "$auth_dir/digest")" != "$digest" ]]; then
-                echo "Latest digest does not match at ${repositories[$index]}/${image}." >&2
-                exit 1
-            fi
+            for tag in "${mutable_tags[@]}"; do
+                skopeo copy --all --preserve-digests --retry-times 3 \
+                    --src-authfile "$auth_dir/source.json" --dest-authfile "$auth_dir/target-${index}.json" \
+                    --digestfile "$auth_dir/digest" \
+                    "docker://${source_repository}/${image}@${digest}" \
+                    "docker://${repositories[$index]}/${image}:${tag}"
+                if [[ "$(cat "$auth_dir/digest")" != "$digest" ]]; then
+                    echo "${tag} digest does not match at ${repositories[$index]}/${image}." >&2
+                    exit 1
+                fi
+            done
         done
     done
 fi

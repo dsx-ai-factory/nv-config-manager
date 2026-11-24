@@ -14,6 +14,7 @@ ARG APT_MIRROR_GPG_KEY_URL=""
 
 # Install dependencies, Kea DHCP4, and create kea user
 COPY --from=scripts configure-apt-mirror.sh /tmp/configure-apt-mirror.sh
+COPY build/setup.kea.deb.sh /tmp/setup.kea.deb.sh
 RUN set -eux; \
     /tmp/configure-apt-mirror.sh "$APT_MIRROR" "$APT_MIRROR_GPG_KEY_URL" ubuntu && \
     apt-get update && apt-get upgrade -y && \
@@ -26,7 +27,8 @@ RUN set -eux; \
     { dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 || \
         { echo "ca-certificates < 20260816ubuntu0.24.04.1" >&2; exit 1; }; } && \
     # Add ISC Cloudsmith repository for Kea 2.6
-    curl -1sLf 'https://dl.cloudsmith.io/public/isc/kea-2-6/setup.deb.sh' | bash && \
+    bash /tmp/setup.kea.deb.sh && \
+    rm /tmp/setup.kea.deb.sh && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         isc-kea-ctrl-agent \
@@ -38,10 +40,10 @@ RUN set -eux; \
     { getent group kea >/dev/null || groupadd -r kea; } && \
     { id -u kea >/dev/null 2>&1 || useradd -r -g kea kea; }
 
-# Install Stork agent (pinned to upstream 2.4.2 for patched Go dependencies)
+# Install Stork agent (upstream 2.6.0 includes patched Go dependencies)
 COPY build/setup.stork.deb.sh /tmp/setup.stork.deb.sh
 RUN bash /tmp/setup.stork.deb.sh && \
-    apt-get install -y --no-install-recommends isc-stork-agent=2.4.2* && \
+    apt-get install -y --no-install-recommends isc-stork-agent=2.6.0* && \
     rm /tmp/setup.stork.deb.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*

@@ -26,6 +26,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.service import RPCError, RPCStatusCode
 
 from nv_config_manager.dcim import DCIMSelection, DeviceMetadata
 from nv_config_manager.temporal import runtime as service_runtime
@@ -1240,6 +1241,119 @@ async def test_approve_workflow_not_found(mock_client):
     assert rsp.json() == {"detail": f"Workflow with ID '{workflow_id}' not found"}
 
 
+_SIGNAL_ENDPOINTS = ("approve", "reject", "retry")
+_WORKFLOW_COMPLETED = RPCError("workflow execution already completed", RPCStatusCode.NOT_FOUND, b"")
+
+
+def _signal_handle(workflow_id: str, *descriptions: object) -> MagicMock:
+    """Build a workflow handle whose signal reports NOT_FOUND after authorization."""
+    handle = MagicMock()
+    handle.id = workflow_id
+    handle.describe = AsyncMock(side_effect=descriptions)
+    handle.signal = AsyncMock(side_effect=_WORKFLOW_COMPLETED)
+    return handle
+
+
+def _signal_description(status: WorkflowExecutionStatus | None) -> MagicMock:
+    """Build a workflow description that authorizes the test caller."""
+    description = MagicMock()
+    description.status = status
+    description.search_attributes = {
+        "User": ["test"],
+        "ReadRoles": ["ngc-cfa"],
+        "ExecuteRoles": ["ngc-cfa"],
+    }
+    return description
+
+
+def _post_signal(endpoint: str, workflow_id: str) -> object:
+    """Send one stage signal request as a non-admin caller with execute access."""
+    return TestClient(app).post(
+        f"/v1/workflow/{workflow_id}/{endpoint}/prompt",
+        headers={"X-Auth-Request-Email": "test@nvidia.com", "X-AUTH-REQUEST-GROUPS": "ngc-cfa"},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", _SIGNAL_ENDPOINTS)
+@pytest.mark.parametrize(
+    ("status", "status_name"),
+    [
+        (WorkflowExecutionStatus.FAILED, "FAILED"),
+        (WorkflowExecutionStatus.TERMINATED, "TERMINATED"),
+        (None, "UNKNOWN"),
+    ],
+)
+@patch("nv_config_manager.temporal.api.workflow_v1.invalidate_workflow_stage_query_cache")
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_to_closed_workflow_returns_conflict(
+    mock_client: MagicMock,
+    mock_invalidate: AsyncMock,
+    endpoint: str,
+    status: WorkflowExecutionStatus | None,
+    status_name: str,
+) -> None:
+    """A workflow that closes after authorization yields 409 instead of a server error."""
+    workflow_id = str(uuid4())
+    running = _signal_description(WorkflowExecutionStatus.RUNNING)
+    handle = _signal_handle(workflow_id, running, _signal_description(status))
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    rsp = _post_signal(endpoint, workflow_id)
+
+    assert rsp.status_code == 409
+    assert rsp.json()["detail"].startswith(f"Workflow is not running (status: {status_name})")
+    handle.signal.assert_awaited_once()
+    mock_invalidate.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", _SIGNAL_ENDPOINTS)
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_to_workflow_removed_after_authorization_returns_not_found(
+    mock_client: MagicMock, endpoint: str
+) -> None:
+    workflow_id = str(uuid4())
+    missing = RPCError("sql: no rows in result set", RPCStatusCode.NOT_FOUND, b"")
+    handle = _signal_handle(
+        workflow_id, _signal_description(WorkflowExecutionStatus.RUNNING), missing
+    )
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    rsp = _post_signal(endpoint, workflow_id)
+
+    assert rsp.status_code == 404
+    assert rsp.json() == {"detail": f"Workflow with ID '{workflow_id}' not found"}
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_not_found_on_running_workflow_is_not_hidden(mock_client: MagicMock) -> None:
+    """Only a closed or missing workflow explains NOT_FOUND; anything else stays an error."""
+    workflow_id = str(uuid4())
+    running = _signal_description(WorkflowExecutionStatus.RUNNING)
+    handle = _signal_handle(workflow_id, running, running)
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    with pytest.raises(RPCError, match="workflow execution already completed"):
+        _post_signal("retry", workflow_id)
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+async def test_signal_rpc_errors_other_than_not_found_are_not_hidden(
+    mock_client: MagicMock,
+) -> None:
+    workflow_id = str(uuid4())
+    handle = _signal_handle(workflow_id, _signal_description(WorkflowExecutionStatus.RUNNING))
+    handle.signal.side_effect = RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")
+    mock_client.return_value = MagicMock(get_workflow_handle=MagicMock(return_value=handle))
+
+    with pytest.raises(RPCError, match="unavailable"):
+        _post_signal("retry", workflow_id)
+    assert handle.describe.await_count == 1
+
+
 @pytest.mark.asyncio
 @patch("nv_config_manager.temporal.api.workflow_v1.get_client")
 @patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
@@ -1933,3 +2047,77 @@ def test_cors_middleware_not_configured_when_section_missing(custom_ini):
     # but won't have CORS headers
     response = client.get("/healthcheck")
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+@patch("nv_config_manager.temporal.api.workflow_v1.get_client")
+@patch("nv_config_manager.temporal.api.workflow_v1.RedisClient")
+async def test_workflow_detail_redacts_device_secrets_in_diffs(mock_redis, mock_client):
+    """The detail response does not carry secrets from stage or batch diffs; the stages keep them."""
+    mock_redis.return_value.get_cached_result.return_value = None
+    mock_redis.from_config.return_value.get_cached_query = AsyncMock(return_value=None)
+    mock_redis.from_config.return_value.cache_query = AsyncMock()
+    secret_line = "+   secret 10 $6$new$bbbb"
+    stage = Stage(
+        name="perform_configuration_diff",
+        description="Retrieve the configuration diff.",
+        requires_approval=False,
+        state="COMPLETE",
+        input={
+            "approved_diff": secret_line,
+            "intended_config": "username ops\n secret 10 $6$new$bbbb\n",
+        },
+        output={"approved": True, "diff": secret_line, "display": "shown"},
+        depends_on=[],
+        retryable=True,
+        traceback=None,
+        state_history=[
+            {"state": "NOT_STARTED", "time": "1970-01-01T00:00:00+00:00"},
+            {"state": "IN_PROGRESS", "time": "1970-01-01T00:00:00+00:00"},
+            {"state": "COMPLETE", "time": "1970-01-01T00:00:01+00:00"},
+        ],
+    )
+
+    class MockHandle(WorkflowHandle):
+        _id = "mockid"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def describe(self):
+            mock_description = MagicMock()
+            mock_description.search_attributes = {
+                "User": ["test"],
+                "ReadRoles": ["ngc-cfa"],
+                "ExecuteRoles": ["ngc-cfa"],
+            }
+            mock_description.status = WorkflowExecutionStatus.RUNNING
+            mock_description.start_time = datetime.fromisoformat("1970-01-01T00:00:00+00:00")
+            mock_description.close_time = None
+            mock_description.workflow_type = "BatchDeployWorkflow"
+            return mock_description
+
+        async def query(self, name: str):
+            if name == "pending_approval":
+                return False
+            if name == "input":
+                return {"diff_group": {"diff_content": secret_line, "devices": []}}
+            if name == "compressed_stages":
+                return StageMixin.compress_stages([stage])
+
+    mock_client.return_value.get_workflow_handle = MockHandle
+
+    client = TestClient(app)
+    rsp = client.get(
+        f"/v1/workflow/{uuid4()}",
+        headers={"X-Auth-Request-Email": "test@nvidia.com", "X-AUTH-REQUEST-GROUPS": "ngc-cfa"},
+    )
+
+    assert rsp.status_code == 200
+    body = rsp.json()
+    assert "$6$new$bbbb" not in rsp.text
+    assert body["workflow_input"]["diff_group"]["diff_content"] == "+   secret 10 <redacted>"
+    assert body["stages"][0]["output"]["diff"] == "+   secret 10 <redacted>"
+    assert body["stages"][0]["output"]["display"] == "shown"
+    assert body["stages"][0]["input"]["approved_diff"] == "+   secret 10 <redacted>"
+    assert body["stages"][0]["input"]["intended_config"] == "username ops\n secret 10 <redacted>\n"

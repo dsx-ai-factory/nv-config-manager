@@ -87,8 +87,8 @@ images:
     - docker.io/hashicorp/http-echo:1.0
     - docker.io/alpine/kubectl:1.35.4
     - docker.io/library/redis:7-alpine
-    - docker.io/library/nats:2.14-alpine
-    - docker.io/natsio/nats-box:0.14.3
+    - docker.io/library/nats:2.14.9-alpine
+    - docker.io/natsio/nats-box:0.20.2
     - docker.io/nginxinc/nginx-unprivileged:1.27
     - docker.io/envoyproxy/gateway:v1.6.5
     - docker.io/envoyproxy/ratelimit:c8765e89

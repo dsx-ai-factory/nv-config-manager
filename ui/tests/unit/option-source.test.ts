@@ -23,6 +23,7 @@ import {
   dependencyFields,
   dependencySignature,
   deriveOptionSourceState,
+  mapOptionEnvelope,
   mapOptionRows,
   normalizeDependencyValue,
   resolveOptionSourceEndpoint,
@@ -86,6 +87,21 @@ describe("normalizeDependencyValue", () => {
 
   it("sorts and de-duplicates array values, dropping empty items", () => {
     expect(normalizeDependencyValue(["b", "a", "b", 3, "", null])).toEqual(["3", "a", "b"]);
+  });
+
+  it("sorts mixed-case strings alphabetically", () => {
+    expect(normalizeDependencyValue(["Zebra", "apple", "Blueberry", "apple"])).toEqual([
+      "apple", "Blueberry", "Zebra",
+    ]);
+  });
+
+  it("keeps selection order irrelevant when distinct strings collate equally", () => {
+    const composed = "\u00e9";
+    const decomposed = "e\u0301";
+    expect(normalizeDependencyValue([composed, decomposed])).toEqual(
+      normalizeDependencyValue([decomposed, composed])
+    );
+    expect(normalizeDependencyValue([composed, decomposed])).toHaveLength(2);
   });
 });
 
@@ -163,6 +179,17 @@ describe("buildOptionSourceRequest", () => {
 
     expect(readyUrl(request)).toBe(
       "http://localhost:9000/v1/parameter/location?location_type=Site&location_type=Module"
+    );
+  });
+
+  it("sorts mixed-case parameter names alphabetically", () => {
+    const request = buildOptionSourceRequest(
+      API_URL,
+      { ...deviceSource, params: { Zebra: 1, apple: 2, Blueberry: 3 } },
+      {}
+    );
+    expect(readyUrl(request)).toBe(
+      "http://localhost:9000/v1/parameter/device?apple=2&Blueberry=3&Zebra=1"
     );
   });
 
@@ -629,6 +656,47 @@ describe("mapOptionRows", () => {
   });
 });
 
+
+describe("mapOptionEnvelope", () => {
+  it("de-duplicates within groups and keeps the same value across groups", () => {
+    expect(mapOptionEnvelope({
+      items: [
+        null,
+        { value: "" },
+        { value: 7, label: "First A", group: "A", description: "Details" },
+        { value: "7", label: "Duplicate A", group: "A" },
+        { value: "7", label: "First B", group: "B" },
+        { value: 7, label: "Ungrouped", group: "" },
+        { value: "7", label: "Duplicate ungrouped" },
+      ],
+    })).toEqual({
+      options: [
+        { value: 7, label: "First A", group: "A", description: "Details" },
+        { value: "7", label: "First B", group: "B" },
+        { value: 7, label: "Ungrouped" },
+      ],
+      meta: undefined,
+      skippedRows: 2,
+      duplicateRows: 2,
+    });
+  });
+
+  it("retains valid metadata and omits empty optional strings", () => {
+    expect(mapOptionEnvelope({
+      items: [{ value: false, label: "", description: "", group: 42 }],
+      meta: { matching_device_count: 0, warnings: ["No matching devices"] },
+    })).toEqual({
+      options: [{ value: false, label: "false" }],
+      meta: { matching_device_count: 0, warnings: ["No matching devices"] },
+      skippedRows: 0,
+      duplicateRows: 0,
+    });
+    expect(mapOptionEnvelope({
+      items: [],
+      meta: { matching_device_count: -1, warnings: [42] },
+    })?.meta).toEqual({});
+  });
+});
 
 describe("deriveOptionSourceState", () => {
   const ready: OptionSourceRequest = { kind: "ready", url: `${API_URL}/v1/parameter/site` };

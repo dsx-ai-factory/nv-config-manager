@@ -25,6 +25,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import platform
@@ -41,14 +42,17 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
+from urllib.parse import urlparse
 
 import yaml
+from kubernetes.client.rest import ApiException
 
 from nv_config_manager_installer.accounts import build_config_secrets_ini
 from nv_config_manager_installer.helm_values import generate_helm_values
 from nv_config_manager_installer.k8s import (
     LOADER_POD_IMAGE,
     K8sClient,
+    PodExecError,
     kubectl_current_context,
     pin_kubeconfig_to_current_context,
 )
@@ -67,6 +71,7 @@ from nv_config_manager_installer.schema import (
     LBProvider,
     NVConfigManagerInstallConfig,
     SecretsMethod,
+    SSOProvider,
     ZTPOSImage,
     ZTPStorageType,
 )
@@ -187,6 +192,33 @@ _SKIP_REASON = "Not requested"
 _CI_ENV_VAR = "CI"
 _DOCKER_SYSTEM_PRUNE_COMMAND = ("docker", "system", "prune", "-af")
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR = "NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES"
+_LOCAL_CLUSTER_CONTEXT_PREFIXES = (
+    "kind-",
+    "k3d-",
+    "minikube",
+    "docker-desktop",
+    "rancher-desktop",
+    "orbstack",
+    "colima",
+)
+_LOCAL_API_SERVER_HOSTNAMES = {
+    "localhost",
+    "host.docker.internal",
+    "kubernetes.docker.internal",
+}
+
+
+def _is_local_api_server_host(host: str) -> bool:
+    """Return true for loopback addresses (all of 127.0.0.0/8 and ::1) and local Docker names."""
+    if host in _LOCAL_API_SERVER_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
     ("nv-config-manager-nautobot", "build/nautobot.Dockerfile", "components/nautobot", None),
     ("nv-config-manager-nats-ready", "build/nats-ready.Dockerfile", "components/nats-ready", None),
@@ -202,6 +234,7 @@ _LOCAL_IMAGE_BUILDS: tuple[tuple[str, str, str, str | None], ...] = (
         "bootstrap",
     ),
     ("nv-config-manager-temporal-ui", "build/temporal.Dockerfile", ".", "ui"),
+    ("nv-config-manager-oidc-proxy", "build/oidc-proxy.Dockerfile", ".", None),
 )
 
 
@@ -388,6 +421,27 @@ def _kind_preload_images(config: NVConfigManagerInstallConfig) -> list[str]:
         seen.add(image)
         images.append(image)
     return images
+
+
+def _kind_api_server(cluster: str) -> str | None:
+    """Return the API server URL Kind reports for ``cluster``, or None if unavailable."""
+    result = _run(["kind", "get", "kubeconfig", "--name", cluster], check=False)
+    if result.returncode != 0:
+        return None
+    try:
+        kubeconfig = yaml.safe_load(result.stdout) or {}
+    except yaml.YAMLError:
+        return None
+    for entry in kubeconfig.get("clusters") or []:
+        server = (entry.get("cluster") or {}).get("server")
+        if server:
+            return str(server)
+    return None
+
+
+def _normalize_api_server(server: str) -> str:
+    """Normalize an API server URL for comparison."""
+    return server.strip().rstrip("/").lower()
 
 
 def _kind_node_names(cluster: str) -> list[str]:
@@ -1099,6 +1153,7 @@ class Deployer:
         self._rerun = _RerunState()
         self._k8s: K8sClient | None = None
         self._local_image_tags: dict[str, str] = {}
+        self._test_oidc_environment: dict[str, str] = {}
 
         self.steps = self.create_steps()
         self._step_map = {s.id: s for s in self.steps}
@@ -1353,6 +1408,8 @@ class Deployer:
         if self.options.load_kind and not shutil.which("kind"):
             raise RuntimeError("kind is required for --load-kind")
 
+        self._validate_local_cluster_target(kubectl_ctx or ctx, server)
+
         self._validate_required_config(step)
         if self.config.secrets.method == SecretsMethod.ESO:
             self._validate_vault_config(step)
@@ -1361,6 +1418,56 @@ class Deployer:
             self._check_inotify_limits(step)
 
         self._finish_step(step)
+
+    def _validate_local_cluster_target(self, context: str, server: str) -> None:
+        """Refuse to send a local-dev deployment to a cluster that is not local.
+
+        ``--load-kind`` and ``images.source: local`` only make sense on a cluster
+        running on this machine. The deployer otherwise follows the current kube
+        context, so a context left pointing at a shared cluster would receive the
+        namespace, secrets, PVCs, and Helm release of a local-dev install.
+        """
+        if self.options.load_kind:
+            expected = f"kind-{self.options.kind_cluster}"
+            if context != expected:
+                raise RuntimeError(
+                    f"--load-kind targets Kind cluster '{self.options.kind_cluster}', but the "
+                    f"current kube context is '{context}'. Refusing to deploy. Run "
+                    f"`kubectl config use-context {expected}` (or set KUBECONFIG to a "
+                    "Kind-only kubeconfig) and retry."
+                )
+            kind_server = _kind_api_server(self.options.kind_cluster)
+            if kind_server is None:
+                raise RuntimeError(
+                    f"--load-kind targets Kind cluster '{self.options.kind_cluster}', but "
+                    "`kind get kubeconfig` could not report its API server. Refusing to deploy. "
+                    "Check that the cluster exists with `kind get clusters` and retry."
+                )
+            if _normalize_api_server(kind_server) != _normalize_api_server(server):
+                raise RuntimeError(
+                    f"Kube context '{context}' points at {server}, but Kind cluster "
+                    f"'{self.options.kind_cluster}' serves its API at {kind_server}. "
+                    "`kind load` and the deployment would target different clusters. "
+                    f"Refusing to deploy. Run `kind export kubeconfig --name "
+                    f"{self.options.kind_cluster}` to restore the context and retry."
+                )
+            return
+        if self.config.images.source != ImageSource.LOCAL:
+            return
+        if os.environ.get(_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR, "").strip().lower() in (
+            _TRUTHY_ENV_VALUES
+        ):
+            return
+        host = (urlparse(server).hostname or "").lower()
+        if context.startswith(_LOCAL_CLUSTER_CONTEXT_PREFIXES) or _is_local_api_server_host(host):
+            return
+        raise RuntimeError(
+            f"images.source is 'local', but the current kube context '{context}' "
+            f"(server: {server}) does not look like a cluster on this machine, so it "
+            "could not pull the locally built images. Refusing to deploy. Switch to a "
+            f"local context, or set {_ALLOW_REMOTE_LOCAL_IMAGES_ENV_VAR}=1 if this "
+            "cluster really can use local images."
+        )
 
     def _validate_vault_config(self, step: DeployStep) -> None:
         """Validate the Vault connection required for ESO population."""
@@ -3171,68 +3278,136 @@ class Deployer:
 
         self._finish_step(step)
 
+    def run_integration_tests(
+        self,
+        *,
+        kubeconfig: Path | None = None,
+        oidc_client_secret_name: str | None = None,
+        oidc_token_file: Path | None = None,
+    ) -> bool:
+        """Run only the existing deployment's in-pod tests, without deployment inputs."""
+        if oidc_client_secret_name and oidc_token_file:
+            raise ValueError("Choose either OIDC client credentials or a token file")
+        if not self.config.sso.enabled and (oidc_client_secret_name or oidc_token_file):
+            raise ValueError("OIDC test credentials require sso.enabled=true in install.yaml")
+        if (
+            self.config.sso.enabled
+            and self.config.sso.provider != SSOProvider.KEYCLOAK
+            and not oidc_token_file
+        ):
+            raise ValueError(
+                "Client-credentials tests require Keycloak; use --oidc-token-file "
+                "with other OIDC providers"
+            )
+        if self.config.dcim.provider != "nautobot-2x" or not self.config.services.nautobot:
+            raise ValueError("In-pod integration tests require the bundled Nautobot provider")
+        if not self.config.services.ztp:
+            raise ValueError("In-pod integration tests require the ZTP service")
+        self._k8s = K8sClient(kubeconfig=kubeconfig)
+        self._test_oidc_environment = {}
+        if self.config.sso.enabled:
+            if oidc_token_file:
+                token = oidc_token_file.read_text().strip()
+                if not token:
+                    raise ValueError("OIDC token file is empty")
+                self._test_oidc_environment["NVCM_OIDC_ACCESS_TOKEN"] = token
+            else:
+                credentials = self._k8s.read_secret_data(
+                    oidc_client_secret_name or "oidc-client-secret", self.config.cluster.namespace
+                )
+                client_id = credentials.get("client_id") or self.config.sso.client_id
+                client_secret = credentials.get("client-secret") or credentials.get("client_secret")
+                if not client_id or not client_secret:
+                    raise ValueError(
+                        "SSO tests require sso.client_id (or Secret key client_id) and "
+                        "OIDC Secret key client-secret or client_secret"
+                    )
+                issuer = self.config.sso.internal_issuer or self.config.sso.issuer_url
+                if not issuer:
+                    raise ValueError("SSO tests require an issuer URL in install.yaml")
+                self._test_oidc_environment.update(
+                    NVCM_OIDC_TOKEN_URL=f"{issuer.rstrip('/')}/protocol/openid-connect/token",
+                    NVCM_OIDC_CLIENT_ID=client_id,
+                    NVCM_OIDC_CLIENT_SECRET=client_secret,
+                )
+        self.options.run_tests = True
+        try:
+            self._run_integration_tests()
+            return self._get_step("run-tests").status == StepStatus.SUCCESS
+        finally:
+            self._test_oidc_environment.clear()
+
+    def _test_component_name(self, component: str) -> str:
+        """Match the bundled chart's default fullname/component naming."""
+        release = self.config.cluster.release_name
+        base = release if "nv-config-manager" in release else f"{release}-nv-config-manager"
+        base = base[:63].rstrip("-")
+        return f"{base}-{component}"[:63].rstrip("-")
+
     def _find_ztp_pod(self, ns: str) -> str:
         """Locate a ZTP pod for running integration tests."""
         assert self._k8s is not None
-        try:
-            pods = self._k8s.v1.list_namespaced_pod(
-                ns, label_selector="app.kubernetes.io/component=network-ztp"
-            )
-            if pods.items:
-                return pods.items[0].metadata.name or ""
-        except Exception:
-            pass
-        try:
-            pods = self._k8s.v1.list_namespaced_pod(ns)
-            for pod in pods.items:
-                name = pod.metadata.name or ""
-                if "ztp" in name and "api" not in name:
-                    return name
-        except Exception:
-            pass
+        pods = self._k8s.v1.list_namespaced_pod(
+            ns, label_selector=f"app={self._test_component_name('ztp')}"
+        )
+        for pod in pods.items:
+            if pod.metadata.deletion_timestamp or pod.status.phase != "Running":
+                continue
+            for container in pod.status.container_statuses or []:
+                if container.name == "sftp" and container.ready:
+                    return pod.metadata.name or ""
         return ""
 
-    def _build_test_script(self, ns: str, release: str, token: str) -> str:
+    def _build_test_script(self, ns: str) -> str:
         """Generate the Python test runner script to exec in-pod."""
-        token_escaped = token.replace("'", "'\\''")
+        sso_preflight = (
+            "if not os.path.isfile('src/tests/integration/oidc_client.py'):\n"
+            "    raise RuntimeError('Deploy an image with headless OIDC test support first')\n"
+            if self.config.sso.enabled
+            else ""
+        )
+        sso_args = "    '--sso',\n" if self.config.sso.enabled else ""
         return (
-            "import os, sys\n"
+            "import json, os, sys\n"
+            "os.chdir('/code/nv-config-manager')\n"
             "os.environ.update({\n"
-            f"    'NAUTOBOT_URL': 'http://{release}-nautobot',\n"
-            f"    'RENDER_URL': 'http://{release}-render-api:9000',\n"
-            f"    'ZTP_URL': 'http://{release}-ztp-api:9000',\n"
-            f"    'DHCP_URL': 'http://{release}-dhcp-internal:9000',\n"
-            f"    'TEMPORAL_URL': 'http://{release}-temporal-api:9000',\n"
-            f"    'NAUTOBOT_TOKEN': '{token_escaped}',\n"
+            f"    'NAUTOBOT_URL': 'http://{self._test_component_name('nautobot')}',\n"
+            f"    'RENDER_URL': 'http://{self._test_component_name('render')}-api:9000',\n"
+            f"    'ZTP_URL': 'http://{self._test_component_name('ztp')}-api:9000',\n"
+            f"    'DHCP_URL': 'http://{self._test_component_name('dhcp')}-internal:9000',\n"
+            f"    'TEMPORAL_URL': 'http://{self._test_component_name('temporal')}-api:9000',\n"
             "    'SFTP_HOST': '127.0.0.1',\n"
             "    'SFTP_PORT': '2222',\n"
             "})\n"
+            "os.environ.update(json.loads(sys.stdin.readline()))\n"
+            f"{sso_preflight}"
             "sys.exit(__import__('pytest').main([\n"
             "    'src/tests/integration/',\n"
             "    '-v',\n"
             "    '--tb=short',\n"
-            f"    '--nv-config-manager-namespace', '{ns}',\n"
+            f"    '--nv-config-manager-namespace', {ns!r},\n"
             "    '--no-header',\n"
+            f"{sso_args}"
             "]))\n"
         )
 
     def _run_integration_tests(self) -> None:
+        """Stream the in-pod suite and report failures without credential-bearing exception text."""
         if not self.options.run_tests:
             self._skip_step("run-tests", _SKIP_REASON)
             return
 
-        if self.config.sso.enabled:
+        if self.config.sso.enabled and not self._test_oidc_environment:
             self._skip_step("run-tests", "Skipped: SSO enabled — tests require OIDC browser auth")
             return
 
         assert self._k8s is not None
         step = self._start_step("run-tests")
         ns = self.config.cluster.namespace
-        release = self.config.cluster.release_name
-
         ztp_pod = self._find_ztp_pod(ns)
         if not ztp_pod:
-            step.error = "Could not find ZTP pod for running tests"
+            step.error = "Could not find a running ZTP pod with a ready sftp container"
+            self.callback.on_log(step.error)
             self._finish_step(step, StepStatus.FAILED)
             return
 
@@ -3247,27 +3422,30 @@ class Deployer:
                 "Could not retrieve nautobot-admin token; tests that need it will fail"
             )
 
-        test_script = self._build_test_script(ns, release, nautobot_token)
+        test_script = self._build_test_script(ns)
+        test_environment = {"NAUTOBOT_TOKEN": nautobot_token, **self._test_oidc_environment}
         self.callback.on_log("Running integration tests...")
         try:
-            all_output: list[str] = []
             for line in self._k8s.exec_command_streaming(
-                ztp_pod, ns, ["python", "-c", test_script], container="sftp"
+                ztp_pod,
+                ns,
+                ["python", "-c", test_script],
+                container="sftp",
+                stdin=json.dumps(test_environment) + "\n",
             ):
                 self.callback.on_log(line)
                 step.output.append(line)
-                all_output.append(line)
-
-            full = "\n".join(all_output).lower()
-            if "failed" in full or "error" in full:
-                step.output.append("Some integration tests failed")
-                self._finish_step(step, StepStatus.FAILED)
-            else:
-                step.output.append("Integration tests passed")
-                self._finish_step(step)
+            step.output.append("Integration tests passed")
+            self._finish_step(step)
         except Exception as exc:
-            for line in str(exc).splitlines()[:20]:
-                self.callback.on_log(line)
+            cause = type(exc).__name__
+            if isinstance(exc, PodExecError):
+                cause += f" (exit {exc.returncode})"
+            elif isinstance(exc, ApiException) and isinstance(exc.status, int):
+                cause += f" (HTTP {exc.status})"
+            self.callback.on_log(
+                f"In-pod test execution failed: {cause}; check the streamed output above"
+            )
             step.error = "Integration tests failed"
             self._finish_step(step, StepStatus.FAILED)
 

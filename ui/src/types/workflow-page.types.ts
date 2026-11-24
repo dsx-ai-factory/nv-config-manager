@@ -23,6 +23,6 @@ export interface WorkflowPageProps {
 }
 export type WorkflowClientComponentProps = {
   workflow: Workflow;
-  /** Called after terminate to refresh workflow data */
-  mutate?: () => void;
+  /** Refreshes workflow data */
+  mutate?: () => Promise<unknown>;
 };

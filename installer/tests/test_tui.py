@@ -28,10 +28,13 @@ from nv_config_manager_installer.deployer import Deployer, DeployOptions, Deploy
 from nv_config_manager_installer.schema import (
     BUILT_IN_NAUTOBOT_PROVIDER,
     ClusterConfig,
+    DHCPConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
+    ExternalTemporalConfig,
     ImageSource,
     InfrastructureConfig,
+    KeaMultiThreadingConfig,
     MonitoringConfig,
     NATSAuthMethod,
     NetworkSecretEntry,
@@ -159,6 +162,70 @@ async def test_collect_config():
     async with app.run_test():
         app.collect_config()
         assert app.config.cluster.environment == "local"
+
+
+@pytest.mark.asyncio
+async def test_workflows_collects_temporal_server_sizing() -> None:
+    config = NVConfigManagerInstallConfig()
+    config.temporal.history_replicas = 16
+    config.temporal.num_history_shards = 128
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+        screen = app._screens["workflows"]
+        replicas = screen.query_one("#temporal-history-replicas", Input)
+        shards = screen.query_one("#temporal-history-shards", Input)
+
+        assert replicas.value == "16"
+        assert shards.value == "128"
+
+        replicas.value = "8"
+        shards.value = "64"
+        app.collect_config()
+
+        assert app.config.temporal.history_replicas == 8
+        assert app.config.temporal.num_history_shards == 64
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external_temporal", [False, True])
+async def test_workflows_keeps_failed_stage_retry_window(external_temporal: bool) -> None:
+    """The screen edits only sizing, so leaving it must not reset the retry window."""
+    config = NVConfigManagerInstallConfig()
+    config.temporal.failed_stage_retry_timeout_seconds = 7200
+    if external_temporal:
+        config.external_services = ExternalServicesConfig(
+            temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+        )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+        app.collect_config()
+
+        assert app.config.temporal.failed_stage_retry_timeout_seconds == 7200
+
+
+@pytest.mark.asyncio
+async def test_workflows_temporal_sizing_blocks_negative_input() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test():
+        app.switch_section("workflows")
+        screen = app._screens["workflows"]
+        replicas = screen.query_one("#temporal-history-replicas", Input)
+        shards = screen.query_one("#temporal-history-shards", Input)
+
+        replicas.value = "-1"
+        shards.value = "-"
+        app.collect_config()
+
+        assert replicas.value == ""
+        assert shards.value == ""
+        assert app.config.temporal.history_replicas == 0
+        assert app.config.temporal.num_history_shards == 0
 
 
 @pytest.mark.asyncio
@@ -704,3 +771,108 @@ async def test_app_secrets_jwt_presence_guidance_requires_environment_token(monk
         await app.workers.wait_for_complete()
         status = app._screens["secrets"].query_one("#vault-presence-status")
         assert "JWT presence checks require VAULT_TOKEN or OPENBAO_TOKEN" in str(status.render())
+
+
+@pytest.mark.asyncio
+async def test_services_screen_collects_kea_multi_threading() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one("#kea-size-from-cpu", LabeledSwitch).value = True
+        screen.query_one("#dhcp-cpu-request", Input).value = " 2 "
+        screen.query_one("#kea-packet-queue-size", Input).value = " 32 "
+        await pilot.pause()
+
+        assert app.collect_config() is True
+
+        kea = config.dhcp.kea_multi_threading
+        assert kea.size_from_cpu_request is True
+        assert kea.thread_pool_size is None
+        assert kea.packet_queue_size == 32
+        assert config.dhcp.cpu_request == "2"
+
+
+@pytest.mark.asyncio
+async def test_services_screen_blank_kea_fields_mean_unset() -> None:
+    config = NVConfigManagerInstallConfig(
+        dhcp=DHCPConfig(kea_multi_threading=KeaMultiThreadingConfig(thread_pool_size=4))
+    )
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        screen = app._screens["services"]
+        assert screen.query_one("#kea-thread-pool-size", Input).value == "4"
+        screen.query_one("#kea-thread-pool-size", Input).value = ""
+        await pilot.pause()
+
+        assert app.collect_config() is True
+
+        assert config.dhcp.kea_multi_threading.thread_pool_size is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("input_id", "value"),
+    [
+        ("#kea-thread-pool-size", "-1"),
+        ("#kea-thread-pool-size", "auto"),
+        ("#kea-packet-queue-size", "0"),
+        ("#dhcp-cpu-request", "lots"),
+    ],
+)
+async def test_invalid_kea_multi_threading_blocks_navigation(input_id: str, value: str) -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one(input_id, Input).value = value
+        await pilot.pause()
+
+        app.switch_section("cluster")
+
+        assert app.active_section == "services"
+        assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()
+        assert config.dhcp.cpu_request == ""
+
+
+@pytest.mark.asyncio
+async def test_kea_cpu_sizing_with_thread_pool_blocks_navigation() -> None:
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one("#kea-size-from-cpu", LabeledSwitch).value = True
+        screen.query_one("#kea-thread-pool-size", Input).value = "4"
+        await pilot.pause()
+
+        app.switch_section("cluster")
+
+        assert app.active_section == "services"
+        assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()
+
+
+@pytest.mark.asyncio
+async def test_invalid_kea_input_does_not_save_service_toggles() -> None:
+    """A rejected Kea field must not leave the service toggles half-written."""
+    config = NVConfigManagerInstallConfig()
+    app = NVConfigManagerInstallerApp(config=config)
+
+    async with app.run_test() as pilot:
+        app.switch_section("services")
+        screen = app._screens["services"]
+        screen.query_one("#svc-dhcp", LabeledSwitch).value = False
+        screen.query_one("#kea-thread-pool-size", Input).value = "auto"
+        await pilot.pause()
+
+        with pytest.raises(ValueError, match="Thread pool size"):
+            screen.write_to_config(config)
+
+        assert config.services.dhcp is True
+        assert config.dhcp.kea_multi_threading == KeaMultiThreadingConfig()

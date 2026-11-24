@@ -64,6 +64,36 @@ const addError = (root: ErrorNode, path: readonly (string | number)[], message: 
   (node.__errors ??= []).push(message);
 };
 
+const addDetailError = (
+  root: ErrorNode,
+  schema: unknown,
+  uiSchema: unknown,
+  layout: FormLayout,
+  { loc, msg }: DetailItem
+): void => {
+  const path = loc[0] === "body" ? loc.slice(1) : loc;
+  const top = path.length > 0 ? String(path[0]) : "";
+  const owner = layout.owners[top];
+  const target = owner && owner !== `field:${top}` ? owner.slice("field:".length) : top;
+  const known = Object.prototype.hasOwnProperty.call(propertiesOf(schema), target);
+  if (!known || (target === top && isHidden(uiSchema, top) && !coreFieldOf(uiSchema, top))) {
+    addError(root, [], path.length > 0 ? `${path.join(".")}: ${msg}` : msg);
+    return;
+  }
+  if (target !== top || path.length === 1) {
+    addError(root, [target], msg);
+    return;
+  }
+  if (editsWholeValue(schema, uiSchema, target)) {
+    const rest = path.slice(1);
+    const prefix =
+      typeof rest[0] === "number" ? `Item ${rest[0] + 1}` : rest.map(String).join(".");
+    addError(root, [target], `${prefix}: ${msg}`);
+    return;
+  }
+  addError(root, path, msg);
+};
+
 /** `null` when `detail` has no supported 422 shape; the caller then shows a toast. */
 export const mapServerErrors = (
   schema: unknown,
@@ -77,26 +107,9 @@ export const mapServerErrors = (
   if (!Array.isArray(detail) || detail.length === 0 || !detail.every(isDetailItem)) {
     return null;
   }
-  const properties = propertiesOf(schema);
   const root: ErrorNode = {};
-  for (const { loc, msg } of detail) {
-    const path = loc[0] === "body" ? loc.slice(1) : loc;
-    const top = path.length > 0 ? String(path[0]) : "";
-    const owner = layout.owners[top];
-    const target = owner && owner !== `field:${top}` ? owner.slice("field:".length) : top;
-    const known = Object.prototype.hasOwnProperty.call(properties, target);
-    if (!known || (target === top && isHidden(uiSchema, top) && !coreFieldOf(uiSchema, top))) {
-      addError(root, [], path.length > 0 ? `${path.join(".")}: ${msg}` : msg);
-    } else if (target !== top || path.length === 1) {
-      addError(root, [target], msg);
-    } else if (editsWholeValue(schema, uiSchema, target)) {
-      const rest = path.slice(1);
-      const prefix =
-        typeof rest[0] === "number" ? `Item ${rest[0] + 1}` : rest.map(String).join(".");
-      addError(root, [target], `${prefix}: ${msg}`);
-    } else {
-      addError(root, path, msg);
-    }
+  for (const item of detail) {
+    addDetailError(root, schema, uiSchema, layout, item);
   }
   return root as ErrorSchema;
 };

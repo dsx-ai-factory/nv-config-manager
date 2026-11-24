@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from nv_config_manager_installer.schema import (
     ClusterConfig,
@@ -28,6 +29,7 @@ from nv_config_manager_installer.schema import (
     ContentConfig,
     DCIMConfig,
     DeploySize,
+    DHCPConfig,
     ExternalPostgresConfig,
     ExternalRedisConfig,
     ExternalServicesConfig,
@@ -39,6 +41,7 @@ from nv_config_manager_installer.schema import (
     ImagesConfig,
     ImageSource,
     InfrastructureConfig,
+    KeaMultiThreadingConfig,
     LBProvider,
     LoadBalancerConfig,
     MonitoringConfig,
@@ -55,6 +58,7 @@ from nv_config_manager_installer.schema import (
     SSOConfig,
     SSOProvider,
     TemporalAuthMethod,
+    TemporalDeploymentConfig,
     VaultAuthMethod,
     ZTPOSImage,
     ZTPS3CephConfig,
@@ -178,6 +182,100 @@ class TestNVConfigManagerInstallConfig:
     def test_external_temporal_rejects_unsafe_namespace(self, namespace: str):
         with pytest.raises(ValueError, match="namespace must not contain control characters"):
             ExternalTemporalConfig(namespace=namespace)
+
+    def test_default_yaml_omits_temporal_deployment(self) -> None:
+        data = yaml.safe_load(NVConfigManagerInstallConfig().to_yaml_str())
+
+        assert "temporal" not in data
+
+    def test_temporal_deployment_yaml_roundtrip(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            temporal=TemporalDeploymentConfig(
+                history_replicas=16,
+                num_history_shards=128,
+            )
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.temporal.history_replicas == 16
+        assert loaded.temporal.num_history_shards == 128
+        assert yaml.safe_load(path.read_text())["temporal"] == {
+            "history_replicas": 16,
+            "num_history_shards": 128,
+        }
+
+    def test_failed_stage_retry_window_yaml_roundtrip_without_sizing(self, tmp_path: Path) -> None:
+        path = tmp_path / "config.yaml"
+        config = NVConfigManagerInstallConfig(
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200)
+        )
+
+        config.to_yaml(path)
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+
+        assert loaded.temporal.failed_stage_retry_timeout_seconds == 7200
+        assert yaml.safe_load(path.read_text())["temporal"] == {
+            "failed_stage_retry_timeout_seconds": 7200,
+        }
+
+    def test_failed_stage_retry_window_is_allowed_with_external_temporal(self) -> None:
+        config = NVConfigManagerInstallConfig(
+            external_services=ExternalServicesConfig(
+                temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+            ),
+            temporal=TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=7200),
+        )
+
+        assert config.temporal.failed_stage_retry_timeout_seconds == 7200
+
+    @pytest.mark.parametrize(
+        "field", ["history_replicas", "num_history_shards", "failed_stage_retry_timeout_seconds"]
+    )
+    def test_temporal_deployment_rejects_negative_values(self, field: str) -> None:
+        with pytest.raises(ValueError, match="greater than or equal to 0"):
+            TemporalDeploymentConfig(**{field: -1})
+
+    def test_failed_stage_retry_window_accepts_up_to_365_days(self) -> None:
+        config = TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=31_536_000)
+
+        assert config.failed_stage_retry_timeout_seconds == 31_536_000
+
+    def test_failed_stage_retry_window_rejects_more_than_365_days(self) -> None:
+        with pytest.raises(ValueError, match="less than or equal to 31536000"):
+            TemporalDeploymentConfig(failed_stage_retry_timeout_seconds=31_536_001)
+
+    @pytest.mark.parametrize("raw", ["yes", "on", "true", "no", "'7200'", "7200.0"])
+    def test_failed_stage_retry_window_rejects_non_integer_yaml(
+        self, tmp_path: Path, raw: str
+    ) -> None:
+        """YAML booleans would otherwise become a 1-second window."""
+        path = tmp_path / "config.yaml"
+        path.write_text(f"temporal:\n  failed_stage_retry_timeout_seconds: {raw}\n")
+
+        with pytest.raises(ValueError, match="valid integer"):
+            NVConfigManagerInstallConfig.from_yaml(path)
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {
+                "services": ServicesConfig(temporal=False),
+                "temporal": TemporalDeploymentConfig(history_replicas=8),
+            },
+            {
+                "external_services": ExternalServicesConfig(
+                    temporal=ExternalTemporalConfig(address="temporal.example.com:7233")
+                ),
+                "temporal": TemporalDeploymentConfig(num_history_shards=128),
+            },
+        ],
+    )
+    def test_temporal_deployment_rejects_unmanaged_server(self, config: dict[str, object]) -> None:
+        with pytest.raises(ValueError, match="managed Temporal server"):
+            NVConfigManagerInstallConfig(**config)
 
     def test_ztp_image_rejects_unsupported_platform(self):
         with pytest.raises(ValueError, match="Unsupported ZTP platform 'sonic'"):
@@ -807,3 +905,46 @@ class TestGitTokenConfig:
         assert loaded.redfish.enabled is True
         assert loaded.redfish.vendors["lenovo"].default_user == "admin"
         assert loaded.redfish.vendors["lenovo"].config_manager_password == "kpw"
+
+
+class TestKeaMultiThreadingConfig:
+    def test_defaults_keep_kea_auto_detection(self) -> None:
+        kea = NVConfigManagerInstallConfig().dhcp.kea_multi_threading
+
+        assert kea.size_from_cpu_request is False
+        assert kea.thread_pool_size is None
+        assert kea.packet_queue_size is None
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("thread_pool_size", -1), ("packet_queue_size", 0)],
+    )
+    def test_rejects_out_of_range_sizes(self, field: str, value: int) -> None:
+        with pytest.raises(ValidationError):
+            KeaMultiThreadingConfig(**{field: value})
+
+    @pytest.mark.parametrize("pool_size", [0, 4])
+    def test_rejects_cpu_sizing_with_explicit_thread_pool(self, pool_size: int) -> None:
+        with pytest.raises(ValidationError, match="mutually exclusive"):
+            KeaMultiThreadingConfig(size_from_cpu_request=True, thread_pool_size=pool_size)
+
+    def test_cpu_request_accepts_a_quantity_and_rejects_other_text(self) -> None:
+        assert DHCPConfig(cpu_request=" 1500m ").cpu_request == "1500m"
+        with pytest.raises(ValidationError, match="cpu_request"):
+            DHCPConfig(cpu_request="lots")
+
+    def test_yaml_round_trip(self, tmp_path: Path) -> None:
+        config = NVConfigManagerInstallConfig(
+            dhcp=DHCPConfig(
+                kea_multi_threading=KeaMultiThreadingConfig(
+                    size_from_cpu_request=True, packet_queue_size=32
+                ),
+                cpu_request="2",
+            )
+        )
+        path = tmp_path / "config.yaml"
+
+        config.to_yaml(path)
+
+        loaded = NVConfigManagerInstallConfig.from_yaml(path)
+        assert loaded.dhcp == config.dhcp

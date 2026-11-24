@@ -10,7 +10,7 @@ printf 'IMAGE_TAG=%s\n' "$image_tag" >> digests.env
 printf 'SOURCE_SHA=%s\n' "$CI_COMMIT_SHA" >> digests.env
 for image in nv-config-manager nv-config-manager-ui nv-config-manager-kea \
     nv-config-manager-kea-admin nv-config-manager-nautobot nv-config-manager-nats-ready \
-    nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui; do
+    nv-config-manager-temporal nv-config-manager-temporal-bootstrap nv-config-manager-temporal-ui nv-config-manager-oidc-proxy; do
     digest="$(docker buildx imagetools inspect "${NVCM_IMAGE_REPOSITORY}/${image}:${image_tag}" \
         --format '{{json .Manifest}}' | jq -r '.digest')"
     [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "Invalid digest for ${image}" >&2; exit 1; }

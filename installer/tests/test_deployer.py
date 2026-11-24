@@ -16,6 +16,9 @@
 
 from __future__ import annotations
 
+import io
+import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -23,9 +26,11 @@ import tempfile
 import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from kubernetes.client.rest import ApiException
 
 from nv_config_manager_installer.accounts import build_config_secrets_ini
 from nv_config_manager_installer.deployer import (
@@ -35,6 +40,7 @@ from nv_config_manager_installer.deployer import (
     StepStatus,
     _get_image_digest_tag,
     _hash_content_dir,
+    _kind_api_server,
     _kind_preload_images,
     _parallel_build_limit,
     _ParallelCommand,
@@ -44,7 +50,7 @@ from nv_config_manager_installer.deployer import (
     _unready_pod_summary_lines,
     find_project_root,
 )
-from nv_config_manager_installer.k8s import LOADER_POD_IMAGE
+from nv_config_manager_installer.k8s import LOADER_POD_IMAGE, PodExecError
 from nv_config_manager_installer.nautobot_jobs import NautobotJobRunner
 from nv_config_manager_installer.schema import (
     ClusterConfig,
@@ -69,6 +75,7 @@ from nv_config_manager_installer.schema import (
     SecretsMethod,
     ServicesConfig,
     SiteConfig,
+    SSOProvider,
     TemplatePath,
     ZTPStorageConfig,
     ZTPStorageType,
@@ -779,6 +786,7 @@ class TestImageBuilds:
         assert any(line.startswith("[two] completed in ") for line in callback.logs)
 
     def test_build_images_runs_parallel_builds_and_tags(self, monkeypatch):
+        """Build and tag all project images, including the refreshed OIDC proxy."""
         parallel_calls: list[tuple[list[_ParallelCommand], int]] = []
         run_commands: list[list[str]] = []
 
@@ -815,7 +823,7 @@ class TestImageBuilds:
 
         commands, max_parallel = parallel_calls[0]
         assert max_parallel == 2
-        assert len(commands) == 9
+        assert len(commands) == 10
         assert all(
             command.cmd[:4] == ["docker", "build", "--provenance=false", "--progress=plain"]
             for command in commands
@@ -823,7 +831,7 @@ class TestImageBuilds:
         assert all("--load" not in command.cmd for command in commands)
         assert all(command.timeout == 900 for command in commands)
         assert all(command.env and command.env["DOCKER_BUILDKIT"] == "1" for command in commands)
-        assert len(run_commands) == 9
+        assert len(run_commands) == 10
         assert all(cmd[:2] == ["docker", "tag"] for cmd in run_commands)
         assert deployer._local_image_tags["nv-config-manager-ui"].startswith("sha-")
         targets = {
@@ -838,6 +846,7 @@ class TestImageBuilds:
         }
 
     def test_build_images_loads_buildx_container_outputs(self, monkeypatch):
+        """Load Buildx container outputs before applying local image tags."""
         parallel_calls: list[list[_ParallelCommand]] = []
 
         def fake_run_logged_parallel(commands, step, callback, *, max_parallel, **kwargs):
@@ -863,7 +872,7 @@ class TestImageBuilds:
         deployer._build_images()
 
         commands = parallel_calls[0]
-        assert len(commands) == 9
+        assert len(commands) == 10
         assert all("--load" in command.cmd for command in commands)
         assert all(command.cmd[:3] == ["docker", "buildx", "build"] for command in commands)
         assert all(
@@ -915,6 +924,7 @@ class TestImageBuilds:
 
 class TestKindImageLoading:
     def test_external_dcim_excludes_nautobot_from_local_images(self):
+        """Omit Nautobot images when an external DCIM provider is selected."""
         config = _make_config()
         config.services.nautobot = False
         config.dcim = DCIMConfig(provider="synthetic", server="https://synthetic.example")
@@ -923,9 +933,10 @@ class TestKindImageLoading:
         image_names = {build[0] for build in deployer._local_image_builds()}
 
         assert "nv-config-manager-nautobot" not in image_names
-        assert len(image_names) == 8
+        assert len(image_names) == 9
 
     def test_external_dcim_does_not_load_nautobot_image(self, monkeypatch):
+        """Load only the local images needed by the selected DCIM provider."""
         logged_commands: list[list[str]] = []
         config = _make_config()
         config.services.nautobot = False
@@ -955,9 +966,10 @@ class TestKindImageLoading:
             if command[:3] == ["kind", "load", "docker-image"]
         }
         assert "nv-config-manager-nautobot:local" not in loaded_images
-        assert len(loaded_images) == 8
+        assert len(loaded_images) == 9
 
     def test_kind_preload_images_include_defaults_config_and_env(self, monkeypatch):
+        """Combine default, configured, and environment-supplied Kind preload images."""
         config = _make_config()
         config.images.kind_preload_images = [
             "docker.io/library/redis:7-alpine",
@@ -965,16 +977,17 @@ class TestKindImageLoading:
         ]
         monkeypatch.setenv(
             "NVCM_KIND_PRELOAD_IMAGES",
-            "docker.io/library/nats:2.14-alpine,docker.io/library/redis:7-alpine",
+            "docker.io/library/nats:2.14.9-alpine,docker.io/library/redis:7-alpine",
         )
 
         assert _kind_preload_images(config) == [
             "docker.io/library/busybox:1.36",
             "docker.io/library/redis:7-alpine",
-            "docker.io/library/nats:2.14-alpine",
+            "docker.io/library/nats:2.14.9-alpine",
         ]
 
     def test_load_kind_tags_arch_specific_loader_image_as_canonical(self, monkeypatch):
+        """Load the host-architecture helper under its canonical image tag."""
         run_commands: list[list[str]] = []
         logged_commands: list[list[str]] = []
         pipe_commands: list[tuple[list[str], list[str]]] = []
@@ -1024,6 +1037,7 @@ class TestKindImageLoading:
             "nv-config-manager-temporal:local",
             "nv-config-manager-temporal-bootstrap:local",
             "nv-config-manager-temporal-ui:local",
+            "nv-config-manager-oidc-proxy:local",
         }
         assert [
             "docker",
@@ -1591,6 +1605,262 @@ class TestPvcContentUpload:
         assert "tar xzf /tmp/plugins.tar.gz" in exec_command[2]
 
 
+class TestStandaloneIntegrationTests:
+    @pytest.mark.parametrize("remote_failure", [False, True])
+    def test_runs_in_pod_without_chart_or_repo(self, tmp_path: Path, remote_failure):
+        """Run only the selected pod's suite and respect its process exit status."""
+        config = _make_config()
+        config.cluster.namespace = "offline"
+        config.cluster.release_name = "site"
+        callback = RecordingCallback()
+        deployer = Deployer(config, DeployOptions(), callback)
+        pod = SimpleNamespace(
+            metadata=SimpleNamespace(name="site-ztp-pod", deletion_timestamp=None),
+            status=SimpleNamespace(
+                phase="Running",
+                container_statuses=[SimpleNamespace(name="sftp", ready=True)],
+            ),
+        )
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            patch("nv_config_manager_installer.deployer.find_project_root") as find_root,
+            patch.object(deployer, "run") as run,
+        ):
+            k8s = client.return_value
+            k8s.v1.list_namespaced_pod.return_value.items = [pod]
+            k8s.read_secret_data.return_value = {"api_token": "test-token"}
+            if remote_failure:
+                k8s.exec_command_streaming.side_effect = PodExecError("offline", "site-ztp-pod", 5)
+            else:
+                # A test name may contain 'error' even when every test passes.
+                k8s.exec_command_streaming.return_value = iter(["test_error_response PASSED"])
+            assert deployer.run_integration_tests(kubeconfig=tmp_path / "kubeconfig") is (
+                not remote_failure
+            )
+            client.assert_called_once_with(kubeconfig=tmp_path / "kubeconfig")
+            find_root.assert_not_called()
+            run.assert_not_called()
+            k8s.v1.list_namespaced_pod.assert_called_once_with(
+                "offline", label_selector="app=site-nv-config-manager-ztp"
+            )
+            args = k8s.exec_command_streaming.call_args
+            assert args.args[:2] == ("site-ztp-pod", "offline")
+            assert args.kwargs["container"] == "sftp"
+            assert "http://site-nv-config-manager-render-api:9000" in args.args[2][2]
+            assert "test-token" not in args.args[2][2]
+            assert json.loads(args.kwargs["stdin"]) == {"NAUTOBOT_TOKEN": "test-token"}
+            if remote_failure:
+                assert any("PodExecError (exit 5)" in line for line in callback.logs)
+
+    @pytest.mark.parametrize("unsupported", ["external-dcim", "no-nautobot", "no-ztp", "azure"])
+    def test_rejects_unsupported_config_before_connecting(self, unsupported):
+        """Reject unsupported providers and missing services before touching the cluster."""
+        config = _make_config()
+        if unsupported == "external-dcim":
+            config.dcim.provider = "example"
+            config.dcim.server = "http://dcim.example.com"
+            config.services.nautobot = False
+        elif unsupported == "no-nautobot":
+            config.services.nautobot = False
+            config.services.external_nautobot_url = "http://nautobot.example.com"
+        elif unsupported == "azure":
+            config.sso.enabled = True
+            config.sso.provider = SSOProvider.AZURE
+        else:
+            config.services.ztp = False
+        deployer = Deployer(config, DeployOptions())
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            pytest.raises(ValueError),
+        ):
+            deployer.run_integration_tests()
+        client.assert_not_called()
+
+    def test_missing_ztp_pod_fails(self):
+        """Missing ready test containers cannot produce a successful result."""
+        deployer = Deployer(_make_config(), DeployOptions())
+        with patch("nv_config_manager_installer.deployer.K8sClient") as client:
+            client.return_value.v1.list_namespaced_pod.return_value.items = []
+            assert deployer.run_integration_tests() is False
+            client.return_value.exec_command_streaming.assert_not_called()
+
+    @pytest.mark.parametrize("include_ready", [True, False])
+    def test_pod_selection_skips_ineligible_pods(self, include_ready):
+        """Select a later eligible pod, or return no pod when every candidate is ineligible."""
+
+        def pod(name, *, phase="Running", deleting=False, ready=True, container="sftp"):
+            """Create the pod metadata and container readiness used by selection."""
+            return SimpleNamespace(
+                metadata=SimpleNamespace(
+                    name=name, deletion_timestamp=object() if deleting else None
+                ),
+                status=SimpleNamespace(
+                    phase=phase,
+                    container_statuses=(
+                        None if ready is None else [SimpleNamespace(name=container, ready=ready)]
+                    ),
+                ),
+            )
+
+        candidates = [
+            pod("terminating", deleting=True),
+            pod("pending", phase="Pending"),
+            pod("unready-sftp", ready=False),
+            pod("missing-container-status", ready=None),
+            pod("ready-other-container", container="http-api"),
+        ]
+        if include_ready:
+            candidates.append(pod("ready-sftp"))
+        deployer = Deployer(_make_config(), DeployOptions())
+        deployer._k8s = MagicMock()
+        deployer._k8s.v1.list_namespaced_pod.return_value.items = candidates
+
+        assert deployer._find_ztp_pod("test-ns") == ("ready-sftp" if include_ready else "")
+        deployer._k8s.v1.list_namespaced_pod.assert_called_once_with(
+            "test-ns", label_selector="app=nv-config-manager-ztp"
+        )
+
+    def test_script_reads_credentials_from_stdin(self):
+        """Generated exec arguments contain only code and non-secret connection settings."""
+        deployer = Deployer(_make_config(), DeployOptions())
+        script = deployer._build_test_script("offline")
+        compile(script, "test-runner", "exec")
+        assert "http://nv-config-manager-nautobot" in script
+        assert "json.loads(sys.stdin.readline())" in script
+
+    def test_sso_script_executes_pytest_with_stdin_credentials(self):
+        """Execute the generated script to check stdin decoding and SSO arguments."""
+        config = _make_config()
+        config.sso.enabled = True
+        deployer = Deployer(config, DeployOptions())
+        script = deployer._build_test_script("offline")
+        payload = {"NAUTOBOT_TOKEN": "quote'and\\newline\n", "NVCM_OIDC_ACCESS_TOKEN": "test-jwt"}
+        fake_pytest = MagicMock()
+
+        def run_pytest(args):
+            assert "--sso" in args
+            assert args[args.index("--nv-config-manager-namespace") + 1] == "offline"
+            assert os.environ["NAUTOBOT_TOKEN"] == payload["NAUTOBOT_TOKEN"]
+            assert os.environ["NVCM_OIDC_ACCESS_TOKEN"] == "test-jwt"
+            return 0
+
+        fake_pytest.main.side_effect = run_pytest
+        with (
+            patch("os.chdir"),
+            patch.dict("os.environ"),
+            patch.dict("sys.modules", {"pytest": fake_pytest}),
+            patch("sys.stdin", io.StringIO(json.dumps(payload) + "\n")),
+            patch("os.path.isfile", return_value=True),
+            pytest.raises(SystemExit) as result,
+        ):
+            exec(script, {})
+        assert result.value.code == 0
+
+    @pytest.mark.parametrize("token_file", [False, True])
+    def test_sso_uses_existing_secret_or_token_without_deploying(self, tmp_path: Path, token_file):
+        """Resolve either credential source and clear transient credentials afterward."""
+        config = _make_config()
+        config.sso.enabled = True
+        config.sso.client_id = "nvcm"
+        config.sso.internal_issuer = "http://keycloak.keycloak.svc/realms/nmc"
+        callback = RecordingCallback()
+        deployer = Deployer(config, DeployOptions(), callback)
+        path = tmp_path / "token"
+        path.write_text("pre-issued-token\n")
+        captured = {}
+
+        def run_tests():
+            captured.update(deployer._test_oidc_environment)
+            script = deployer._build_test_script("offline")
+            compile(script, "test-runner", "exec")
+            assert "'--sso'" in script
+            deployer._finish_step(deployer._get_step("run-tests"))
+
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            patch.object(deployer, "_run_integration_tests", side_effect=run_tests),
+        ):
+            client.return_value.read_secret_data.return_value = {"client-secret": "test-secret"}
+            assert deployer.run_integration_tests(oidc_token_file=path if token_file else None)
+            if token_file:
+                client.return_value.read_secret_data.assert_not_called()
+                assert captured == {"NVCM_OIDC_ACCESS_TOKEN": "pre-issued-token"}
+            else:
+                client.return_value.read_secret_data.assert_called_once_with(
+                    "oidc-client-secret", config.cluster.namespace
+                )
+                assert captured == {
+                    "NVCM_OIDC_TOKEN_URL": (
+                        "http://keycloak.keycloak.svc/realms/nmc/protocol/openid-connect/token"
+                    ),
+                    "NVCM_OIDC_CLIENT_ID": "nvcm",
+                    "NVCM_OIDC_CLIENT_SECRET": "test-secret",
+                }
+        assert not deployer._test_oidc_environment
+
+    def test_sso_does_not_skip_when_credentials_supplied(self):
+        """Headless credentials select real test execution rather than the TUI's SSO skip."""
+        config = _make_config()
+        config.sso.enabled = True
+        deployer = Deployer(config, DeployOptions(run_tests=True))
+        deployer._test_oidc_environment = {"NVCM_OIDC_ACCESS_TOKEN": "test-token"}
+        deployer._k8s = MagicMock()
+        deployer._k8s.v1.list_namespaced_pod.return_value.items = []
+        deployer._run_integration_tests()
+        assert deployer._get_step("run-tests").status == StepStatus.FAILED
+
+    def test_rejects_missing_oidc_secret_fields(self):
+        """An incomplete credential Secret must fail before remote execution."""
+        config = _make_config()
+        config.sso.enabled = True
+        deployer = Deployer(config, DeployOptions())
+        with patch("nv_config_manager_installer.deployer.K8sClient") as client:
+            client.return_value.read_secret_data.return_value = {}
+            with pytest.raises(ValueError, match="SSO tests require"):
+                deployer.run_integration_tests()
+            client.return_value.exec_command_streaming.assert_not_called()
+
+    def test_sso_uses_alternate_client_secret(self):
+        """An alternate Secret can supply both client identity and client secret."""
+        config = _make_config()
+        config.sso.enabled = True
+        config.sso.issuer_url = "https://keycloak.example/realms/test"
+        deployer = Deployer(config, DeployOptions())
+        with (
+            patch("nv_config_manager_installer.deployer.K8sClient") as client,
+            patch.object(deployer, "_run_integration_tests") as run_tests,
+        ):
+            client.return_value.read_secret_data.return_value = {
+                "client_id": "acceptance-tests",
+                "client_secret": "test-secret",
+            }
+
+            def check_environment():
+                assert deployer._test_oidc_environment["NVCM_OIDC_CLIENT_ID"] == "acceptance-tests"
+                assert deployer._test_oidc_environment["NVCM_OIDC_CLIENT_SECRET"] == "test-secret"
+
+            run_tests.side_effect = check_environment
+            deployer.run_integration_tests(oidc_client_secret_name="acceptance-tests")
+            client.return_value.read_secret_data.assert_called_once_with(
+                "acceptance-tests", config.cluster.namespace
+            )
+
+    def test_stream_error_reports_safe_cause(self):
+        """Report a Kubernetes HTTP status without leaking exception bodies or headers."""
+        callback = RecordingCallback()
+        deployer = Deployer(_make_config(), DeployOptions(run_tests=True), callback)
+        deployer._k8s = MagicMock()
+        deployer._k8s.read_secret_data.return_value = {"api_token": "test-token"}
+        deployer._k8s.exec_command_streaming.side_effect = ApiException(
+            status=403, reason="confidential-credential-value"
+        )
+        with patch.object(deployer, "_find_ztp_pod", return_value="ztp"):
+            deployer._run_integration_tests()
+        assert deployer._get_step("run-tests").status == StepStatus.FAILED
+        assert any("ApiException (HTTP 403)" in line for line in callback.logs)
+        assert all("confidential-credential-value" not in line for line in callback.logs)
+
+
 class TestK8sClientIntegration:
     """Verify the deployer interacts with K8sClient correctly."""
 
@@ -1598,6 +1868,176 @@ class TestK8sClientIntegration:
         config = _make_config()
         deployer = Deployer(config, DeployOptions())
         assert deployer._k8s is None
+
+    def test_load_kind_refuses_a_non_kind_context(self) -> None:
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"current kube context is 'prod-eks'"):
+            deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
+
+    def test_load_kind_accepts_the_matching_kind_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server",
+            lambda cluster: "https://127.0.0.1:6443",
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        deployer._validate_local_cluster_target("kind-nv-config-manager", "https://127.0.0.1:6443/")
+
+    def test_load_kind_refuses_a_different_kind_cluster(self) -> None:
+        deployer = Deployer(_make_config(), DeployOptions(load_kind=True, kind_cluster="a"))
+
+        with pytest.raises(RuntimeError, match=r"Kind cluster 'a'"):
+            deployer._validate_local_cluster_target("kind-b", "https://127.0.0.1:6443")
+
+    def test_load_kind_refuses_a_kind_named_context_pointing_elsewhere(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server",
+            lambda cluster: "https://127.0.0.1:6443",
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"would target different clusters"):
+            deployer._validate_local_cluster_target(
+                "kind-nv-config-manager", "https://prod.example.com:443"
+            )
+
+    def test_load_kind_refuses_when_kind_cannot_report_the_api_server(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._kind_api_server", lambda cluster: None
+        )
+        deployer = Deployer(
+            _make_config(), DeployOptions(load_kind=True, kind_cluster="nv-config-manager")
+        )
+
+        with pytest.raises(RuntimeError, match=r"could not report its API server"):
+            deployer._validate_local_cluster_target(
+                "kind-nv-config-manager", "https://127.0.0.1:6443"
+            )
+
+    @pytest.mark.parametrize(
+        ("returncode", "stdout", "expected"),
+        [
+            (
+                0,
+                "clusters:\n- cluster:\n    server: https://127.0.0.1:6443\n",
+                "https://127.0.0.1:6443",
+            ),
+            (1, "", None),
+            (0, "clusters: []\n", None),
+            (0, "clusters: [\n", None),
+        ],
+    )
+    def test_kind_api_server_reads_the_kind_kubeconfig(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        returncode: int,
+        stdout: str,
+        expected: str | None,
+    ) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            calls.append(cmd)
+            return MagicMock(returncode=returncode, stdout=stdout, stderr="")
+
+        monkeypatch.setattr("nv_config_manager_installer.deployer._run", fake_run)
+
+        assert _kind_api_server("nv-config-manager") == expected
+        assert calls == [["kind", "get", "kubeconfig", "--name", "nv-config-manager"]]
+
+    @pytest.mark.parametrize(
+        ("context", "server"),
+        [
+            ("docker-desktop", "https://kubernetes.docker.internal:6443"),
+            ("k3d-dev", "https://0.0.0.0:6443"),
+            ("my-laptop", "https://127.0.0.1:6443"),
+            ("my-laptop", "https://127.0.0.2:6443"),
+            ("my-laptop", "https://127.255.10.1:6443"),
+            ("my-laptop", "https://[::1]:6443"),
+            ("my-laptop", "https://localhost:6443"),
+        ],
+    )
+    def test_local_images_accept_a_local_cluster(
+        self, monkeypatch: pytest.MonkeyPatch, context: str, server: str
+    ) -> None:
+        monkeypatch.delenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", raising=False)
+        config = _make_config()
+        config.images.source = ImageSource.LOCAL
+        deployer = Deployer(config, DeployOptions())
+
+        deployer._validate_local_cluster_target(context, server)
+
+    @pytest.mark.parametrize(
+        "server",
+        [
+            "https://prod.example.com:443",
+            "https://127.example.com:443",
+            "https://128.0.0.1:6443",
+            "https://192.0.2.1:6443",
+        ],
+    )
+    def test_local_images_refuse_a_remote_cluster(
+        self, monkeypatch: pytest.MonkeyPatch, server: str
+    ) -> None:
+        monkeypatch.delenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", raising=False)
+        config = _make_config()
+        config.images.source = ImageSource.LOCAL
+        deployer = Deployer(config, DeployOptions())
+
+        with pytest.raises(RuntimeError, match=r"does not look like a cluster on this machine"):
+            deployer._validate_local_cluster_target("prod-eks", server)
+
+    def test_local_images_allow_a_remote_cluster_when_opted_in(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("NVCM_INSTALLER_ALLOW_REMOTE_CLUSTER_FOR_LOCAL_IMAGES", "1")
+        config = _make_config()
+        config.images.source = ImageSource.LOCAL
+        deployer = Deployer(config, DeployOptions())
+
+        deployer._validate_local_cluster_target("dev-vm", "https://dev-vm.example.com:6443")
+
+    def test_registry_images_allow_any_cluster(self) -> None:
+        deployer = Deployer(_make_config(), DeployOptions())
+
+        deployer._validate_local_cluster_target("prod-eks", "https://prod.example.com:443")
+
+    def test_prereqs_refuse_load_kind_against_a_remote_context(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer.shutil.which",
+            lambda tool: f"/usr/bin/{tool}",
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer.K8sClient",
+            lambda *a, **kw: _mock_k8s(),
+        )
+        monkeypatch.setattr(
+            "nv_config_manager_installer.deployer._run",
+            lambda cmd, **kwargs: MagicMock(returncode=0, stdout="", stderr=""),
+        )
+        deployer = Deployer(
+            _make_config(),
+            DeployOptions(load_kind=True, kind_cluster="nv-config-manager"),
+            RecordingCallback(),
+        )
+
+        with pytest.raises(RuntimeError, match=r"Refusing to deploy"):
+            deployer._check_prerequisites()
 
     @patch("nv_config_manager_installer.deployer._run_logged")
     @patch("nv_config_manager_installer.deployer._run")
@@ -1646,7 +2086,10 @@ class TestK8sClientIntegration:
             for call in mock_k8s.apply_secret.call_args_list
             if call.args[0] == "nautobot-token"
         )
-        assert "read-only-token" not in nautobot_token_call.args[2]
+        assert len(nautobot_token_call.args[2]["read-only-token"]) == 40
+        assert (
+            nautobot_token_call.args[2]["read-only-token"] != nautobot_token_call.args[2]["token"]
+        )
 
     @patch("nv_config_manager_installer.deployer._run_logged")
     @patch("nv_config_manager_installer.deployer._run")

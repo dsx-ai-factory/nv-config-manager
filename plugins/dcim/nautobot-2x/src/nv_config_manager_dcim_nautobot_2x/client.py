@@ -16,18 +16,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 import re
 import ssl
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Self, cast
 
 import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
 from aiohttp_retry import ExponentialRetry, RetryClient
 from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
-from nv_config_manager_dcim.errors import DCIMError, DCIMReadCancelledError
+from nv_config_manager_dcim.errors import DCIMError, DCIMInvalidDataError, DCIMReadCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +212,7 @@ class NautobotClient:
         exc_tb: types.TracebackType | None,
     ) -> None:
         """Async context manager exit."""
-        if self._session:
-            await self._session.close()
-            self._session = None
+        await self.close()
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         """Ensure session exists, creating it lazily if needed."""
@@ -364,7 +364,7 @@ class NautobotClient:
     async def get(
         self, path: str, params: dict[str, Any] | None = None, timeout: int | None = None
     ) -> Any:
-        """Send an HTTP GET request.
+        """Send an HTTP GET request with one bounded retry for transient failures.
 
         Args:
             path: API path (relative to /api/)
@@ -377,15 +377,26 @@ class NautobotClient:
         request_url = self._rest_url(path)
         session = await self._ensure_session()
         request_timeout = aiohttp.ClientTimeout(total=timeout or self._timeout)
-        async with session.get(
-            request_url,
-            params=params,
-            timeout=request_timeout,
-            headers=self._resolve_headers(),
-        ) as rsp:
-            if not rsp.ok:
-                await self._handle_error_response(rsp, "GET", path)
-            return await rsp.json()
+        for attempt in range(2):
+            try:
+                async with session.get(
+                    request_url,
+                    params=params,
+                    timeout=request_timeout,
+                    headers=self._resolve_headers(),
+                ) as rsp:
+                    if attempt == 1 or rsp.status not in _RETRYABLE_GATEWAY_STATUSES:
+                        if not rsp.ok:
+                            await self._handle_error_response(rsp, "GET", path)
+                        return await rsp.json()
+            except (aiohttp.ClientSSLError, aiohttp.ServerFingerprintMismatch, ssl.SSLError):
+                # These are connection errors too, but retrying cannot fix TLS verification.
+                raise
+            except (TimeoutError, aiohttp.ClientConnectionError):
+                if attempt == 1:
+                    raise
+            # Leave the response context before waiting, including on body-read errors.
+            await asyncio.sleep(random.uniform(2.0, 3.0))
 
     async def get_all(
         self,
@@ -402,7 +413,9 @@ class NautobotClient:
         while True:
             query["offset"] = offset
             page = await self.get(path, params=query, timeout=timeout)
-            results = page.get("results", [])
+            if not isinstance(page, Mapping) or not isinstance(page.get("results"), list):
+                raise DCIMInvalidDataError(f"Nautobot returned invalid pagination data for {path}")
+            results = page["results"]
             collected.extend(results)
             if not results or not page.get("next"):
                 break

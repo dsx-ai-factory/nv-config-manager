@@ -21,6 +21,7 @@ standalone test job free of the test-server download.
 """
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from temporalio import workflow
@@ -53,6 +54,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeClock]:
 def patched_history(monkeypatch: pytest.MonkeyPatch) -> None:
     """Report every Temporal patch as applied, as a fresh history would."""
     monkeypatch.setattr(workflow, "patched", lambda _patch_id: True)
+    monkeypatch.setattr(workflow, "info", lambda: SimpleNamespace(headers={}))
 
 
 @pytest.fixture
