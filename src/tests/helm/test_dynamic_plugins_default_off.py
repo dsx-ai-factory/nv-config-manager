@@ -25,6 +25,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -51,7 +52,7 @@ def _values_files() -> list[Path]:
     return sorted(set(files))
 
 
-def _enabled_flags(node, path="") -> list[str]:
+def _enabled_flags(node: Any, path: str = "") -> list[str]:
     """Dotted paths of every unsafeDynamicTemplatePlugins flag that is set to true."""
     found: list[str] = []
     if isinstance(node, dict):
@@ -67,7 +68,7 @@ def _enabled_flags(node, path="") -> list[str]:
     return found
 
 
-def test_the_scan_finds_values_files():
+def test_the_scan_finds_values_files() -> None:
     assert HELM_DIR / "values.yaml" in _values_files()
 
 
@@ -76,19 +77,19 @@ def test_the_scan_finds_values_files():
     [p for p in _values_files() if p.name not in LOCAL_DEVELOPMENT_OVERLAYS],
     ids=lambda p: str(p.relative_to(REPO_ROOT)),
 )
-def test_no_shipped_values_file_enables_dynamic_plugins(values_file):
+def test_no_shipped_values_file_enables_dynamic_plugins(values_file: Path) -> None:
     enabled = _enabled_flags(yaml.safe_load(values_file.read_text()) or {})
     assert enabled == [], f"{values_file.relative_to(REPO_ROOT)} enables {enabled}"
 
 
-def test_the_local_overlay_is_the_only_exception_and_really_enables_the_feature():
+def test_the_local_overlay_is_the_only_exception_and_really_enables_the_feature() -> None:
     # If the overlay stops enabling anything it no longer needs an exemption; keep the list honest.
     overlay = HELM_DIR / "values-template-preview.yaml"
     assert overlay.name in LOCAL_DEVELOPMENT_OVERLAYS
     assert _enabled_flags(yaml.safe_load(overlay.read_text())) != []
 
 
-def test_the_scanner_detects_an_enabled_flag():
+def test_the_scanner_detects_an_enabled_flag() -> None:
     document = {
         "templatePreview": {
             FLAG_BLOCK: {"enabled": True, "acknowledgeArbitraryCodeExecution": False}
@@ -99,7 +100,7 @@ def test_the_scanner_detects_an_enabled_flag():
 
 
 @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
-def test_the_ci_profile_renders_no_dynamic_plugin_machinery():
+def test_the_ci_profile_renders_no_dynamic_plugin_machinery() -> None:
     rendered = subprocess.run(
         ["helm", "template", "test", ".", "--values", "values-ci.yaml"],
         cwd=HELM_DIR,

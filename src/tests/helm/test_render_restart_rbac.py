@@ -66,7 +66,7 @@ def _api_env(docs: list[dict]) -> dict[str, str]:
     }
 
 
-def test_the_render_service_has_no_permission_on_deployments():
+def test_the_render_service_has_no_permission_on_deployments() -> None:
     role = _named(_render(*GATE), "Role", "-render-activation-role")
 
     assert role is not None
@@ -75,7 +75,7 @@ def test_the_render_service_has_no_permission_on_deployments():
     assert all(set(rule["verbs"]) == {"get", "update"} for rule in role["rules"])
 
 
-def test_the_render_service_is_not_told_which_deployments_to_restart():
+def test_the_render_service_is_not_told_which_deployments_to_restart() -> None:
     env = _api_env(_render(*GATE))
 
     assert "RENDER_ACTIVATION_DEPLOYMENTS" not in env
@@ -83,7 +83,7 @@ def test_the_render_service_is_not_told_which_deployments_to_restart():
     assert env["RENDER_ACTIVATION_CONFIGMAP"].endswith("-render-activation-state")
 
 
-def test_template_preview_may_get_and_patch_exactly_the_three_render_deployments():
+def test_template_preview_may_get_and_patch_exactly_the_three_render_deployments() -> None:
     docs = _render(*WITH_TEMPLATE_PREVIEW)
     role = _named(docs, "Role", "-render-restart-role")
 
@@ -100,7 +100,7 @@ def test_template_preview_may_get_and_patch_exactly_the_three_render_deployments
     ]
 
 
-def test_that_role_is_bound_to_template_previews_backend_service_account():
+def test_that_role_is_bound_to_template_previews_backend_service_account() -> None:
     binding = _named(_render(*WITH_TEMPLATE_PREVIEW), "RoleBinding", "-render-restart-rolebinding")
 
     (subject,) = binding["subjects"]
@@ -109,11 +109,11 @@ def test_that_role_is_bound_to_template_previews_backend_service_account():
     assert binding["roleRef"]["name"].endswith("-render-restart-role")
 
 
-def test_without_template_preview_nobody_is_granted_the_restart_permission():
+def test_without_template_preview_nobody_is_granted_the_restart_permission() -> None:
     assert _named(_render(*GATE), "Role", "-render-restart-role") is None
 
 
-def test_with_the_gate_closed_no_activation_rbac_exists_at_all():
+def test_with_the_gate_closed_no_activation_rbac_exists_at_all() -> None:
     docs = _render()
 
     assert _named(docs, "Role", "-render-activation-role") is None

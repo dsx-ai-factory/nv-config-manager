@@ -28,6 +28,7 @@ import hashlib
 import io
 import tarfile
 import zipfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -66,7 +67,7 @@ def _make_tar(files: dict[str, bytes]) -> bytes:
 
 
 @patch("nv_config_manager.render.artifact_fetch.requests.get")
-def test_fetch_verify_extract_zip(mock_get, tmp_path):
+def test_fetch_verify_extract_zip(mock_get: MagicMock, tmp_path: Path) -> None:
     files = {"plugin.yaml": b"id: site-overrides\n", "templates/base.j2": b"{{ hostname }}\n"}
     content = _make_zip(files)
     checksum = _checksum_for(content)
@@ -81,7 +82,7 @@ def test_fetch_verify_extract_zip(mock_get, tmp_path):
 
 
 @patch("nv_config_manager.render.artifact_fetch.requests.get")
-def test_fetch_verify_extract_tar(mock_get, tmp_path):
+def test_fetch_verify_extract_tar(mock_get: MagicMock, tmp_path: Path) -> None:
     files = {"plugin.yaml": b"id: site-overrides\n"}
     content = _make_tar(files)
     checksum = _checksum_for(content)
@@ -95,7 +96,7 @@ def test_fetch_verify_extract_tar(mock_get, tmp_path):
 
 
 @patch("nv_config_manager.render.artifact_fetch.requests.get")
-def test_fetch_sends_bearer_token_when_provided(mock_get, tmp_path):
+def test_fetch_sends_bearer_token_when_provided(mock_get: MagicMock, tmp_path: Path) -> None:
     content = _make_zip({"a.txt": b"x"})
     checksum = _checksum_for(content)
     mock_get.return_value = MagicMock(status_code=200, content=content)
@@ -113,7 +114,7 @@ def test_fetch_sends_bearer_token_when_provided(mock_get, tmp_path):
 
 
 @patch("nv_config_manager.render.artifact_fetch.requests.get")
-def test_fetch_raises_on_checksum_mismatch(mock_get, tmp_path):
+def test_fetch_raises_on_checksum_mismatch(mock_get: MagicMock, tmp_path: Path) -> None:
     content = _make_zip({"a.txt": b"x"})
     mock_get.return_value = MagicMock(status_code=200, content=content)
 
@@ -127,7 +128,7 @@ def test_fetch_raises_on_checksum_mismatch(mock_get, tmp_path):
 
 
 @patch("nv_config_manager.render.artifact_fetch.requests.get")
-def test_fetch_raises_on_non_200(mock_get, tmp_path):
+def test_fetch_raises_on_non_200(mock_get: MagicMock, tmp_path: Path) -> None:
     mock_get.return_value = MagicMock(status_code=404, content=b"")
     with pytest.raises(ArtifactFetchError, match="HTTP 404"):
         fetch_and_verify_artifact(
@@ -139,7 +140,7 @@ def test_fetch_raises_on_non_200(mock_get, tmp_path):
 
 
 @patch("nv_config_manager.render.artifact_fetch.requests.get")
-def test_fetch_rejects_archive_member_path_traversal(mock_get, tmp_path):
+def test_fetch_rejects_archive_member_path_traversal(mock_get: MagicMock, tmp_path: Path) -> None:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("../../etc/passwd", b"nope")
@@ -154,7 +155,7 @@ def test_fetch_rejects_archive_member_path_traversal(mock_get, tmp_path):
 
 
 @patch("nv_config_manager.render.artifact_fetch.requests.get")
-def test_fetch_rejects_non_archive_content(mock_get, tmp_path):
+def test_fetch_rejects_non_archive_content(mock_get: MagicMock, tmp_path: Path) -> None:
     content = b"not an archive at all"
     checksum = _checksum_for(content)
     mock_get.return_value = MagicMock(status_code=200, content=content)
@@ -170,7 +171,9 @@ def test_fetch_rejects_non_archive_content(mock_get, tmp_path):
 
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
-def test_cli_main_noop_when_nothing_active(mock_store_cls, mock_fetch, monkeypatch):
+def test_cli_main_noop_when_nothing_active(
+    mock_store_cls: MagicMock, mock_fetch: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
     monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
     mock_store_cls.return_value.get.return_value = {"active_artifacts": []}
@@ -192,8 +195,8 @@ def _artifact(plugin_id: str) -> dict:
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
 def test_a_pod_restarted_for_an_activation_installs_the_new_set_not_the_old_one(
-    mock_store_cls, mock_fetch, monkeypatch
-):
+    mock_store_cls: MagicMock, mock_fetch: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The restart is triggered after the new set is recorded as in flight, so every restarted
     Deployment installs it. (Previously the consumers restarted first and installed the old set.)"""
     monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
@@ -215,8 +218,8 @@ def test_a_pod_restarted_for_an_activation_installs_the_new_set_not_the_old_one(
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
 def test_after_a_failed_activation_a_restarted_pod_goes_back_to_the_active_set(
-    mock_store_cls, mock_fetch, monkeypatch
-):
+    mock_store_cls: MagicMock, mock_fetch: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
     monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
     mock_store_cls.return_value.get.return_value = {
@@ -235,7 +238,9 @@ def test_after_a_failed_activation_a_restarted_pod_goes_back_to_the_active_set(
 
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
-def test_cli_main_fetches_every_active_artifact(mock_store_cls, mock_fetch, monkeypatch):
+def test_cli_main_fetches_every_active_artifact(
+    mock_store_cls: MagicMock, mock_fetch: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
     monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
     monkeypatch.setenv("TEMPLATE_PREVIEW_ARTIFACT_TOKEN", "tok")
@@ -277,7 +282,9 @@ def test_cli_main_fetches_every_active_artifact(mock_store_cls, mock_fetch, monk
 
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
-def test_cli_main_exits_nonzero_on_fetch_failure(mock_store_cls, mock_fetch, monkeypatch):
+def test_cli_main_exits_nonzero_on_fetch_failure(
+    mock_store_cls: MagicMock, mock_fetch: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
     monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
     mock_store_cls.return_value.get.return_value = {
@@ -301,7 +308,7 @@ def test_cli_main_exits_nonzero_on_fetch_failure(mock_store_cls, mock_fetch, mon
 # --- one folder per plugin, and a safe plugin id ---------------------------------------------
 
 
-def test_each_plugin_is_extracted_into_its_own_folder():
+def test_each_plugin_is_extracted_into_its_own_folder() -> None:
     assert (
         _plugin_install_dir("/opt/plugins", "site-overrides")
         == "/opt/plugins/_dynamic/site-overrides"
@@ -310,7 +317,7 @@ def test_each_plugin_is_extracted_into_its_own_folder():
 
 
 @pytest.mark.parametrize("bad", ["", "..", "../etc", "a/b", "/abs", ".hidden", "a..b", None, 5])
-def test_unsafe_plugin_ids_are_refused(bad):
+def test_unsafe_plugin_ids_are_refused(bad: object) -> None:
     with pytest.raises(ArtifactFetchError, match="unsafe plugin id"):
         _plugin_install_dir("/opt/plugins", bad)
 
@@ -318,8 +325,8 @@ def test_unsafe_plugin_ids_are_refused(bad):
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
 def test_cli_main_refuses_an_unsafe_plugin_id_without_fetching(
-    mock_store_cls, mock_fetch, monkeypatch
-):
+    mock_store_cls: MagicMock, mock_fetch: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
     monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
     mock_store_cls.return_value.get.return_value = {
@@ -343,7 +350,7 @@ def test_cli_main_refuses_an_unsafe_plugin_id_without_fetching(
 # --- only the selected set is left installed (review finding) -----------------------------------------
 
 
-def _install_env(monkeypatch, root):
+def _install_env(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     monkeypatch.setenv("RENDER_ACTIVATION_CONFIGMAP", "cm")
     monkeypatch.setenv("RENDER_ACTIVATION_NAMESPACE", "ns")
     monkeypatch.setenv("RENDER_PLUGIN_INSTALL_PATH", str(root))
@@ -352,8 +359,11 @@ def _install_env(monkeypatch, root):
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
 def test_an_empty_selection_removes_plugins_left_by_an_earlier_attempt(
-    mock_store_cls, mock_fetch, monkeypatch, tmp_path
-):
+    mock_store_cls: MagicMock,
+    mock_fetch: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     # A retried init container in the same pod: the failed attempt's files are still on the volume, and
     # the set to install is now empty (nothing active). The loader must not find them.
     _install_env(monkeypatch, tmp_path)
@@ -370,15 +380,18 @@ def test_an_empty_selection_removes_plugins_left_by_an_earlier_attempt(
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
 def test_only_the_selected_set_is_left_in_the_dynamic_folder(
-    mock_store_cls, mock_fetch, monkeypatch, tmp_path
-):
+    mock_store_cls: MagicMock,
+    mock_fetch: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     _install_env(monkeypatch, tmp_path)
     leftover = tmp_path / "_dynamic" / "from-failed-attempt"
     leftover.mkdir(parents=True)
     (leftover / "plugin.yaml").write_text("kind: Plugin\n")
     mock_store_cls.return_value.get.return_value = {"active_artifacts": [_artifact("selected")]}
 
-    def fake_fetch(url, digest, checksum, dest, token):
+    def fake_fetch(url: str, digest: str, checksum: str, dest: Path, token: str | None) -> None:
         (tmp_path / "_dynamic" / "selected").mkdir(parents=True, exist_ok=True)
         (tmp_path / "_dynamic" / "selected" / "plugin.yaml").write_text("kind: Plugin\n")
 
@@ -392,8 +405,11 @@ def test_only_the_selected_set_is_left_in_the_dynamic_folder(
 @patch("nv_config_manager.render.artifact_fetch.fetch_and_verify_artifact")
 @patch("nv_config_manager.render.artifact_fetch.ActivationStateStore")
 def test_static_plugins_outside_the_dynamic_folder_are_never_touched(
-    mock_store_cls, mock_fetch, monkeypatch, tmp_path
-):
+    mock_store_cls: MagicMock,
+    mock_fetch: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     _install_env(monkeypatch, tmp_path)
     (tmp_path / "static-plugin").mkdir()
     (tmp_path / "static-plugin" / "plugin.yaml").write_text("kind: Plugin\n")

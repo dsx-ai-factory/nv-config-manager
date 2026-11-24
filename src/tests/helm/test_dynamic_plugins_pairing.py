@@ -76,7 +76,9 @@ CASES = {
 
 
 @pytest.mark.parametrize("sets, open_", CASES.values(), ids=CASES.keys())
-def test_the_plugin_machinery_exists_only_when_one_block_has_both_flags(sets, open_):
+def test_the_plugin_machinery_exists_only_when_one_block_has_both_flags(
+    sets: list[str], open_: bool
+) -> None:
     rendered = _render(*sets)
 
     assert ("NVCM_DYNAMIC_PLUGINS_DIR" in rendered) is open_
@@ -84,10 +86,13 @@ def test_the_plugin_machinery_exists_only_when_one_block_has_both_flags(sets, op
 
 
 @pytest.mark.parametrize("sets, open_", CASES.values(), ids=CASES.keys())
-def test_the_flags_written_into_the_service_config_agree_with_the_gate(sets, open_):
+def test_the_flags_written_into_the_service_config_agree_with_the_gate(
+    sets: list[str], open_: bool
+) -> None:
     rendered = _render(*sets)
 
     expected = str(open_).lower()
     for name in ("enabled", "acknowledge_arbitrary_code_execution"):
         values = re.findall(rf"unsafe_dynamic_template_plugins_{name} = (\w+)", rendered)
-        assert set(values) <= {expected}, (name, values)
+        assert values, f"{name} is missing from the rendered service config"
+        assert set(values) == {expected}, (name, values)
