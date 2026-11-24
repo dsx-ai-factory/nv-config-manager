@@ -29,7 +29,7 @@ from types import TracebackType
 from typing import Any
 
 import click
-from aiohttp import ClientError
+from aiohttp import ClientConnectionError, ClientError, ClientResponseError
 from prometheus_client import start_http_server
 
 from nv_config_manager.common.config.loader import load_config
@@ -42,6 +42,7 @@ from nv_config_manager.common.log import (
 )
 from nv_config_manager.dcim import (
     DCIMClient,
+    DCIMConnectivityError,
     DCIMReadCancelledError,
     dcim_client_session,
 )
@@ -233,6 +234,19 @@ async def _track_sync_operation[T](
         raise
 
 
+def _dcim_was_unavailable(exc: BaseException) -> bool:
+    """Return whether a config-generation failure means the DCIM was briefly unreachable.
+
+    Server errors count even though the DCIM client never retries a 500: a DCIM
+    whose database is failing over answers 500 until a replica is promoted, and
+    a read one refresh interval later succeeds. A 4xx or data that fails
+    validation fails the same way every cycle, so those are not included.
+    """
+    if isinstance(exc, DCIMConnectivityError | TimeoutError | ClientConnectionError):
+        return True
+    return isinstance(exc, ClientResponseError) and exc.status >= 500
+
+
 def _inject_lease_db_config_tracked(config: dict[str, Any], ip_version: int) -> dict[str, Any]:
     """Inject the PostgreSQL lease-DB config, recording a ``postgres`` failure."""
     try:
@@ -381,16 +395,23 @@ async def _refresh_kea_configuration_async(
         logger.warning(f"Could not fetch current Kea config, using defaults: {exc}")
         current_kea_config = None
 
-    config = await _track_sync_operation(
-        SyncOperation.CONFIG_GENERATION,
-        ip_version,
-        generate_config(
-            dcim_client=dcim_client,
-            redis_client=redis_client,
-            version=ip_version,
-            kea_config=current_kea_config,
-        ),
-    )
+    try:
+        config = await _track_sync_operation(
+            SyncOperation.CONFIG_GENERATION,
+            ip_version,
+            generate_config(
+                dcim_client=dcim_client,
+                redis_client=redis_client,
+                version=ip_version,
+                kea_config=current_kea_config,
+            ),
+        )
+    except Exception as exc:
+        # Kea raises the same timeout and aiohttp errors, so only a failure
+        # while generating from the DCIM is classified as the DCIM being down.
+        if _dcim_was_unavailable(exc) and not isinstance(exc, DCIMConnectivityError):
+            raise DCIMConnectivityError(_safe_error_text(exc)) from exc
+        raise
 
     logger.info("Validating configuration against KEA API.")
     result, error = await _track_sync_operation(
@@ -486,9 +507,9 @@ async def _refresh_loop_async(
         async with dcim_client_session(config) as dcim_client:
             while True:
                 # Leave errors uncaught so that they get raised and restart the
-                # container. A read the DCIM's datastore cancelled is the
-                # exception: restarting only re-runs into the same busy
-                # replica, and skipping the publish
+                # container. A DCIM read that was cancelled or found the DCIM
+                # unavailable is the exception: restarting only re-runs into
+                # the same busy replica or failover, and skipping the publish
                 # already keeps Kea on its last good config and freezes
                 # cache_last_refresh_timestamp, which the ten-minute refresh
                 # alert watches.
@@ -505,6 +526,14 @@ async def _refresh_loop_async(
                     logger.error(
                         f"Skipping this refresh; could not read the DCIM: "
                         f"{escape_log_newlines(str(exc))}"
+                    )
+                except DCIMConnectivityError as exc:
+                    if not refresh_interval:
+                        raise
+                    DHCP_QUERY_ERRORS.labels(error_type=QueryErrorType.UNAVAILABLE).inc()
+                    logger.error(
+                        f"Skipping this refresh; the DCIM was unavailable: "
+                        f"{_safe_error_text(str(exc))}"
                     )
                 else:
                     if should_exit or not refresh_interval:
