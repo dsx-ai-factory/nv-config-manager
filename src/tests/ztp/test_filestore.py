@@ -559,6 +559,32 @@ async def test_cancelled_upload_still_records_the_file_it_stored(
 
 
 @pytest.mark.asyncio
+async def test_a_stream_closed_mid_copy_publishes_nothing(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancelled request closes its upload stream while the copy is still reading it."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    manifest_before = (Path(temp_storage_dir) / "manifest.json").read_text()
+
+    class _ClosedByItsRequest(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            if self.tell():
+                self.close()
+            return super().read(8)
+
+    with pytest.raises(ValueError, match="closed file"):
+        await client.upload_file(
+            "test-platform", "1.0.0", "image.bin", "sum", _ClosedByItsRequest(b"x" * 64)
+        )
+
+    assert not (Path(temp_storage_dir) / "test-platform/1.0.0/image.bin").exists()
+    assert list((Path(temp_storage_dir) / ".uploads").iterdir()) == []
+    assert (Path(temp_storage_dir) / "manifest.json").read_text() == manifest_before
+
+
+@pytest.mark.asyncio
 async def test_abandoned_staged_files_are_removed(
     temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
