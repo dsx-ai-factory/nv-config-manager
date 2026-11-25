@@ -15,12 +15,19 @@
 """File Storage Client for PVC-based image storage."""
 
 import asyncio
+import fcntl
 import json
 import os
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO, Self
+from uuid import uuid4
 
+from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.ztp.storage import (
     ObjectStorageChangedException,
     ObjectStorageClient,
@@ -31,6 +38,64 @@ from nv_config_manager.ztp.storage import (
     ObjectStorageNotFoundException,
     parse_http_range,
 )
+
+logger = get_logger(__name__, category=LogCategory.ZTP)
+
+# Files still being written live here, directly under the store's base path.
+# Stored objects are always three levels down (platform/version/filename), so
+# nothing a caller can name collides with a file in this directory, and a
+# short generated name keeps a long filename within the filesystem's limit.
+_STAGING_DIRECTORY = ".uploads"
+
+# A staged file not written to for this long belongs to a process that stopped
+# mid-copy. An upload in progress keeps refreshing its modification time.
+_STALE_UPLOAD_SECONDS = 3600
+
+
+def _staging_file(base_path: Path) -> Path:
+    """Return a new path to write to before a file is published.
+
+    It is on the same volume as the store, so publishing is a rename. Staged
+    files abandoned by a process that stopped mid-copy are removed on the way.
+    """
+    staging = base_path / _STAGING_DIRECTORY
+    staging.mkdir(exist_ok=True)
+    cutoff = time.time() - _STALE_UPLOAD_SECONDS
+    for entry in os.scandir(staging):
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                os.unlink(entry.path)
+        except OSError:
+            continue
+    return staging / uuid4().hex
+
+
+def _publish(staged: Path, destination: Path, overwrite: bool) -> None:
+    """Move a completely written file into place.
+
+    Without ``overwrite`` the destination must still be absent. Another upload
+    of the same name can finish while this one was copying, so the check made
+    before the copy is not enough: a hard link is created instead of a rename,
+    because it fails if the name is already taken.
+    """
+    if overwrite:
+        os.replace(staged, destination)
+        return
+    try:
+        os.link(staged, destination)
+    except FileExistsError as exc:
+        raise FileStoreExistsException(f"File already exists: {destination}") from exc
+    except OSError:
+        # The volume does not support hard links. Claim the name with an
+        # exclusive create, which also fails if it is taken, then rename over
+        # the empty file that claim left.
+        try:
+            os.close(os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError as exc:
+            raise FileStoreExistsException(f"File already exists: {destination}") from exc
+        os.replace(staged, destination)
+        return
+    staged.unlink()
 
 
 class FileStoreException(ObjectStorageException):
@@ -50,6 +115,36 @@ class FileStoreNotAuthorizedException(ObjectStorageNotAuthorizedException):
 
 
 _PATH_TRAVERSAL_MSG = "Path traversal detected: resolved path escapes base directory"
+
+# Clients are created per request and each holds its own copy of the manifest,
+# and every replica of the service mounts the same volume. Updates are ordered
+# across all of them: the manifest is read again, changed and replaced while
+# holding this lock within the process and a lock on the file below across
+# processes.
+_MANIFEST_LOCK = threading.Lock()
+
+# Lives at the store root rather than in the staging directory, whose stale
+# files are deleted: removing a lock file that is held would let a second
+# writer lock a new file of the same name.
+_MANIFEST_LOCK_FILE = ".manifest.lock"
+
+
+@contextmanager
+def _manifest_update(base_path: Path) -> Iterator[None]:
+    """Hold the manifest for one read-modify-replace, across threads and processes."""
+    with _MANIFEST_LOCK, open(base_path / _MANIFEST_LOCK_FILE, "a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        except OSError as exc:
+            # The volume does not support locks. Updates are then ordered
+            # within this process only, as they were before.
+            logger.warning("Could not lock the manifest across processes: %s", exc)
+            yield
+            return
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _file_revision(stat: os.stat_result) -> str:
@@ -152,10 +247,20 @@ class FileStoreClient(ObjectStorageClient):
         Raises FileStoreException if the resolved path escapes the base directory.
         """
         platform_normalized = platform.replace(" ", "_").lower()
-        file_path = (self.base_path / platform_normalized / version / filename).resolve()
-        if not file_path.is_relative_to(self.base_path.resolve()):
+        return self._within_store(self.base_path / platform_normalized / version / filename)
+
+    def _within_store(self, path: Path) -> Path:
+        """Resolve a path and require it to name a stored object.
+
+        Raises FileStoreException if it escapes the base directory or reaches
+        into the staging directory, whose files are uploads not yet published.
+        """
+        resolved = path.resolve()
+        base = self.base_path.resolve()
+        staging = base / _STAGING_DIRECTORY
+        if not resolved.is_relative_to(base) or resolved.is_relative_to(staging):
             raise FileStoreException(_PATH_TRAVERSAL_MSG)
-        return file_path
+        return resolved
 
     async def _open_download(
         self,
@@ -297,9 +402,7 @@ class FileStoreClient(ObjectStorageClient):
 
     async def list_object_keys(self, platform: str, version: str) -> list[dict[str, Any]]:
         """List objects within the given platform and version directory."""
-        dir_path = (self.base_path / platform.replace(" ", "_").lower() / version).resolve()
-        if not dir_path.is_relative_to(self.base_path.resolve()):
-            raise FileStoreException(_PATH_TRAVERSAL_MSG)
+        dir_path = self._within_store(self.base_path / platform.replace(" ", "_").lower() / version)
 
         def _scan_directory() -> list[dict[str, Any]]:
             if not dir_path.exists():
@@ -384,21 +487,39 @@ class FileStoreClient(ObjectStorageClient):
             # Create directory if it doesn't exist
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write the file
-            with open(file_path, mode="wb") as f:
-                while True:
-                    chunk = file.read(10 * 1024 * 1024)  # 10MB chunks
-                    if not chunk:
-                        break
-                    f.write(chunk)
-
-        await asyncio.to_thread(_write_file)
+            # Written to a staging file and moved into place once complete, so
+            # a process that stops mid-upload leaves the previous file
+            # untouched instead of a truncated or half-replaced one.
+            staged = _staging_file(self.base_path)
+            try:
+                with open(staged, mode="wb") as f:
+                    while True:
+                        chunk = file.read(10 * 1024 * 1024)  # 10MB chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                _publish(staged, file_path, overwrite)
+            except BaseException:
+                staged.unlink(missing_ok=True)
+                raise
 
         tags = {"firmware-image": ""} if firmware_image else None
-        # Update manifest with the new upload
-        await self._add_to_manifest(platform, version, filename, checksum, tags)
 
-    async def _add_to_manifest(
+        def _store() -> None:
+            _write_file()
+            # Update manifest with the new upload
+            self._add_to_manifest(platform, version, filename, checksum, tags)
+
+        # The copy and the manifest update run as one call on one thread. A
+        # request cancelled when a shutdown's drain runs out stops waiting for
+        # that thread but cannot stop it, and the event loop waits for its
+        # threads before the process exits, so a file that gets published also
+        # gets its manifest entry. A process that is killed between the two
+        # can still leave them out of step; that window is now two renames
+        # wide instead of a whole copy.
+        await asyncio.to_thread(_store)
+
+    def _add_to_manifest(
         self,
         platform: str,
         version: str,
@@ -407,38 +528,47 @@ class FileStoreClient(ObjectStorageClient):
         tags: dict[str, str] | None = None,
     ) -> None:
         """Add or update an entry in the manifest and persist to disk."""
-        if self.manifest is None:
-            self.manifest = {"images": []}
-
         platform_normalized = platform.replace(" ", "_").lower()
         rel_path = f"{platform_normalized}/{version}/{filename}"
+        self._within_store(self.base_path / rel_path)
 
-        resolved = (self.base_path / rel_path).resolve()
-        if not resolved.is_relative_to(self.base_path.resolve()):
-            raise FileStoreException(_PATH_TRAVERSAL_MSG)
+        with _manifest_update(self.base_path):
+            # Another client or replica may have added entries since this one loaded its
+            # copy. Writing that copy back would drop them.
+            try:
+                with open(self.manifest_path) as current:
+                    self.manifest = dict(json.loads(current.read()))
+            except FileNotFoundError:
+                if self.manifest is None:
+                    self.manifest = {"images": []}
 
-        # Check if entry already exists and update it
-        for image in self.manifest.get("images", []):
-            if image.get("path") == rel_path:
-                image["sha256"] = checksum
-                if tags is not None:
-                    image["tags"] = tags
-                break
-        else:
-            # New entry
-            entry: dict[str, Any] = {
-                "platform": platform,
-                "version": version,
-                "filename": filename,
-                "path": rel_path,
-                "sha256": checksum,
-            }
-            if tags:
-                entry["tags"] = tags
-            self.manifest.setdefault("images", []).append(entry)
+            # Check if entry already exists and update it
+            for image in self.manifest.get("images", []):
+                if image.get("path") == rel_path:
+                    image["sha256"] = checksum
+                    if tags is not None:
+                        image["tags"] = tags
+                    break
+            else:
+                # New entry
+                entry: dict[str, Any] = {
+                    "platform": platform,
+                    "version": version,
+                    "filename": filename,
+                    "path": rel_path,
+                    "sha256": checksum,
+                }
+                if tags:
+                    entry["tags"] = tags
+                self.manifest.setdefault("images", []).append(entry)
 
-        def _persist() -> None:
-            with open(self.manifest_path, "w") as f:
-                json.dump(self.manifest, f, indent=2)
-
-        await asyncio.to_thread(_persist)
+            # Renamed into place for the same reason as an upload: a manifest
+            # truncated by an interrupted write would lose every entry.
+            staged = _staging_file(self.base_path)
+            try:
+                with open(staged, "w") as f:
+                    json.dump(self.manifest, f, indent=2)
+                os.replace(staged, self.manifest_path)
+            except BaseException:
+                staged.unlink(missing_ok=True)
+                raise
