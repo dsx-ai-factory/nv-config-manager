@@ -323,11 +323,17 @@ def _second_write(
     """
     scheduled = threading.Event()
     released = threading.Event()
+    timed_out = threading.Event()
 
     def schedule(*_args: object) -> float:
         scheduled.set()
-        released.wait(timeout=5.0)
-        return 0.0
+        if released.wait(timeout=5.0):
+            return 0.0
+        # The second write never came. Keep the watch from signalling for the
+        # first version, and fail the test below rather than let it pass or
+        # fail on whichever version the watch happened to act on.
+        timed_out.set()
+        return 3600.0
 
     def write_again() -> None:
         try:
@@ -340,6 +346,7 @@ def _second_write(
         "nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule
     ) as wait:
         yield write_again, wait
+    assert not timed_out.is_set(), "the second write did not land while the delay was held open"
 
 
 def test_a_second_change_during_the_delay_reschedules_from_the_newer_version(ini: Path) -> None:
@@ -358,6 +365,51 @@ def test_a_second_change_during_the_delay_reschedules_from_the_newer_version(ini
         _digest(RENAMED_STREAM),
     ]
     assert signals == [(os.getpid(), signal.SIGTERM)]
+
+
+def test_a_second_change_is_noticed_before_the_delay_runs_out(ini: Path) -> None:
+    """The file is read on every poll of the delay, not only when it ends.
+
+    A container that looked again only at the end of its own delay would still
+    signal later than a neighbour that was scheduled from the newer version.
+    """
+    ini.write_text(ROTATED)
+    first_scheduled = threading.Event()
+
+    def schedule(_path: str, _poll: float, _jitter: float, digest: str) -> float:
+        if digest == _digest(ROTATED):
+            first_scheduled.set()
+            return 3600.0
+        return 0.0
+
+    outcomes: list[config_watch._Hold] = []
+    with patch(
+        "nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule
+    ) as wait:
+        holding = threading.Thread(
+            target=lambda: outcomes.append(
+                config_watch._hold_for_restart(
+                    str(ini),
+                    {"nats.password": "original"},
+                    _digest(ROTATED),
+                    POLL_INTERVAL,
+                    0.0,
+                    threading.Event(),
+                )[0]
+            ),
+            daemon=True,
+        )
+        holding.start()
+        assert first_scheduled.wait(timeout=5.0)
+        ini.write_text(RENAMED_STREAM)
+        holding.join(timeout=5.0)
+
+    assert not holding.is_alive()
+    assert outcomes == [config_watch._Hold.RESTART]
+    assert [call.args[3] for call in wait.call_args_list] == [
+        _digest(ROTATED),
+        _digest(RENAMED_STREAM),
+    ]
 
 
 def test_a_change_that_is_undone_during_the_delay_does_not_restart(
