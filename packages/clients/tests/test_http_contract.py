@@ -85,7 +85,16 @@ async def server(unused_tcp_port: int) -> AsyncIterator[Server]:
 
 async def test_config_store_paths_queries_and_return_models(server: Server) -> None:
     server.responses = [
-        (200, {"content": "config", "version": 5, "content_hash": "hash"}),
+        (
+            200,
+            {
+                "content": "config",
+                "version": 5,
+                "content_hash": "hash",
+                "author": "alice@example.com",
+                "commit_message": "initial render",
+            },
+        ),
         (200, []),
         (200, {"versions": []}),
         (200, {"diff": "changed"}),
@@ -94,6 +103,8 @@ async def test_config_store_paths_queries_and_return_models(server: Server) -> N
         result = await client.load_file("device id", "dir/startup#.cfg")
         assert result.content == "config"
         assert result.commit == "5"
+        assert result.author == "alice@example.com"
+        assert result.commit_message == "initial render"
         await client.list_device_configs("device", file_type=None)
         await client.get_config_versions("device", "startup.cfg", limit=3)
         await client.get_config_diff("device", "startup.cfg", 1, 2, file_type="backup")

@@ -461,6 +461,40 @@ async def test_batch_retry_records_queued_devices_after_transient_failure(
 
 
 @pytest.mark.asyncio
+async def test_batch_retry_does_not_record_a_device_it_only_found_queued(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A queued flag can outlive a failed publish, so that device stays eligible for a retry."""
+    custom_ini("[nats]\n")
+    mock_dcim_client.get_render_device_status.side_effect = _status_or_outage
+    redis_client = _batch_redis(set())
+    redis_client.redis.exists.side_effect = lambda key: int(key == "device-a_queued")
+
+    with (
+        patch(
+            "nv_config_manager.render.events.util._get_queue_redis_client",
+            return_value=redis_client,
+        ),
+        pytest.raises(DCIMConnectivityError),
+    ):
+        await queue_render_batch(
+            ["device-a", "device-b"],
+            "msg",
+            "user",
+            "ts",
+            dcim_client=mock_dcim_client,
+            raise_transient_errors=True,
+            retry_key="event",
+        )
+
+    batch_nats.jetstream.return_value.publish.assert_not_awaited()
+    redis_client.redis.sadd.assert_not_awaited()
+    redis_client.redis.expire.assert_awaited_once_with(
+        "render_event_published:event", PUBLISHED_DEVICES_TTL_SECONDS
+    )
+
+
+@pytest.mark.asyncio
 async def test_batch_retry_skips_devices_an_earlier_attempt_queued(
     batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
 ) -> None:

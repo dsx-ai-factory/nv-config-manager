@@ -287,7 +287,7 @@ async def test_execute_render_updates_template_version_without_deployable_file(
 async def test_execute_render_resyncs_unchanged_deployable_file(
     mock_config_store_ui_url, mock_template_version_key, mock_renderer, mock_config_store
 ):
-    """No-diff renders retain the existing Config Store re-sync behavior."""
+    """A no-diff render re-syncs the stored version under that version's own attribution."""
     dcim_client = AsyncMock()
     dcim_client.get_render_device_status.return_value = MagicMock(is_aggregate_managed=False)
     dcim_client.get_render_data.return_value = _render_data()
@@ -306,6 +306,8 @@ async def test_execute_render_resyncs_unchanged_deployable_file(
         filename="startup.yaml",
         sha="abc123",
         created_at="2024-03-15T10:30:00.000000",
+        author="alice@example.com",
+        commit_message="alice's change",
     )
     config_store.__aenter__.return_value = config_store
     mock_config_store.return_value = config_store
@@ -314,4 +316,7 @@ async def test_execute_render_resyncs_unchanged_deployable_file(
         assert await execute_render("device-id", "message", "user") == []
 
     dcim_client.upsert_intended_configuration.assert_awaited_once()
-    assert dcim_client.upsert_intended_configuration.await_args.args[0].commit_id == "42"
+    update = dcim_client.upsert_intended_configuration.await_args.args[0]
+    assert update.commit_id == "42"
+    assert update.updated == "2024-03-15T10:30:00.000000"
+    assert (update.updated_by, update.commit_message) == ("alice", "alice's change")

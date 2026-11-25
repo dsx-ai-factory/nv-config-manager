@@ -169,12 +169,16 @@ async def _record_published(
     client: RedisClient | None,
     logger: logging.Logger | logging.LoggerAdapter,
 ) -> None:
-    """Remember the devices this attempt queued so a retry skips them."""
-    if retry_key is None or client is None or not device_uuids:
+    """Remember the devices this attempt queued so a retry skips them.
+
+    Every failed attempt renews the record, including one that queued nothing.
+    """
+    if retry_key is None or client is None:
         return
     key = _published_key(retry_key)
     try:
-        await async_result(client.redis.sadd(key, *device_uuids))
+        if device_uuids:
+            await async_result(client.redis.sadd(key, *device_uuids))
         await client.redis.expire(key, PUBLISHED_DEVICES_TTL_SECONDS)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning("Could not record queued devices, so a retry may queue them again: %s", exc)
@@ -444,7 +448,9 @@ async def queue_render_batch(
                 elif isinstance(result, dict):
                     # Failed device (result is dict[str, str])
                     failed_devices.append(result)
-                else:
+                elif result is EnqueueResult.PUBLISHED:
+                    # An already-queued device is left out: its flag can outlive
+                    # a publish that failed, so it must stay eligible for a retry.
                     queued_devices.append(device_uuid)
 
             if transient_errors:

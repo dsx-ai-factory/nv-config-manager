@@ -170,7 +170,9 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   message was acknowledged and the device kept its old configuration until its
   next change. Errors a retry cannot fix, such as invalid DCIM data, are still
   acknowledged. A retried change event queues only the devices an earlier
-  delivery did not queue. `nv_config_manager_events_failed` and
+  delivery did not queue. A render that finds no configuration change now
+  re-syncs the DCIM with the stored version's own author and commit message
+  instead of the current request's. `nv_config_manager_events_failed` and
   `nv_config_manager_nautobot_change_messages_failed` now count these failures
   on every delivery under their own `exception_class`, so alerts on those
   counters also see retried attempts. See

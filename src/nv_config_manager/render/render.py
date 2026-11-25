@@ -141,8 +141,10 @@ async def _persist_rendered_files(
                     config_store_ui_url(),
                     latest.commit,
                     [candidate],
-                    user,
-                    commit_message,
+                    # The stored version's own author and message: this request
+                    # did not produce it, and may be a retry of one that did.
+                    latest.author.rsplit("@", 1)[0] if latest.author else user,
+                    latest.commit_message or commit_message,
                     updated_at=latest.created_at,
                 )
                 return []

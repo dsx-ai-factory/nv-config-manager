@@ -71,6 +71,8 @@ class ConfigFile(ConfigFileMetadata):
     content: str
     sha: str | None = None
     created_at: str | None = None
+    author: str | None = None
+    commit_message: str | None = None
 
 
 class ConfigStoreClient(ServiceClient):
@@ -160,6 +162,8 @@ class ConfigStoreClient(ServiceClient):
             filename=filename,
             sha=cast(str, data["content_hash"]),
             created_at=cast(str | None, data.get("created_at")),
+            author=cast(str | None, data.get("author")),
+            commit_message=cast(str | None, data.get("commit_message")),
         )
 
     async def list_device_configs(
