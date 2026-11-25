@@ -105,10 +105,10 @@ def healthcheck() -> Literal["OK"]:
     return "OK"
 
 
-# Starlette executes the last-added HTTP middleware first. Install identity
-# second so it populates request.state before audit logging reads those fields.
-install_workflow_audit_logging(app)
+# Audit must wrap authentication so early denials are recorded too. It reads
+# normalized identity fields after the inner middleware returns.
 install_identity_probe(app)
+install_workflow_audit_logging(app)
 
 
 class WorkflowRoles(BaseModel):

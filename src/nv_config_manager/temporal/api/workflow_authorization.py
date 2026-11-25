@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request
 
+from nv_config_manager.common.auth import has_read_only_role
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.common.rbac_config import RBACConfig
 
@@ -42,6 +43,8 @@ def require_workflow_execute_access(
     """Require the request identity to have an execute role for ``workflow_name``."""
     user: str = request.state.user
     roles: set[str] = request.state.roles
+    if has_read_only_role(roles):
+        raise HTTPException(status_code=403, detail="Read-only identities cannot execute workflows")
     config = rbac_config if rbac_config is not None else RBACConfig()
     configured_roles = config.get_workflow_roles(workflow_name)
 

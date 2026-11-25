@@ -38,6 +38,7 @@ from temporalio.common import SearchAttributes
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.service import RPCError, RPCStatusCode
 
+from nv_config_manager.common.auth import has_read_only_role
 from nv_config_manager.common.config.loader import load_config
 from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.temporal.api.dynamic_endpoints import (
@@ -679,10 +680,13 @@ async def start_workflow(
 async def is_authorized(request: Request, handle: WorkflowHandle, action: str) -> bool:
     """Check if the user is authorized to perform the action on the workflow."""
     user, roles = get_user_info(request)
+    read_only = has_read_only_role(roles)
+    if read_only and action != "read":
+        return False
     rbac_config = RBACConfig()
     # Admin roles are always permitted
     # This is to handle workflows that predate any RBAC setup
-    if roles.intersection(rbac_config.get_admin_roles()):
+    if not read_only and roles.intersection(rbac_config.get_admin_roles()):
         return True
 
     try:
@@ -696,6 +700,12 @@ async def is_authorized(request: Request, handle: WorkflowHandle, action: str) -
         else:
             # Re-raise if it's a different type of error
             raise
+
+    if read_only:
+        # Historical executions retain the roles present when they started.
+        # Readers must have a current read grant for this workflow type.
+        configured_roles = rbac_config.get_workflow_roles(description.workflow_type)
+        return bool(configured_roles and roles.intersection(configured_roles["read_roles"]))
 
     # convert roles to string set for comparison
     attr = EXECUTE_ROLES_SEARCH_ATTRIBUTE if action == "execute" else READ_ROLES_SEARCH_ATTRIBUTE
@@ -892,11 +902,26 @@ async def get_workflows(  # pylint: disable=R0913,R0914
         filters.append("ExecutionStatus != 'Completed'")
     if limit <= 0:
         raise HTTPException(status_code=400, detail="limit must be greater than 0")
-    # Add role filters
-    # Permit admin roles to view workflows that are missing
-    # RBAC search attributes
-    admin_roles = RBACConfig().get_admin_roles()
-    if not admin_roles.intersection(user_roles):
+    # Readers use current read grants so old executions need no search-attribute
+    # rewrite. Membership in a read-only group does not grant workflow access.
+    rbac_config = RBACConfig()
+    admin_roles = rbac_config.get_admin_roles()
+    if has_read_only_role(user_roles):
+        readable_types = sorted(
+            name
+            for name, roles in rbac_config.get_all_workflows().items()
+            if user_roles.intersection(roles["read_roles"])
+        )
+        if not readable_types:
+            return WorkflowListResponse(
+                workflows=[], next_page_token=None, total_count=0, page_count=0
+            )
+        type_filters = [
+            f"WorkflowType = '{_sanitize_visibility_value(name, 'workflow_type')}'"
+            for name in readable_types
+        ]
+        filters.append(f"({' or '.join(type_filters)})")
+    elif not admin_roles.intersection(user_roles):
         role_filters = [
             f"{READ_ROLES_SEARCH_ATTRIBUTE} = '{_sanitize_visibility_value(role, 'role')}'"
             for role in sorted(user_roles)

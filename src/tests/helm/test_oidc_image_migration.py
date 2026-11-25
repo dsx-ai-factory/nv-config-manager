@@ -83,6 +83,13 @@ def test_cookie_refresh_default_preserves_one_hour() -> None:
     assert all(tomllib.loads(text)["cookie_refresh"] == "1h" for text in configuration.values())
 
 
+def test_read_only_groups_reject_universal_role() -> None:
+    """Reject a reader setting that would disable every service and device write."""
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        render("auth.readOnlyGroups[0]=all")
+    assert "cannot contain the universal role 'all'" in error.value.stderr
+
+
 @pytest.mark.parametrize("interval", ["2m", "30s", "0"])
 def test_cookie_refresh_override_reaches_every_proxy(interval: str) -> None:
     """Pass duration strings, including an explicit zero, to every proxy config."""
