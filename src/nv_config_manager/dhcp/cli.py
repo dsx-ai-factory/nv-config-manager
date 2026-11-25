@@ -20,9 +20,10 @@ import hashlib
 import json
 import os
 import re
+import signal
 import sys
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Coroutine
 from traceback import format_tb
 from types import TracebackType
 from typing import Any
@@ -32,6 +33,7 @@ from aiohttp import ClientConnectionError, ClientError, ClientResponseError
 from prometheus_client import start_http_server
 
 from nv_config_manager.common.config.loader import load_config
+from nv_config_manager.common.config_watch import restart_on_config_change
 from nv_config_manager.common.log import (
     LogCategory,
     configure_logging,
@@ -467,12 +469,42 @@ async def _refresh_cycle_async(
             await asyncio.sleep(CANCELLED_READ_RETRY_DELAY_SECONDS)
 
 
+def _cancel_on_sigterm() -> None:
+    """Stop the calling periodic loop when the process is asked to shut down.
+
+    These loops run as PID 1 in their containers, where the kernel drops a
+    SIGTERM that has no handler. Without one they ran on until they were
+    killed, so they outlasted the other containers in the pod on every restart.
+    """
+    task = asyncio.current_task()
+    if task is not None:
+        asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
+
+
+def _run_until_sigterm(loop: Coroutine[Any, Any, None], periodic: bool) -> None:
+    """Run a loop to completion, treating a shutdown of a periodic run as a clean exit.
+
+    A one-shot run reports through its exit status whether the work was done,
+    so a cancellation there is left to fail the command.
+    """
+    try:
+        asyncio.run(loop)
+    except asyncio.CancelledError:
+        if not periodic:
+            raise
+        logger.info("Received SIGTERM, stopping")
+
+
 async def _refresh_loop_async(
     ip_version: int,
     check: bool,
     refresh_interval: int,
 ) -> None:
     """Async loop for configuration refresh."""
+    # A one-shot run reports through its exit status whether the work was
+    # done, so only the periodic service treats a shutdown as a clean stop.
+    if refresh_interval:
+        _cancel_on_sigterm()
     config = load_config()
     kea_client = KeaClient.from_config(config)
     redis_client = RedisClient.from_config(config)
@@ -564,7 +596,12 @@ def refresh_kea_configuration(
         initialize_refresh_metrics(ip_version)
         _start_metrics_server("refresh")
 
-    asyncio.run(_refresh_loop_async(ip_version, check, refresh_interval))
+    if refresh_interval:
+        restart_on_config_change()
+
+    _run_until_sigterm(
+        _refresh_loop_async(ip_version, check, refresh_interval), periodic=bool(refresh_interval)
+    )
 
 
 async def _load_kea_config_with_timeout(
@@ -650,6 +687,8 @@ async def _sync_kea_configuration_async(
     heartbeat_file: str = DEFAULT_HEARTBEAT_FILE,
 ) -> None:
     """Async implementation of sync configuration."""
+    if refresh_interval:
+        _cancel_on_sigterm()
     # Connect to the KEA server running in the same pod
     ini_config = load_config()
     kea_client = KeaClient.from_config(ini_config, attached=True)
@@ -991,7 +1030,13 @@ def sync_kea_configuration(
     initialize_sync_metrics(ip_version)
     _start_metrics_server("sync")
 
-    asyncio.run(_sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file))
+    if refresh_interval:
+        restart_on_config_change()
+
+    _run_until_sigterm(
+        _sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file),
+        periodic=bool(refresh_interval),
+    )
 
 
 @cli.command("check-sync-heartbeat")

@@ -14,8 +14,11 @@
 # limitations under the License.
 """Tests for DHCP sync hash reconciliation and reconcile-loop observability."""
 
+import asyncio
 import contextlib
 import logging
+import os
+import signal
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -39,6 +42,14 @@ from nv_config_manager.dhcp.metrics import (
     initialize_refresh_metrics,
     initialize_sync_metrics,
 )
+
+
+@pytest.fixture(autouse=True)
+def config_watch() -> Any:
+    """Keep the click commands from starting a real watcher thread."""
+    with patch.object(cli, "restart_on_config_change") as watch:
+        yield watch
+
 
 DESIRED_CONFIG: dict[str, Any] = {"Dhcp4": {"subnet4": ["desired"]}}
 CHANGED_CONFIG: dict[str, Any] = {"Dhcp4": {"subnet4": ["changed"]}}
@@ -926,6 +937,114 @@ def test_refresh_kea_configuration_check_mode_skips_metrics_server() -> None:
         )
 
     start_http_server.assert_not_called()
+
+
+@pytest.mark.parametrize(("refresh_interval", "watched"), [(300, True), (0, False)])
+def test_refresh_kea_configuration_watches_the_ini_only_when_looping(
+    config_watch: MagicMock, refresh_interval: int, watched: bool
+) -> None:
+    """The loop keeps the DCIM, Redis and Kea clients it built at startup.
+
+    Restarting the DHCP API container does not restart this one, so a rotated
+    credential would go unused unless this process watches the file itself. A
+    one-shot run reads the file and exits, so it has nothing to restart for.
+    """
+    with (
+        patch.object(cli, "start_http_server"),
+        patch.object(cli, "_set_config_path"),
+        patch.object(cli, "_refresh_loop_async"),
+        patch.object(cli.asyncio, "run"),
+    ):
+        cli.refresh_kea_configuration.callback(
+            ini_file="/tmp/nv-config-manager.ini",
+            ip_version=4,
+            check=False,
+            refresh_interval=refresh_interval,
+            debug=True,
+        )
+
+    assert config_watch.called is watched
+
+
+@pytest.mark.parametrize(("refresh_interval", "watched"), [(10, True), (0, False)])
+def test_sync_kea_configuration_watches_the_ini_only_when_looping(
+    config_watch: MagicMock, refresh_interval: int, watched: bool
+) -> None:
+    """config-sync-v4 is its own container and holds its own startup clients."""
+    with (
+        patch.object(cli, "start_http_server"),
+        patch.object(cli, "_set_config_path"),
+        patch.object(cli, "_sync_kea_configuration_async"),
+        patch.object(cli.asyncio, "run"),
+    ):
+        cli.sync_kea_configuration.callback(
+            ini_file="/tmp/nv-config-manager.ini",
+            ip_version=4,
+            refresh_interval=refresh_interval,
+            heartbeat_file=cli.DEFAULT_HEARTBEAT_FILE,
+            debug=True,
+        )
+
+    assert config_watch.called is watched
+
+
+def test_sigterm_stops_a_loop_cleanly(caplog: pytest.LogCaptureFixture) -> None:
+    """The loops are PID 1 in their containers, where an unhandled SIGTERM is dropped."""
+    closed = []
+
+    async def loop() -> None:
+        cli._cancel_on_sigterm()
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+            await asyncio.sleep(30)
+        finally:
+            closed.append(True)
+
+    with caplog.at_level(logging.INFO):
+        cli._run_until_sigterm(loop(), periodic=True)
+
+    assert closed == [True]
+    assert "Received SIGTERM, stopping" in caplog.text
+
+
+def test_a_cancelled_one_shot_run_does_not_report_success() -> None:
+    """A one-shot run that did not finish must not look like one that did."""
+
+    async def cancelled() -> None:
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        cli._run_until_sigterm(cancelled(), periodic=False)
+
+
+@pytest.mark.parametrize(("refresh_interval", "handled"), [(300, True), (0, False)])
+async def test_only_a_periodic_refresh_stops_cleanly_on_sigterm(
+    refresh_interval: int, handled: bool
+) -> None:
+    """A one-shot run must not report success for work a shutdown cut short."""
+    with (
+        patch.object(cli, "_cancel_on_sigterm") as cancel_on_sigterm,
+        patch.object(cli, "load_config", side_effect=_StopLoop),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._refresh_loop_async(4, False, refresh_interval)
+
+    assert cancel_on_sigterm.called is handled
+
+
+@pytest.mark.parametrize(("refresh_interval", "handled"), [(10, True), (0, False)])
+async def test_only_a_periodic_sync_stops_cleanly_on_sigterm(
+    refresh_interval: int, handled: bool
+) -> None:
+    """A one-shot sync has the same contract as a one-shot refresh."""
+    with (
+        patch.object(cli, "_cancel_on_sigterm") as cancel_on_sigterm,
+        patch.object(cli, "load_config", side_effect=_StopLoop),
+        pytest.raises(_StopLoop),
+    ):
+        await cli._sync_kea_configuration_async(4, refresh_interval, True)
+
+    assert cancel_on_sigterm.called is handled
 
 
 def test_exception_handler_redacts_credentials(caplog: pytest.LogCaptureFixture) -> None:

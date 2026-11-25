@@ -19,9 +19,11 @@ from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from temporalio import workflow
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, RetryState
 
 from nv_config_manager_workflows.metadata import RequiredActivity, WorkflowMetadataMixin
 from nv_config_manager_workflows.mixins import (
@@ -85,7 +87,7 @@ async def test_archive_schedules_the_existing_activity_contract(
     assert activity_input["subject"] is None
     assert json.loads(activity_input["message"])["workflow_id"] == "workflow-17"
     assert options["schedule_to_close_timeout"] == timedelta(minutes=1)
-    assert options["retry_policy"].maximum_attempts == 1
+    assert options["retry_policy"].maximum_attempts == 3
 
 
 def test_the_publisher_is_declared_as_a_required_activity() -> None:
@@ -98,3 +100,102 @@ def test_the_publisher_is_declared_as_a_required_activity() -> None:
         PUBLISH_NATS_ACTIVITY_NAME,
         "collect_facts",
     )
+
+
+def _activity_error(cause: BaseException, retry_state: RetryState) -> ActivityError:
+    error = ActivityError(
+        "publish_nats failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type=PUBLISH_NATS_ACTIVITY_NAME,
+        activity_id="1",
+        retry_state=retry_state,
+    )
+    error.__cause__ = cause
+    return error
+
+
+def _patch_workflow(monkeypatch: pytest.MonkeyPatch, execute_activity: Any) -> MagicMock:
+    warning = MagicMock()
+    monkeypatch.setattr(workflow, "info", workflow_info)
+    monkeypatch.setattr(
+        workflow,
+        "now",
+        lambda: datetime(2026, 8, 31, 12, 45, tzinfo=UTC),
+    )
+    monkeypatch.setattr(workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(workflow, "logger", SimpleNamespace(warning=warning))
+    return warning
+
+
+@pytest.mark.asyncio
+async def test_a_failed_publish_does_not_fail_the_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The run has already finished, so a broker outage must not fail it."""
+    cause = ApplicationError("nats unreachable")
+
+    async def execute_activity(*_args: Any, **_kwargs: Any) -> None:
+        raise _activity_error(cause, RetryState.MAXIMUM_ATTEMPTS_REACHED)
+
+    warning = _patch_workflow(monkeypatch, execute_activity)
+
+    await ArchiveMixin().archive_results()
+
+    warning.assert_called_once()
+    assert warning.call_args.args[-1] is cause
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_publish_still_cancels_the_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancellation is not a broker failure, so Temporal must still see it."""
+
+    async def execute_activity(*_args: Any, **_kwargs: Any) -> None:
+        raise _activity_error(CancelledError("cancelled"), RetryState.CANCEL_REQUESTED)
+
+    warning = _patch_workflow(monkeypatch, execute_activity)
+
+    with pytest.raises(ActivityError):
+        await ArchiveMixin().archive_results()
+
+    warning.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_an_error_that_is_not_a_failed_activity_fails_the_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a failed publish is a lost notification; anything else is a defect."""
+
+    async def execute_activity(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("workflow sandbox violation")
+
+    warning = _patch_workflow(monkeypatch, execute_activity)
+
+    with pytest.raises(RuntimeError):
+        await ArchiveMixin().archive_results()
+
+    warning.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_payload_that_cannot_be_built_fails_the_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A result that cannot be serialized must not look like a broker outage."""
+    execute_activity = MagicMock()
+    warning = _patch_workflow(monkeypatch, execute_activity)
+
+    def broken_info() -> Any:
+        raise ValueError("no workflow info")
+
+    monkeypatch.setattr(workflow, "info", broken_info)
+
+    with pytest.raises(ValueError, match="no workflow info"):
+        await ArchiveMixin().archive_results()
+
+    execute_activity.assert_not_called()
+    warning.assert_not_called()

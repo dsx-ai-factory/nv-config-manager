@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for the NATS pull consumer module."""
 
+import asyncio
 import json
 import time
 from collections.abc import Callable
@@ -29,6 +30,7 @@ from redis.asyncio.lock import Lock as AsyncRedisLock
 
 from nv_config_manager.common.lock import LOCK_TIMEOUT_SECONDS
 from nv_config_manager.common.nats_admin import CONSUMER_MAX_DELIVER
+from nv_config_manager.render import pull_consumer
 from nv_config_manager.render.events.util import DeviceNotEnabledError
 from nv_config_manager.render.pull_consumer import (
     CONSUMER_ACK_PENDING,
@@ -485,6 +487,101 @@ async def test_nats_failures_and_reconnects_are_counted(
         await consumer.main()
         await connect.call_args.kwargs["reconnected_cb"]()
     assert CONSUMER_NATS_RECONNECTS.labels(*labels)._value.get() == 1
+
+
+@pytest.mark.asyncio
+async def test_a_stop_requested_while_connecting_is_not_lost(
+    custom_ini: Callable[[str], None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The config watcher signals once, so a stop that lands mid-connect must stick."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "stop-during-connect")
+    consumer.loop = None
+    conn = MagicMock(close=AsyncMock())
+
+    async def connect(**_kwargs: object) -> MagicMock:
+        consumer._clean_exit()
+        return conn
+
+    with (
+        patch("nv_config_manager.render.pull_consumer.nats_connection", new=connect),
+        patch.object(consumer, "_run_pull_consumer", new_callable=AsyncMock) as run,
+    ):
+        await consumer.main()
+
+    conn.close.assert_awaited_once()
+    run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_waits_for_the_active_handler_before_closing_nats(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A render that finishes after the connection closed could not acknowledge."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "drain-waits")
+    consumer.loop = asyncio.get_running_loop()
+    order: list[str] = []
+    conn = MagicMock(is_closed=False)
+    conn.close = AsyncMock(side_effect=lambda: order.append("closed"))
+    consumer.nats_conn = conn
+    consumer._handler_started = time.monotonic()
+
+    consumer._clean_exit()
+    await asyncio.sleep(pull_consumer.SHUTDOWN_DRAIN_POLL_SECONDS * 3)
+    assert order == []
+    assert consumer.running is False
+
+    order.append("handled")
+    consumer._handler_started = None
+    assert consumer._close_task is not None
+    await asyncio.wait_for(consumer._close_task, timeout=5.0)
+
+    assert order == ["handled", "closed"]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_closes_nats_once_the_drain_deadline_passes(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A handler that outlasts the drain is cut off and its message redelivered."""
+    custom_ini(TEST_NATS_CONFIG)
+    monkeypatch.setattr(pull_consumer, "SHUTDOWN_DRAIN_SECONDS", 0.05)
+    monkeypatch.setattr(pull_consumer, "SHUTDOWN_DRAIN_POLL_SECONDS", 0.01)
+    consumer = _stall_metrics_consumer(monkeypatch, "drain-deadline")
+    consumer.loop = asyncio.get_running_loop()
+    conn = MagicMock(is_closed=False, close=AsyncMock())
+    consumer.nats_conn = conn
+    consumer._handler_started = time.monotonic()
+
+    consumer._clean_exit()
+    assert consumer._close_task is not None
+    await asyncio.wait_for(consumer._close_task, timeout=5.0)
+
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_an_idle_consumer_closes_nats_without_waiting(
+    custom_ini: Callable[[str], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With nothing in flight there is nothing to drain."""
+    custom_ini(TEST_NATS_CONFIG)
+    consumer = _stall_metrics_consumer(monkeypatch, "drain-idle")
+    consumer.loop = asyncio.get_running_loop()
+    conn = MagicMock(is_closed=False, close=AsyncMock())
+    consumer.nats_conn = conn
+    sleep = AsyncMock()
+    monkeypatch.setattr(pull_consumer.asyncio, "sleep", sleep)
+
+    consumer._clean_exit()
+    consumer._clean_exit()
+    assert consumer._close_task is not None
+    await consumer._close_task
+
+    conn.close.assert_awaited_once()
+    sleep.assert_not_awaited()
 
 
 def test_render_consumer_metrics_are_labeled_by_fixed_consumer(custom_ini, monkeypatch):

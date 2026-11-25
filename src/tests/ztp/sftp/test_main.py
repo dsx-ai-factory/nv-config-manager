@@ -30,6 +30,7 @@ from nv_config_manager.ztp.sftp.main import (
     ZTPSFTPServer,
     ZTPSFTPSubsystemHandler,
     _generate_host_keys,
+    _join_sessions,
     handle_connection,
     shutdown_event,
     start_server,
@@ -482,5 +483,60 @@ def test_start_server(mock_socket, mock_start_http_server):
     # Verify socket was set up correctly
     mock_socket_instance.bind.assert_called_once_with(("127.0.0.1", 2222))
     mock_socket_instance.listen.assert_called_once_with(10)
-    mock_socket_instance.close.assert_called_once()
+    mock_socket_instance.close.assert_called()
     mock_start_http_server.assert_called_once_with(9100, addr="0.0.0.0")
+
+
+def test_shutdown_waits_one_deadline_for_all_sessions() -> None:
+    """Open sessions share one wait, so exit stays inside the grace period."""
+    sessions = [MagicMock(is_alive=MagicMock(return_value=True)) for _ in range(3)]
+    with patch(
+        "nv_config_manager.ztp.sftp.main.time.monotonic",
+        side_effect=[100.0, 100.0, 120.0, 140.0],
+    ):
+        _join_sessions(sessions, 30.0)
+
+    assert [s.join.call_args.kwargs["timeout"] for s in sessions] == [30.0, 10.0, 0.0]
+
+
+def test_shutdown_does_not_wait_on_finished_sessions() -> None:
+    """A session that already closed must not use up the shared deadline."""
+    finished = MagicMock(is_alive=MagicMock(return_value=False))
+
+    _join_sessions([finished], 30.0)
+
+    finished.join.assert_not_called()
+
+
+@pytest.mark.timeout(0)  # override default timeout, sftp startup takes a bit
+@patch("nv_config_manager.ztp.sftp.main.start_http_server")
+@patch("nv_config_manager.ztp.sftp.main.socket.socket")
+def test_shutdown_ignores_threads_that_are_not_sessions(
+    mock_socket: MagicMock, mock_start_http_server: MagicMock
+) -> None:
+    """The metrics server and config watcher never end, so they are not joined."""
+    background = MagicMock(is_alive=MagicMock(return_value=True))
+    shutdown_event.set()
+    with patch("nv_config_manager.ztp.sftp.main.threading.enumerate", return_value=[background]):
+        start_server(host="127.0.0.1", port=2222, level="INFO")
+
+    background.join.assert_not_called()
+
+
+@pytest.mark.timeout(0)  # override default timeout, sftp startup takes a bit
+@patch("nv_config_manager.ztp.sftp.main.start_http_server")
+@patch("nv_config_manager.ztp.sftp.main.socket.socket")
+def test_shutdown_stops_listening_before_waiting_on_sessions(
+    mock_socket: MagicMock, mock_start_http_server: MagicMock
+) -> None:
+    """A client that connects during the wait must be refused, not left queued."""
+    order: list[str] = []
+    mock_socket.return_value.close.side_effect = lambda: order.append("close")
+    shutdown_event.set()
+    with patch(
+        "nv_config_manager.ztp.sftp.main._join_sessions",
+        side_effect=lambda *_: order.append("join"),
+    ):
+        start_server(host="127.0.0.1", port=2222, level="INFO")
+
+    assert order[:2] == ["close", "join"]

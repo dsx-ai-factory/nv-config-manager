@@ -9,6 +9,44 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
+### Changed
+
+- Long-lived services now exit, and Kubernetes restarts them, when a setting in
+  `nv-config-manager.ini` changes, so a rotated credential or renamed NATS
+  stream takes effect without a manual rollout. Each pod restarts between 30
+  seconds and two and a half minutes after the file changes, at a moment
+  shared by its containers so the pod goes unready once and drawn afresh for
+  each change, and the log line names the settings that changed, never their
+  values. Expect container restarts a few minutes after the mounted Secret
+  updates. A change
+  to comments, whitespace, or ordering alone restarts nothing, and neither
+  does a value that changes back before the delay ends. For a file that
+  cannot be parsed, the restart watcher logs an error and does not restart;
+  services that re-read the file themselves still fail until it is fixed. A
+  process still running 30 seconds after the restart request is stopped
+  outright. This covers the DHCP configuration refresh and sync loops as well
+  as the API, consumer, worker, and scheduler services. The DHCP API reads
+  everything except `dhcp.cors_origins` from the file on each request, so it
+  restarts only when that setting changes.
+- The API services now wait at most 25 seconds for open requests to finish
+  after SIGTERM, so a long request can no longer hold a shutdown past the
+  pod's grace period.
+- The DHCP configuration refresh and sync loops and the Config Store cache
+  refresh service now stop promptly on SIGTERM. Before, the loops ignored the
+  signal and the cache refresh service did not act on it until its next
+  refresh, so each was killed at the end of the pod's grace period.
+- A render consumer that is shut down now stops fetching and waits up to 25
+  seconds for the message it is handling before closing its NATS connection.
+  Before, it closed the connection at once, so a render that finished
+  afterwards could not acknowledge its message and was delivered again.
+- The Config Manager Temporal worker now handles SIGTERM: it stops taking new
+  tasks and gives running activities 25 seconds to finish before cancelling
+  them. Before, it ignored the signal and was killed at the end of the pod's
+  grace period while still polling.
+- A workflow whose result cannot be published to NATS after three attempts now
+  logs a warning with the cause and completes, instead of failing after its
+  work is done.
+
 ## 1.4.3
 
 Unreleased. Changes since 1.4.2, prepared for release from `main`.

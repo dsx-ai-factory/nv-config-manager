@@ -32,6 +32,7 @@ from multidict import CIMultiDict
 from yarl import URL
 
 from nv_config_manager.common.auth import AuthConfig, JwtProviderConfig
+from nv_config_manager.dhcp import api as dhcp_api
 from nv_config_manager.dhcp.api import (
     _fetch_summary_sources,
     _install_cors,
@@ -1792,3 +1793,15 @@ def test_summary_after_clear_agrees_across_kea_replicas():
         assert leases.status_code == 200
         assert leases.json()["leases"] == []
     assert local_counts.count(1) == 2
+
+
+def test_main_restarts_only_for_the_cors_origins() -> None:
+    """Every other setting is read per request, so a restart would only cost readiness."""
+    with (
+        patch("sys.argv", ["nv-config-manager-dhcp-api"]),
+        patch("nv_config_manager.dhcp.api.uvicorn.run"),
+        patch("nv_config_manager.dhcp.api.restart_on_config_change") as watch,
+    ):
+        dhcp_api.main()
+
+    watch.assert_called_once_with(only=("dhcp.cors_origins",))
