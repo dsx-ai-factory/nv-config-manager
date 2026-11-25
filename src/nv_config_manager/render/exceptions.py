@@ -14,6 +14,14 @@
 # limitations under the License.
 """Render Service Exceptions."""
 
+import aiohttp
+import nats.errors
+import nats.js.errors
+import redis.exceptions
+
+from nv_config_manager.common.client.config_store import ConfigStoreUnavailableError
+from nv_config_manager.dcim import DCIMConnectivityError, DCIMReadCancelledError
+
 
 class RenderException(Exception):
     """Failure to render device configuration."""
@@ -21,3 +29,36 @@ class RenderException(Exception):
 
 class RenderScopeMismatch(RenderException):
     """The device is outside this deployment's aggregate-management scope."""
+
+
+def is_transient_dependency_error(exc: BaseException) -> bool:
+    """Return whether a DCIM, Config Store, NATS, or Redis failure may succeed if retried.
+
+    Data errors are not transient: the render cannot succeed until the data is
+    fixed, and fixing it publishes a new change event anyway.
+    """
+    if isinstance(exc, aiohttp.ClientResponseError):
+        return exc.status == 429 or exc.status >= 500
+    return isinstance(
+        exc,
+        (
+            DCIMConnectivityError,
+            DCIMReadCancelledError,
+            ConfigStoreUnavailableError,
+            aiohttp.ClientConnectionError,
+            aiohttp.ClientPayloadError,
+            TimeoutError,
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
+            nats.errors.NoRespondersError,
+            nats.errors.NoServersError,
+            nats.errors.ConnectionClosedError,
+            nats.errors.ConnectionDrainingError,
+            nats.errors.ConnectionReconnectingError,
+            nats.errors.StaleConnectionError,
+            nats.errors.OutboundBufferLimitError,
+            nats.js.errors.NoStreamResponseError,
+            nats.js.errors.ServiceUnavailableError,
+            nats.js.errors.ServerError,
+        ),
+    )

@@ -163,6 +163,25 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
 
 ### Fixed
 
+- Render requests are no longer dropped while the DCIM, Config Store, Redis, or
+  NATS is briefly unavailable. Connection errors, timeouts, responses cut off
+  before their body is complete, and HTTP 429 or 5xx responses are now retried
+  with the render consumers' backoff until the delivery limit. Previously the
+  message was acknowledged and the device kept its old configuration until its
+  next change. Errors a retry cannot fix, such as invalid DCIM data, are still
+  acknowledged. A retried change event queues only the devices an earlier
+  delivery did not queue; if Redis cannot supply that record, the retry queues
+  every device again and can repeat renders. A render that finds no configuration change now
+  re-syncs the DCIM with the stored version's own author and commit message
+  instead of the current request's. `nv_config_manager_events_failed` and
+  `nv_config_manager_nautobot_change_messages_failed` now count these failures
+  on every delivery under their own `exception_class`, so alerts on those
+  counters also see retried attempts. See
+  [Render service](docs/render/render-service.mdx#error-handling).
+- A render whose commit message is longer than 255 characters no longer leaves
+  Nautobot pointing at the previous configuration version. Nautobot rejected
+  the whole intended-configuration record; the message is now shortened in
+  that record, and the Config Store keeps it in full.
 - The DHCP config refresh no longer restarts when the DCIM times out, cannot be
   reached, or returns a server error, as it does for a minute or two while its
   database fails over. It skips that cycle, keeps Kea on its last good

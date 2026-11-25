@@ -117,7 +117,7 @@ Clients specify their stream explicitly and do not request `STREAM.INFO` for ext
 
 An administrator-provisioned consumer should use the configured stream and filter subject with the fixed durable name, `deliver_policy=new`, `ack_policy=explicit`, `ack_wait=360s`, and `max_deliver=20`. The application validates operational settings but does not change an existing consumer or require its delivery policy to match; the owner can retain the delivery policy chosen for a migration boundary.
 
-The render consumers follow the `max_deliver` of the durable they find and recheck it about every 15 seconds, so an edited limit takes effect without a restart. If handling still fails or the device lock is still unavailable on the final delivery, a consumer logs that it is giving up and terminates the message. A lower limit shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A limit below 9 cannot outlast another render's 180-second device lock, so it can discard a render that was only waiting for that lock; keep the default unless you have a reason to lower it. A message whose handler raises, for example because Redis or NATS is unavailable, is redelivered after a delay that doubles from 1 second up to 60 seconds, so the default limit rides out about 14 minutes of such failures. DCIM and Config Store errors are not retried: the dispatcher logs and counts them, and the message is acknowledged. A render that waits on another render's device lock is retried after a delay that doubles from 5 seconds up to 30 seconds. Those retries count toward the same limit, and the default limit waits about 8 minutes, longer than a device lock can be held. A render that gives up because its data is bad is not lost for good: correcting the data triggers a new render.
+The render consumers follow the `max_deliver` of the durable they find and recheck it about every 15 seconds, so an edited limit takes effect without a restart. If handling still fails or the device lock is still unavailable on the final delivery, a consumer logs that it is giving up and terminates the message. A lower limit shortens how long a render keeps retrying, and `max_deliver=-1` retries indefinitely. A limit below 9 cannot outlast another render's 180-second device lock, so it can discard a render that was only waiting for that lock; keep the default unless you have a reason to lower it. A message whose handler raises, for example because Redis or NATS is unavailable, is redelivered after a delay that doubles from 1 second up to 60 seconds, so the default limit rides out about 14 minutes of such failures. DCIM and Config Store failures that may succeed later, such as a connection error, a timeout, a response cut off before its body is complete, an HTTP 429 or 5xx response, or a cancelled DCIM read, are retried the same way. When a change event that affects several devices is retried, the devices an earlier delivery already queued are skipped on a best-effort basis, so normally only the devices that failed are queued again. The record of queued devices is kept in Redis for an hour after the last delivery that queued a device or failed with an error that is retried; if it cannot be read or written, a retry queues every device again rather than dropping any, which repeats renders. Other DCIM and Config Store errors, such as invalid or missing data, are not retried: the dispatcher logs and counts them, and the message is acknowledged. A data error during the per-device render status check at enqueue is logged but not counted, so the failed counter does not show that device. A render that waits on another render's device lock is retried after a delay that doubles from 5 seconds up to 30 seconds. Those retries count toward the same limit, and the default limit waits about 8 minutes, longer than a device lock can be held. A render that gives up because its data is bad is not lost for good: correcting the data triggers a new render.
 
 A render consumer whose fetch loop keeps failing exits, and Kubernetes
 restarts its container. The consumer exits when a fetch cycle fails and no
@@ -191,7 +191,7 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 
 - `nv_config_manager_nautobot_change_messages_received`
 - `nv_config_manager_nautobot_change_messages_processed`
-- `nv_config_manager_nautobot_change_messages_failed`
+- `nv_config_manager_nautobot_change_messages_failed` - Failed render attempts by `exception_class`. Failures that may succeed later keep their own class, such as `DCIMConnectivityError`, `ConfigStoreUnavailableError`, or `TimeoutError`, and are counted on every delivery. Data errors are counted once, such as `RenderException` or `DCIMInvalidDataError`.
 - `nv_config_manager_nautobot_change_message_processing_time` - Render duration
 - `nv_config_manager_nautobot_change_message_end_to_end_time` - Nautobot publish to Config Store persist
 
@@ -209,16 +209,16 @@ The chart exposes it to these workloads as `NV_CONFIG_MANAGER_DOMAIN`.
 
 **Exception types**:
 
-- `DCIMError` - DCIM provider API errors, logged, ACK (not retried). An error from the event handler's own lookups increments the event failed counter. An error while checking one device's render status during enqueue only skips that device: it is logged and the event still counts as processed, so the failed counter does not show it
+- `DCIMError` - DCIM provider API errors. Failures that may succeed later, such as `DCIMConnectivityError`, are counted and retried. Other errors are logged and counted, ACK (not retried). An error from the event handler's own lookups increments the event failed counter. A data error while checking one device's render status during enqueue only skips that device: it is logged and the event still counts as processed, so the failed counter does not show it. A failure that may succeed later during that check, including a Redis outage, is counted and the event is retried
 - `RenderException` - Template rendering failures, ACK (do not retry)
 - `DeviceNotEnabledError` - Device not enabled for rendering, ACK
 - `EventParseError` - Malformed event data, fail counter incremented
-- `ConfigStoreException` - Config store persistence errors, logged and counted, ACK (not retried)
+- `ConfigStoreException` - Config store persistence errors, logged and counted, ACK (not retried), except `ConfigStoreUnavailableError`, which is counted and retried
 
 **Consumer behavior**:
 
-- **ACK**: Successful processing, render exceptions (will not succeed on retry), DCIM and Config Store errors, disabled devices
-- **NAK**: Handler failures other than DCIM and Config Store errors, with a delay that doubles from 1s up to 60s; lock acquisition failures, with a delay that doubles from 5s up to 30s
+- **ACK**: Successful processing, render exceptions (will not succeed on retry), DCIM and Config Store data errors, disabled devices
+- **NAK**: Handler failures, including transient DCIM and Config Store failures but not their data errors, with a delay that doubles from 1s up to 60s; lock acquisition failures, with a delay that doubles from 5s up to 30s
 - **TERM**: The final delivery the durable's `max_deliver` allows, when the render still failed or never acquired the device lock
 - **Consumer recreation**: Any fetch/heartbeat failure triggers automatic consumer rebuild
 

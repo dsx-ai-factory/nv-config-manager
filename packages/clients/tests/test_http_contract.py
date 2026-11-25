@@ -18,8 +18,9 @@ import ssl
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from aiohttp import web
 from nv_config_manager_logging import LogCategory
@@ -28,6 +29,7 @@ from nv_config_manager_clients import (
     ConfigStoreClient,
     ConfigStoreException,
     ConfigStoreFileNotFound,
+    ConfigStoreUnavailableError,
     DHCPClient,
     DHCPClientException,
     RenderClient,
@@ -83,7 +85,16 @@ async def server(unused_tcp_port: int) -> AsyncIterator[Server]:
 
 async def test_config_store_paths_queries_and_return_models(server: Server) -> None:
     server.responses = [
-        (200, {"content": "config", "version": 5, "content_hash": "hash"}),
+        (
+            200,
+            {
+                "content": "config",
+                "version": 5,
+                "content_hash": "hash",
+                "author": "alice@example.com",
+                "commit_message": "initial render",
+            },
+        ),
         (200, []),
         (200, {"versions": []}),
         (200, {"diff": "changed"}),
@@ -92,6 +103,8 @@ async def test_config_store_paths_queries_and_return_models(server: Server) -> N
         result = await client.load_file("device id", "dir/startup#.cfg")
         assert result.content == "config"
         assert result.commit == "5"
+        assert result.author == "alice@example.com"
+        assert result.commit_message == "initial render"
         await client.list_device_configs("device", file_type=None)
         await client.get_config_versions("device", "startup.cfg", limit=3)
         await client.get_config_diff("device", "startup.cfg", 1, 2, file_type="backup")
@@ -317,6 +330,65 @@ async def test_temporal_preserves_error_details(server: Server) -> None:
 
     assert "403" in str(error.value)
     assert detail in str(error.value)
+
+
+def _response_error(status: int) -> aiohttp.ClientResponseError:
+    return aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=status)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        _response_error(503),
+        _response_error(429),
+        aiohttp.ClientConnectionError("refused"),
+        aiohttp.ClientPayloadError("Response payload is not completed"),
+        TimeoutError(),
+    ],
+)
+async def test_config_store_reports_unavailable_service(failure: Exception) -> None:
+    client = ConfigStoreClient("http://127.0.0.1:9", "intended", "http://127.0.0.1:9")
+    with patch.object(client, "_call", AsyncMock(side_effect=failure)):
+        with pytest.raises(ConfigStoreUnavailableError):
+            await client.get_config_file("device", "startup.yaml")
+        with pytest.raises(ConfigStoreUnavailableError):
+            await client.list_device_configs("device")
+
+
+async def test_config_store_reports_truncated_response_as_unavailable(
+    unused_tcp_port: int,
+) -> None:
+    """A response that ends before its declared body is retryable, not a rejected request."""
+
+    async def truncate(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse(headers={"Content-Length": "100"})
+        await response.prepare(request)
+        await response.write(b"{")
+        assert request.transport is not None
+        request.transport.close()
+        return response
+
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", truncate)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", unused_tcp_port).start()
+    url = f"http://127.0.0.1:{unused_tcp_port}"
+    try:
+        async with ConfigStoreClient(url, "intended", url) as client:
+            with pytest.raises(ConfigStoreUnavailableError):
+                await client.get_config_file("device", "startup.yaml")
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.parametrize("failure", [_response_error(403), ValueError("bad payload")])
+async def test_config_store_request_errors_are_not_unavailable(failure: Exception) -> None:
+    client = ConfigStoreClient("http://127.0.0.1:9", "intended", "http://127.0.0.1:9")
+    with patch.object(client, "_call", AsyncMock(side_effect=failure)):
+        with pytest.raises(ConfigStoreException) as caught:
+            await client.get_config_file("device", "startup.yaml")
+    assert not isinstance(caught.value, ConfigStoreUnavailableError)
 
 
 async def test_errors_non_json_and_cleanup(server: Server) -> None:

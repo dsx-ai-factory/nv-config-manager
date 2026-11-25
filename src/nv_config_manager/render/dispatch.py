@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -36,8 +37,12 @@ from nv_config_manager.dcim import (
     dcim_client_session,
     get_dcim_provider,
 )
-from nv_config_manager.render.events.util import queue_render_batch
-from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
+from nv_config_manager.render.events.util import queue_render_batch, renew_published
+from nv_config_manager.render.exceptions import (
+    RenderException,
+    RenderScopeMismatch,
+    is_transient_dependency_error,
+)
 from nv_config_manager.render.render import execute_render
 
 # Define custom bucket values for histograms (in seconds)
@@ -126,6 +131,21 @@ NAUTOBOT_CHANGE_FAILED_COUNTER = Counter(
 )
 
 
+def _event_retry_key(event: DCIMChangeEvent) -> str:
+    """Return a key that is the same for every delivery of one change event."""
+    identity = "\x1f".join(
+        (
+            event.provider,
+            event.object_type,
+            event.object_id,
+            event.operation,
+            event.timestamp,
+            event.correlation_id or "",
+        )
+    )
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
 class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-public-methods
     """Provider-neutral dispatcher for render-triggering DCIM events."""
 
@@ -167,20 +187,33 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
         for request in requests:
             requests_by_message[request.commit_message].append(request.device_id)
 
+        retry_key = _event_retry_key(event)
+        transient_error: Exception | None = None
         for commit_message, device_ids in requests_by_message.items():
-            _, failures = await queue_render_batch(
-                device_ids,
-                commit_message,
-                event.actor,
-                event.timestamp,
-                dcim_client=dcim_client,
-            )
+            try:
+                _, failures = await queue_render_batch(
+                    device_ids,
+                    commit_message,
+                    event.actor,
+                    event.timestamp,
+                    dcim_client=dcim_client,
+                    raise_transient_errors=True,
+                    retry_key=retry_key,
+                )
+            except Exception as exc:
+                if not is_transient_dependency_error(exc):
+                    raise
+                # Keep going so one group's outage does not hold back the others.
+                transient_error = transient_error or exc
+                continue
             for failure in failures:
                 self.logger.info(
                     "Render request for %s was not queued: %s",
                     failure["device_uuid"],
                     failure["error"],
                 )
+        if transient_error is not None:
+            raise transient_error
 
     async def dcim_event_dispatch(self, event: DCIMChangeEvent) -> None:
         """Invoke the selected provider's handler for one normalized event."""
@@ -209,14 +242,28 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
         try:
             with EVENT_PROCESSING_TIME.labels(model, self.instance, self.namespace).time():
                 async with dcim_client_session() as dcim_client:
-                    requests = tuple(await handler(event, dcim_client))
+                    try:
+                        requests = tuple(await handler(event, dcim_client))
+                    except Exception as exc:
+                        # This delivery never reaches the batches that renew the
+                        # record of devices an earlier delivery queued.
+                        if is_transient_dependency_error(exc):
+                            await renew_published(_event_retry_key(event))
+                        raise
                     await self._queue_requests(requests, event, dcim_client)
                 EVENT_PROCESSED_COUNTER.labels(model, self.instance, self.namespace).inc()
         except DCIMError as exc:
-            self.logger.exception("Error processing event: %s", event)
             EVENT_FAILED_COUNTER.labels(
                 model, self.instance, exc.__class__.__name__, self.namespace
             ).inc()
+            if is_transient_dependency_error(exc):
+                raise
+            self.logger.exception("Error processing event: %s", event)
+        except Exception as exc:
+            EVENT_FAILED_COUNTER.labels(
+                model, self.instance, exc.__class__.__name__, self.namespace
+            ).inc()
+            raise
 
     async def nautobot_change_dispatch(self, data: dict[str, Any]) -> None:
         """Invoke a device render for a nautobot change."""
@@ -240,7 +287,14 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
         except RenderScopeMismatch as exc:
             self.logger.info("Skipping render outside aggregate scope: %s", exc)
         except (RenderException, ConfigStoreException, DCIMError) as exc:
-            self.logger.exception("Error processing nautobot device change event: %s", data)
             NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
                 self.instance, exc.__class__.__name__, self.namespace
             ).inc()
+            if is_transient_dependency_error(exc):
+                raise
+            self.logger.exception("Error processing nautobot device change event: %s", data)
+        except Exception as exc:
+            NAUTOBOT_CHANGE_FAILED_COUNTER.labels(
+                self.instance, exc.__class__.__name__, self.namespace
+            ).inc()
+            raise

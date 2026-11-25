@@ -37,7 +37,11 @@ from nv_config_manager.dcim import (
     RenderDataRequest,
     dcim_client_session,
 )
-from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
+from nv_config_manager.render.exceptions import (
+    RenderException,
+    RenderScopeMismatch,
+    is_transient_dependency_error,
+)
 
 logger = get_logger(__name__, category=LogCategory.RENDER)
 
@@ -137,8 +141,10 @@ async def _persist_rendered_files(
                     config_store_ui_url(),
                     latest.commit,
                     [candidate],
-                    user,
-                    commit_message,
+                    # The stored version's own author and message: this request
+                    # did not produce it, and may be a retry of one that did.
+                    latest.author.rsplit("@", 1)[0] if latest.author else user,
+                    latest.commit_message or commit_message,
                     updated_at=latest.created_at,
                 )
                 return []
@@ -184,6 +190,8 @@ async def execute_render(device_uuid: str, commit_message: str, user: str) -> li
                 return []
             files = {key.split("/")[-1].replace(".j2", ""): value for key, value in files.items()}
         except Exception as exc:
+            if is_transient_dependency_error(exc):
+                raise
             raise RenderException(f"Failed to render entrypoints for {device_uuid}: {exc}") from exc
 
         try:

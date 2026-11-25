@@ -132,12 +132,24 @@ _CABLE_STATUS_INTERFACES_QUERY = load_graphql_query(
 
 _NAUTOBOT_CONNECTION_KEYS = ("server", "token", "public_url", "verify", "timeout")
 _INTENDED_CONFIGURATION_PATH = "plugins/nv-config-manager/intendedconfig/"
+_COMMIT_MESSAGE_MAX_LENGTH = 255
 
 
 def _is_existing_intended_configuration_error(error: NautobotException) -> bool:
     """Return whether Nautobot rejected a create for its one-per-device record."""
     message = str(error)
     return "returned 400" in message and "Intended Config Settings with this Device id" in message
+
+
+def _fit_commit_message(message: str) -> str:
+    """Shorten a commit message to what the Nautobot plugin's field accepts.
+
+    The Config Store keeps the full message; a longer one here would make
+    Nautobot reject the whole record.
+    """
+    if len(message) <= _COMMIT_MESSAGE_MAX_LENGTH:
+        return message
+    return message[: _COMMIT_MESSAGE_MAX_LENGTH - 3] + "..."
 
 
 def _render_peer_devices(device: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -885,7 +897,7 @@ class NautobotDCIMClient(NautobotDHCPOperations, NautobotWorkflowClient):
             "commit_id": update.commit_id,
             "updated": update.updated,
             "updated_by": update.updated_by,
-            "commit_message": update.commit_message,
+            "commit_message": _fit_commit_message(update.commit_message),
             "template_version": update.template_version,
         }
         try:

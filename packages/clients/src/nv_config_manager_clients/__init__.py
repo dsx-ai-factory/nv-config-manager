@@ -21,6 +21,7 @@ from nv_config_manager_clients.config_store import (
     ConfigStoreClient,
     ConfigStoreException,
     ConfigStoreFileNotFound,
+    ConfigStoreUnavailableError,
 )
 from nv_config_manager_clients.dhcp import DHCPClient, DHCPClientException
 from nv_config_manager_clients.render import FileCommit, RenderClient, RenderClientException
@@ -34,6 +35,7 @@ __all__ = [
     "ConfigStoreException",
     "ConfigStoreFileNotFound",
     "ConfigStoreType",
+    "ConfigStoreUnavailableError",
     "DHCPClient",
     "DHCPClientException",
     "FileCommit",
