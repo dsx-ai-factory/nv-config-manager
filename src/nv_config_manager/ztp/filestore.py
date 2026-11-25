@@ -34,22 +34,58 @@ from nv_config_manager.ztp.storage import (
     parse_http_range,
 )
 
-# Suffix of a file still being uploaded. Such files are hidden from listings.
-_PARTIAL_UPLOAD_SUFFIX = ".uploading"
+# Files still being written live here, directly under the store's base path.
+# Stored objects are always three levels down (platform/version/filename), so
+# nothing a caller can name collides with a file in this directory, and a
+# short generated name keeps a long filename within the filesystem's limit.
+_STAGING_DIRECTORY = ".uploads"
 
-# A partial upload older than this belongs to a process that stopped mid-copy.
+# A staged file not written to for this long belongs to a process that stopped
+# mid-copy. An upload in progress keeps refreshing its modification time.
 _STALE_UPLOAD_SECONDS = 3600
 
 
-def _remove_stale_uploads(directory: Path) -> None:
-    """Delete partial uploads left behind by a process that stopped mid-copy."""
+def _staging_file(base_path: Path) -> Path:
+    """Return a new path to write to before a file is published.
+
+    It is on the same volume as the store, so publishing is a rename. Staged
+    files abandoned by a process that stopped mid-copy are removed on the way.
+    """
+    staging = base_path / _STAGING_DIRECTORY
+    staging.mkdir(exist_ok=True)
     cutoff = time.time() - _STALE_UPLOAD_SECONDS
-    for partial in directory.glob(f".*{_PARTIAL_UPLOAD_SUFFIX}"):
+    for entry in os.scandir(staging):
         try:
-            if partial.stat().st_mtime < cutoff:
-                partial.unlink()
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                os.unlink(entry.path)
         except OSError:
             continue
+    return staging / uuid4().hex
+
+
+def _publish(staged: Path, destination: Path, overwrite: bool) -> None:
+    """Move a completely written file into place.
+
+    Without ``overwrite`` the destination must still be absent. Another upload
+    of the same name can finish while this one was copying, so the check made
+    before the copy is not enough: a hard link is created instead of a rename,
+    because it fails if the name is already taken.
+    """
+    if overwrite:
+        os.replace(staged, destination)
+        return
+    try:
+        os.link(staged, destination)
+    except FileExistsError as exc:
+        raise FileStoreExistsException(f"File already exists: {destination}") from exc
+    except OSError:
+        # The volume does not support hard links. Fall back to a check and a
+        # rename, which leaves only the instant between the two unguarded.
+        if destination.exists():
+            raise FileStoreExistsException(f"File already exists: {destination}") from None
+        os.replace(staged, destination)
+        return
+    staged.unlink()
 
 
 class FileStoreException(ObjectStorageException):
@@ -326,7 +362,7 @@ class FileStoreClient(ObjectStorageClient):
 
             objects: list[dict[str, Any]] = []
             for entry in os.scandir(str(dir_path)):
-                if entry.is_file() and not entry.name.endswith(_PARTIAL_UPLOAD_SUFFIX):
+                if entry.is_file():
                     stat = entry.stat()
                     objects.append(
                         {
@@ -402,24 +438,21 @@ class FileStoreClient(ObjectStorageClient):
 
             # Create directory if it doesn't exist
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            _remove_stale_uploads(file_path.parent)
 
-            # Written beside the destination and renamed into place once
-            # complete, so a process that stops mid-upload leaves the previous
-            # file untouched instead of a truncated or half-replaced one.
-            partial = file_path.with_name(
-                f".{file_path.name}.{uuid4().hex}{_PARTIAL_UPLOAD_SUFFIX}"
-            )
+            # Written to a staging file and moved into place once complete, so
+            # a process that stops mid-upload leaves the previous file
+            # untouched instead of a truncated or half-replaced one.
+            staged = _staging_file(self.base_path)
             try:
-                with open(partial, mode="wb") as f:
+                with open(staged, mode="wb") as f:
                     while True:
                         chunk = file.read(10 * 1024 * 1024)  # 10MB chunks
                         if not chunk:
                             break
                         f.write(chunk)
-                os.replace(partial, file_path)
+                _publish(staged, file_path, overwrite)
             except BaseException:
-                partial.unlink(missing_ok=True)
+                staged.unlink(missing_ok=True)
                 raise
 
         tags = {"firmware-image": ""} if firmware_image else None
@@ -430,8 +463,10 @@ class FileStoreClient(ObjectStorageClient):
             await self._add_to_manifest(platform, version, filename, checksum, tags)
 
         # Shielded so a request cancelled during shutdown cannot stop between
-        # the rename and the manifest update: the copy runs on a thread that
-        # finishes regardless, and the manifest has to follow it.
+        # publishing the file and updating the manifest: the copy runs on a
+        # thread that finishes regardless, and the manifest has to follow it.
+        # A process that is killed between the two can still leave them out of
+        # step; that window is now two renames wide instead of a whole copy.
         await asyncio.shield(_store())
 
     async def _add_to_manifest(
@@ -476,16 +511,13 @@ class FileStoreClient(ObjectStorageClient):
         def _persist() -> None:
             # Renamed into place for the same reason as an upload: a manifest
             # truncated by an interrupted write would lose every entry.
-            manifest_path = Path(self.manifest_path)
-            partial = manifest_path.with_name(
-                f".{manifest_path.name}.{uuid4().hex}{_PARTIAL_UPLOAD_SUFFIX}"
-            )
+            staged = _staging_file(self.base_path)
             try:
-                with open(partial, "w") as f:
+                with open(staged, "w") as f:
                     json.dump(self.manifest, f, indent=2)
-                os.replace(partial, manifest_path)
+                os.replace(staged, self.manifest_path)
             except BaseException:
-                partial.unlink(missing_ok=True)
+                staged.unlink(missing_ok=True)
                 raise
 
         await asyncio.to_thread(_persist)

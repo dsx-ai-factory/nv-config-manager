@@ -20,6 +20,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -475,7 +476,9 @@ class _FailsMidCopy(io.BytesIO):
 
 
 @pytest.mark.asyncio
-async def test_interrupted_overwrite_keeps_the_previous_file(temp_storage_dir, monkeypatch):
+async def test_interrupted_overwrite_keeps_the_previous_file(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A half-written image would no longer match the checksum the manifest publishes."""
     monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
     client = FileStoreClient()
@@ -491,11 +494,14 @@ async def test_interrupted_overwrite_keeps_the_previous_file(temp_storage_dir, m
     directory = Path(temp_storage_dir) / "test-platform/1.0.0"
     assert (directory / "image.bin").read_bytes() == b"old"
     assert [p.name for p in directory.iterdir()] == ["image.bin"]
+    assert list((Path(temp_storage_dir) / ".uploads").iterdir()) == []
     assert (Path(temp_storage_dir) / "manifest.json").read_text() == manifest_before
 
 
 @pytest.mark.asyncio
-async def test_interrupted_new_upload_can_be_retried(temp_storage_dir, monkeypatch):
+async def test_interrupted_new_upload_can_be_retried(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A leftover file with no manifest entry used to block the retry."""
     monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
     client = FileStoreClient()
@@ -511,8 +517,15 @@ async def test_interrupted_new_upload_can_be_retried(temp_storage_dir, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_cancelled_upload_still_records_the_file_it_stored(temp_storage_dir, monkeypatch):
-    """A request cancelled at shutdown must not leave a stored file out of the manifest."""
+async def test_cancelled_upload_still_records_the_file_it_stored(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancelled request must not leave a stored file out of the manifest.
+
+    This covers cancellation inside a running process. A process killed
+    between publishing the file and updating the manifest can still leave the
+    two out of step.
+    """
     monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
     client = FileStoreClient()
     await client.connect()
@@ -520,7 +533,7 @@ async def test_cancelled_upload_still_records_the_file_it_stored(temp_storage_di
     release = asyncio.Event()
     add_to_manifest = client._add_to_manifest
 
-    async def slow_add(*args, **kwargs):
+    async def slow_add(*args: Any, **kwargs: Any) -> None:
         reached_manifest.set()
         await release.wait()
         await add_to_manifest(*args, **kwargs)
@@ -544,27 +557,86 @@ async def test_cancelled_upload_still_records_the_file_it_stored(temp_storage_di
 
 
 @pytest.mark.asyncio
-async def test_partial_uploads_are_hidden_and_stale_ones_removed(temp_storage_dir, monkeypatch):
-    """A file still being copied is not an object, and an abandoned one is cleaned up."""
+async def test_abandoned_staged_files_are_removed(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A staged file left by a process that stopped mid-copy is cleaned up; a live one is not."""
     monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
     client = FileStoreClient()
     await client.connect()
-    directory = Path(temp_storage_dir) / "test-platform/1.0.0"
-    directory.mkdir(parents=True)
-    stale = directory / ".old.bin.abc.uploading"
+    staging = Path(temp_storage_dir) / ".uploads"
+    staging.mkdir(exist_ok=True)
+    stale = staging / "abandoned"
     stale.write_bytes(b"abandoned")
     os.utime(stale, (0, 0))
-    fresh = directory / ".other.bin.def.uploading"
+    fresh = staging / "in-progress"
     fresh.write_bytes(b"in progress")
 
-    assert await client.list_object_keys("test-platform", "1.0.0") == []
     await client.upload_file("test-platform", "1.0.0", "image.bin", "sum", io.BytesIO(b"data"))
 
-    assert not stale.exists()
-    assert fresh.exists()
-    assert [o["file"] for o in await client.list_object_keys("test-platform", "1.0.0")] == [
-        "image.bin"
+    assert sorted(p.name for p in staging.iterdir()) == ["in-progress"]
+
+
+@pytest.mark.asyncio
+async def test_stored_files_are_never_mistaken_for_staged_ones(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Any name a caller can upload stays listed and survives later uploads."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    await client.upload_file(
+        "test-platform", "1.0.0", ".vendor.uploading", "sum", io.BytesIO(b"kept")
+    )
+    stored = Path(temp_storage_dir) / "test-platform/1.0.0/.vendor.uploading"
+    os.utime(stored, (0, 0))
+
+    await client.upload_file("test-platform", "1.0.0", "image.bin", "sum", io.BytesIO(b"data"))
+
+    assert stored.read_bytes() == b"kept"
+    assert sorted(o["file"] for o in await client.list_object_keys("test-platform", "1.0.0")) == [
+        ".vendor.uploading",
+        "image.bin",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_filename_at_the_filesystem_limit_can_be_uploaded(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The staging name must not make a valid long filename too long to write."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    filename = "f" * 251 + ".bin"
+
+    await client.upload_file("test-platform", "1.0.0", filename, "sum", io.BytesIO(b"data"))
+
+    assert (Path(temp_storage_dir) / "test-platform/1.0.0" / filename).read_bytes() == b"data"
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_upload_that_finishes_first_is_not_replaced(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without overwrite, the name must still be free when the copy completes."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    destination = Path(temp_storage_dir) / "test-platform/1.0.0/image.bin"
+
+    class _OtherUploadFinishesDuringCopy(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            destination.write_bytes(b"first")
+            return super().read(size)
+
+    with pytest.raises(FileStoreExistsException, match="File already exists"):
+        await client.upload_file(
+            "test-platform", "1.0.0", "image.bin", "sum", _OtherUploadFinishesDuringCopy(b"second")
+        )
+
+    assert destination.read_bytes() == b"first"
+    assert list((Path(temp_storage_dir) / ".uploads").iterdir()) == []
 
 
 @pytest.mark.asyncio
