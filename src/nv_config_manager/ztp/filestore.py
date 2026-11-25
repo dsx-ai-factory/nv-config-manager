@@ -17,6 +17,7 @@
 import asyncio
 import json
 import os
+import threading
 import time
 from pathlib import Path
 from types import TracebackType
@@ -79,10 +80,13 @@ def _publish(staged: Path, destination: Path, overwrite: bool) -> None:
     except FileExistsError as exc:
         raise FileStoreExistsException(f"File already exists: {destination}") from exc
     except OSError:
-        # The volume does not support hard links. Fall back to a check and a
-        # rename, which leaves only the instant between the two unguarded.
-        if destination.exists():
-            raise FileStoreExistsException(f"File already exists: {destination}") from None
+        # The volume does not support hard links. Claim the name with an
+        # exclusive create, which also fails if it is taken, then rename over
+        # the empty file that claim left.
+        try:
+            os.close(os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError as exc:
+            raise FileStoreExistsException(f"File already exists: {destination}") from exc
         os.replace(staged, destination)
         return
     staged.unlink()
@@ -105,6 +109,11 @@ class FileStoreNotAuthorizedException(ObjectStorageNotAuthorizedException):
 
 
 _PATH_TRAVERSAL_MSG = "Path traversal detected: resolved path escapes base directory"
+
+# Clients are created per request and each holds its own copy of the manifest,
+# so updates are ordered across all of them in this process: the manifest is
+# read again, changed and replaced under this lock.
+_MANIFEST_LOCK = threading.Lock()
 
 
 def _file_revision(stat: os.stat_result) -> str:
@@ -207,10 +216,20 @@ class FileStoreClient(ObjectStorageClient):
         Raises FileStoreException if the resolved path escapes the base directory.
         """
         platform_normalized = platform.replace(" ", "_").lower()
-        file_path = (self.base_path / platform_normalized / version / filename).resolve()
-        if not file_path.is_relative_to(self.base_path.resolve()):
+        return self._within_store(self.base_path / platform_normalized / version / filename)
+
+    def _within_store(self, path: Path) -> Path:
+        """Resolve a path and require it to name a stored object.
+
+        Raises FileStoreException if it escapes the base directory or reaches
+        into the staging directory, whose files are uploads not yet published.
+        """
+        resolved = path.resolve()
+        base = self.base_path.resolve()
+        staging = base / _STAGING_DIRECTORY
+        if not resolved.is_relative_to(base) or resolved.is_relative_to(staging):
             raise FileStoreException(_PATH_TRAVERSAL_MSG)
-        return file_path
+        return resolved
 
     async def _open_download(
         self,
@@ -352,9 +371,7 @@ class FileStoreClient(ObjectStorageClient):
 
     async def list_object_keys(self, platform: str, version: str) -> list[dict[str, Any]]:
         """List objects within the given platform and version directory."""
-        dir_path = (self.base_path / platform.replace(" ", "_").lower() / version).resolve()
-        if not dir_path.is_relative_to(self.base_path.resolve()):
-            raise FileStoreException(_PATH_TRAVERSAL_MSG)
+        dir_path = self._within_store(self.base_path / platform.replace(" ", "_").lower() / version)
 
         def _scan_directory() -> list[dict[str, Any]]:
             if not dir_path.exists():
@@ -480,43 +497,47 @@ class FileStoreClient(ObjectStorageClient):
         tags: dict[str, str] | None = None,
     ) -> None:
         """Add or update an entry in the manifest and persist to disk."""
-        if self.manifest is None:
-            self.manifest = {"images": []}
-
         platform_normalized = platform.replace(" ", "_").lower()
         rel_path = f"{platform_normalized}/{version}/{filename}"
+        self._within_store(self.base_path / rel_path)
 
-        resolved = (self.base_path / rel_path).resolve()
-        if not resolved.is_relative_to(self.base_path.resolve()):
-            raise FileStoreException(_PATH_TRAVERSAL_MSG)
+        with _MANIFEST_LOCK:
+            # Another client may have added entries since this one loaded its
+            # copy. Writing that copy back would drop them.
+            try:
+                with open(self.manifest_path) as current:
+                    self.manifest = dict(json.loads(current.read()))
+            except FileNotFoundError:
+                if self.manifest is None:
+                    self.manifest = {"images": []}
 
-        # Check if entry already exists and update it
-        for image in self.manifest.get("images", []):
-            if image.get("path") == rel_path:
-                image["sha256"] = checksum
-                if tags is not None:
-                    image["tags"] = tags
-                break
-        else:
-            # New entry
-            entry: dict[str, Any] = {
-                "platform": platform,
-                "version": version,
-                "filename": filename,
-                "path": rel_path,
-                "sha256": checksum,
-            }
-            if tags:
-                entry["tags"] = tags
-            self.manifest.setdefault("images", []).append(entry)
+            # Check if entry already exists and update it
+            for image in self.manifest.get("images", []):
+                if image.get("path") == rel_path:
+                    image["sha256"] = checksum
+                    if tags is not None:
+                        image["tags"] = tags
+                    break
+            else:
+                # New entry
+                entry: dict[str, Any] = {
+                    "platform": platform,
+                    "version": version,
+                    "filename": filename,
+                    "path": rel_path,
+                    "sha256": checksum,
+                }
+                if tags:
+                    entry["tags"] = tags
+                self.manifest.setdefault("images", []).append(entry)
 
-        # Renamed into place for the same reason as an upload: a manifest
-        # truncated by an interrupted write would lose every entry.
-        staged = _staging_file(self.base_path)
-        try:
-            with open(staged, "w") as f:
-                json.dump(self.manifest, f, indent=2)
-            os.replace(staged, self.manifest_path)
-        except BaseException:
-            staged.unlink(missing_ok=True)
-            raise
+            # Renamed into place for the same reason as an upload: a manifest
+            # truncated by an interrupted write would lose every entry.
+            staged = _staging_file(self.base_path)
+            try:
+                with open(staged, "w") as f:
+                    json.dump(self.manifest, f, indent=2)
+                os.replace(staged, self.manifest_path)
+            except BaseException:
+                staged.unlink(missing_ok=True)
+                raise

@@ -21,7 +21,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -639,6 +639,75 @@ async def test_a_duplicate_upload_that_finishes_first_is_not_replaced(
 
     assert destination.read_bytes() == b"first"
     assert list((Path(temp_storage_dir) / ".uploads").iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_upload_is_rejected_without_hard_links(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A volume without hard links must still refuse a name taken during the copy."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    monkeypatch.setattr(os, "link", MagicMock(side_effect=OSError("not supported")))
+    client = FileStoreClient()
+    await client.connect()
+    destination = Path(temp_storage_dir) / "test-platform/1.0.0/image.bin"
+
+    await client.upload_file("test-platform", "1.0.0", "other.bin", "sum", io.BytesIO(b"ok"))
+    assert (destination.parent / "other.bin").read_bytes() == b"ok"
+
+    class _OtherUploadFinishesDuringCopy(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            destination.write_bytes(b"first")
+            return super().read(size)
+
+    with pytest.raises(FileStoreExistsException, match="File already exists"):
+        await client.upload_file(
+            "test-platform", "1.0.0", "image.bin", "sum", _OtherUploadFinishesDuringCopy(b"second")
+        )
+
+    assert destination.read_bytes() == b"first"
+
+
+@pytest.mark.asyncio
+async def test_staged_uploads_cannot_be_listed_or_read(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An upload that is not yet published is not an object."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    staging = Path(temp_storage_dir) / ".uploads"
+    staging.mkdir(exist_ok=True)
+    (staging / "partial").write_bytes(b"incomplete")
+
+    with pytest.raises(FileStoreException, match="Path traversal"):
+        await client.list_object_keys(".uploads", ".")
+    with pytest.raises(FileStoreException, match="Path traversal"):
+        client._get_file_path(".uploads", ".", "partial")
+    with pytest.raises(FileStoreException, match="Path traversal"):
+        client._get_file_path("test-platform", "../.uploads", "partial")
+
+
+@pytest.mark.asyncio
+async def test_uploads_through_separate_clients_keep_each_others_entries(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each request has its own client and manifest copy; neither may drop the other's entry."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    first = FileStoreClient()
+    second = FileStoreClient()
+    await first.connect()
+    await second.connect()
+
+    await asyncio.gather(
+        first.upload_file("test-platform", "1.0.0", "a.bin", "sum-a", io.BytesIO(b"a")),
+        second.upload_file("test-platform", "1.0.0", "b.bin", "sum-b", io.BytesIO(b"b")),
+    )
+
+    manifest = json.loads((Path(temp_storage_dir) / "manifest.json").read_text())
+    paths = [image["path"] for image in manifest["images"]]
+    assert "test-platform/1.0.0/a.bin" in paths
+    assert "test-platform/1.0.0/b.bin" in paths
 
 
 @pytest.mark.asyncio
