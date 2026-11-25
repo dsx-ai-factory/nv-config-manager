@@ -362,6 +362,63 @@ async def test_enqueue_reraises_redis_outage(
     jetstream.publish.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_enqueue_retry_publishes_over_its_own_leftover_claim(
+    mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A flag left by this request's failed publish does not make its retry skip the device."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _enqueue_redis(claimed=True, queued=True)
+    redis_client.redis.get = AsyncMock(return_value=b"event")
+    jetstream = _jetstream()
+
+    result = await _process_single_device_enqueue(
+        "device",
+        "msg",
+        "user",
+        "ts",
+        jetstream,
+        MagicMock(),
+        redis_client,
+        mock_dcim_client,
+        claim_token="event",
+    )
+
+    assert result is EnqueueResult.PUBLISHED
+    jetstream.publish.assert_awaited_once()
+    redis_client.redis.set.assert_awaited_once_with("device_queued", "event", nx=False, ex=60)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flag", [b"1", b"another-event"])
+async def test_enqueue_retry_still_skips_another_requests_claim(
+    flag: bytes, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A flag set by a different request still stands for that request's pending render."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _enqueue_redis(claimed=True, queued=True)
+    redis_client.redis.get = AsyncMock(return_value=flag)
+    jetstream = _jetstream()
+
+    result = await _process_single_device_enqueue(
+        "device",
+        "msg",
+        "user",
+        "ts",
+        jetstream,
+        MagicMock(),
+        redis_client,
+        mock_dcim_client,
+        claim_token="event",
+    )
+
+    assert result is EnqueueResult.ALREADY_QUEUED
+    jetstream.publish.assert_not_awaited()
+    redis_client.redis.set.assert_not_awaited()
+
+
 @pytest.fixture
 def batch_nats() -> Iterator[MagicMock]:
     """Give the batch path a shared NATS connection and no Redis."""
@@ -422,8 +479,10 @@ def _batch_redis(published: set[bytes]) -> MagicMock:
     """Give the batch path a Redis that remembers which devices a request queued."""
     redis_client = _enqueue_redis(claimed=True)
     redis_client.redis.smembers = AsyncMock(return_value=published)
-    redis_client.redis.sadd = AsyncMock()
-    redis_client.redis.expire = AsyncMock()
+    redis_client.redis.get = AsyncMock(return_value=None)
+    redis_client.pipe = MagicMock()
+    redis_client.pipe.execute = AsyncMock()
+    redis_client.redis.pipeline.return_value.__aenter__.return_value = redis_client.pipe
     redis_client.close = AsyncMock()
     return redis_client
 
@@ -454,10 +513,12 @@ async def test_batch_retry_records_queued_devices_after_transient_failure(
             retry_key="event",
         )
 
-    redis_client.redis.sadd.assert_awaited_once_with("render_event_published:event", "device-a")
-    redis_client.redis.expire.assert_awaited_once_with(
+    redis_client.redis.pipeline.assert_called_once_with(transaction=True)
+    redis_client.pipe.sadd.assert_called_once_with("render_event_published:event", "device-a")
+    redis_client.pipe.expire.assert_called_once_with(
         "render_event_published:event", PUBLISHED_DEVICES_TTL_SECONDS
     )
+    redis_client.pipe.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -488,10 +549,11 @@ async def test_batch_retry_does_not_record_a_device_it_only_found_queued(
         )
 
     batch_nats.jetstream.return_value.publish.assert_not_awaited()
-    redis_client.redis.sadd.assert_not_awaited()
-    redis_client.redis.expire.assert_awaited_once_with(
+    redis_client.pipe.sadd.assert_not_called()
+    redis_client.pipe.expire.assert_called_once_with(
         "render_event_published:event", PUBLISHED_DEVICES_TTL_SECONDS
     )
+    redis_client.pipe.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -519,7 +581,7 @@ async def test_batch_retry_skips_devices_an_earlier_attempt_queued(
     assert (queued, failed) == (2, [])
     mock_dcim_client.get_render_device_status.assert_awaited_once_with("device-b")
     batch_nats.jetstream.return_value.publish.assert_awaited_once()
-    redis_client.redis.sadd.assert_not_awaited()
+    redis_client.redis.pipeline.assert_not_called()
 
 
 @pytest.mark.asyncio

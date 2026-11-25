@@ -97,11 +97,20 @@ async def is_queued(device_uuid: str, client: RedisClient | None = None) -> bool
             await _close_queue_redis_client(client)
 
 
-async def claim_queued(device_uuid: str, client: RedisClient | None = None) -> bool:
+async def claim_queued(
+    device_uuid: str,
+    client: RedisClient | None = None,
+    token: str | None = None,
+    replace: bool = False,
+) -> bool:
     """Mark a device as queued for rendering unless it already is.
 
     Returns whether this caller set the flag. Checking and setting in one
     command keeps two concurrent producers from both publishing a render.
+
+    ``token`` identifies the request making the claim, so a retry of that
+    request can recognize a claim it left behind. ``replace`` takes the flag
+    even when it is set, for such a claim.
     """
     owned_client = client is None
     client = client or _get_queue_redis_client()
@@ -111,10 +120,26 @@ async def claim_queued(device_uuid: str, client: RedisClient | None = None) -> b
 
     try:
         queue_key = f"{device_uuid}_queued"
-        return bool(await client.redis.set(queue_key, 1, nx=True, ex=QUEUED_FLAG_TTL_SECONDS))
+        return bool(
+            await client.redis.set(
+                queue_key, token or 1, nx=not replace, ex=QUEUED_FLAG_TTL_SECONDS
+            )
+        )
     finally:
         if owned_client:
             await _close_queue_redis_client(client)
+
+
+async def _is_own_claim(device_uuid: str, token: str | None, client: RedisClient | None) -> bool:
+    """Return whether the queued flag was set by an earlier attempt at this request.
+
+    Such a flag outlived a publish that failed: an attempt that published is
+    recorded for the request and never reaches this check.
+    """
+    if token is None or client is None:
+        return False
+    value = await client.redis.get(f"{device_uuid}_queued")
+    return value in (token, token.encode())
 
 
 async def clear_queued(device_uuid: str, client: RedisClient | None = None) -> None:
@@ -177,9 +202,11 @@ async def _record_published(
         return
     key = _published_key(retry_key)
     try:
-        if device_uuids:
-            await async_result(client.redis.sadd(key, *device_uuids))
-        await client.redis.expire(key, PUBLISHED_DEVICES_TTL_SECONDS)
+        async with client.redis.pipeline(transaction=True) as pipe:
+            if device_uuids:
+                pipe.sadd(key, *device_uuids)
+            pipe.expire(key, PUBLISHED_DEVICES_TTL_SECONDS)
+            await pipe.execute()
     except Exception as exc:  # pylint: disable=broad-exception-caught
         logger.warning("Could not record queued devices, so a retry may queue them again: %s", exc)
 
@@ -199,6 +226,7 @@ async def _process_single_device_enqueue(
     logger: logging.Logger | logging.LoggerAdapter,
     queue_client: RedisClient | None,
     dcim_client: DCIMClient,
+    claim_token: str | None = None,
 ) -> EnqueueResult | dict[str, str]:
     """
     Process a single device render operation.
@@ -210,6 +238,9 @@ async def _process_single_device_enqueue(
         timestamp: Timestamp for the render
         jetstream: NATS JetStream instance to use for publishing
         logger: Logger instance
+        claim_token: Identifies a request that is repeated after a transient
+            failure, so a retry is not skipped as a duplicate of its own
+            failed attempt
 
     Returns:
         The outcome if successful, dict with error details if failed
@@ -218,9 +249,12 @@ async def _process_single_device_enqueue(
     try:
         # Skips known duplicates without a DCIM lookup. The claim below still
         # decides between producers that both pass this check.
+        own_claim = False
         if await is_queued(device_uuid, queue_client):
-            _log_duplicate(logger, device_uuid)
-            return EnqueueResult.ALREADY_QUEUED
+            own_claim = await _is_own_claim(device_uuid, claim_token, queue_client)
+            if not own_claim:
+                _log_duplicate(logger, device_uuid)
+                return EnqueueResult.ALREADY_QUEUED
 
         # Checked before claiming: a claim that is then dropped would make a
         # concurrent request for a newly enabled device skip as a duplicate.
@@ -230,7 +264,9 @@ async def _process_single_device_enqueue(
                 "error": f"{device_uuid} is not enabled for configuration renders.",
             }
 
-        claimed = await claim_queued(device_uuid, queue_client)
+        claimed = await claim_queued(
+            device_uuid, queue_client, token=claim_token, replace=own_claim
+        )
         if not claimed:
             _log_duplicate(logger, device_uuid)
             return EnqueueResult.ALREADY_QUEUED
@@ -368,7 +404,8 @@ async def queue_render_batch(
             instead of reporting it as a failed device
         retry_key: Identifies a request the caller repeats after a transient
             failure. Devices queued by an earlier attempt are skipped, so the
-            retry queues only the devices that failed
+            retry queues only the devices that failed, and a queued flag an
+            earlier attempt left behind does not make the retry skip a device
 
     Returns:
         Tuple of (queued_count, failed_devices)
@@ -414,6 +451,7 @@ async def queue_render_batch(
                     logger,
                     queue_client,
                     session_client,
+                    claim_token=retry_key,
                 )
 
         failed_devices = []
