@@ -1,0 +1,83 @@
+# Deploys Template Preview alongside NVCM on a local kind cluster. Layer it on the normal values:
+#
+#   helm upgrade nv-config-manager deploy/helm -n nv-config-manager --reuse-values \
+#     -f deploy/helm/values-template-preview.yaml
+#
+# The Template Preview chart is not a dependency of the checked-in Chart.yaml (it is private). Add it
+# first: see "Template Preview Chart Dependency" in .gitlab/ci/README.md (a file:// checkout works).
+#
+# It expects the two images to be loaded into kind first: nvcm-template-preview-backend:dev and
+# nvcm-template-preview-frontend:dev (built from the nvcm-template-preview repository; see the implementation doc).
+# With no token Secret configured (below), artifact fetches are unauthenticated: local development only.
+templatePreview:
+  enabled: true
+  # One switch for both sides (Template Preview's routes and NVCM's activation endpoint).
+  unsafeDynamicTemplatePlugins:
+    enabled: true
+    acknowledgeArbitraryCodeExecution: true
+  backend:
+    image:
+      repository: nvcm-template-preview-backend
+      tag: dev
+    # Optional shared bearer token for artifact fetches. Create the Secret, then uncomment:
+    #   kubectl create secret generic template-preview-artifact-token -n nv-config-manager \
+    #     --from-literal=token="$(openssl rand -hex 24)"
+    # internalArtifactToken:
+    #   existingSecret: template-preview-artifact-token
+  frontend:
+    image:
+      repository: nvcm-template-preview-frontend
+      tag: dev
+  # Optional: saved Nautobot instances for the UI's instance picker. Create a Secret whose key
+  # "instances.json" holds [{"name": "...", "url": "...", "token": "..."}] and uncomment:
+  # nautobotInstances:
+  #   existingSecret: template-preview-nautobot-instances
+  # Optional AI assistant. Template Preview has no model of its own: point it at any
+  # OpenAI-compatible endpoint. Off unless endpoint and model are both set. What the user shares from
+  # the render page is sent there with secrets removed. The key is read from an existing Secret:
+  #   kubectl create secret generic llm-credentials -n nv-config-manager --from-literal=api-key=<key>
+  # assistant:
+  #   endpoint: https://inference.example/v1
+  #   model: my-model
+  #   auth:
+  #     mode: bearer            # bearer | header | client_credentials | none
+  #     existingSecret: llm-credentials
+  #   # caBundle: {existingConfigMap: internal-ca}   # when the endpoint's CA is not publicly trusted
+  #
+  # Or let each user sign in with their own Azure account (Microsoft Entra ID), with no shared key. The
+  # Secret holds client-id and client-secret of an Entra app registration (redirect URI
+  # <publicBaseUrl>/api/v1/assistant/callback) and an encryption-key (a Fernet key); users need the
+  # "Cognitive Services OpenAI User" role on the Azure OpenAI resource:
+  # assistant:
+  #   endpoint: https://<resource>.openai.azure.com/openai/deployments/<deployment>
+  #   model: <deployment>
+  #   apiVersion: "2024-10-21"
+  #   auth:
+  #     mode: azure_user
+  #     existingSecret: azure-assistant
+  #     tenantId: <tenant id>
+  #     publicBaseUrl: https://template-preview.config-manager.local
+  #   # timeoutSeconds: 60                           # keep below gateway.timeout.requestTimeout
+  # Smaller volumes than the production defaults.
+  persistence:
+    venvs: {size: 2Gi}
+    worktrees: {size: 1Gi}
+    registry: {size: 256Mi}
+    controlPlaneDb: {size: 256Mi}
+    artifacts: {size: 1Gi}
+
+# Template Preview's control plane on Postgres, set up the way production runs it: a CloudNativePG cluster
+# in this release, bootstrapped from a credentials Secret that something else provides (username and
+# password only: the installer locally, Vault through ExternalSecrets in production). The backend builds
+# its connection from that Secret, runs the Alembic migrations in an init container before it starts, and
+# keeps plugin archives in the same database. See templatePreview.controlPlane in values.yaml.
+cnpg:
+  templatePreview:
+    enabled: true
+    # one instance locally; production keeps the default of 3
+    instances: 1
+    enablePDB: false
+    storage: {size: 2Gi}
+    resources:
+      limits: {cpu: '1', memory: 1Gi}
+      requests: {cpu: 100m, memory: 256Mi}

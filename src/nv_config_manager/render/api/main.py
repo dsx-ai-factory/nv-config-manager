@@ -22,13 +22,14 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_fastapi_instrumentator import metrics as instrumentator_metrics
 
 from nv_config_manager.common.auth import install_identity_probe
+from nv_config_manager.common.config.http import dynamic_template_plugins_enabled
 from nv_config_manager.common.log import configure_logging
 from nv_config_manager.common.telemetry import (
     group_fastapi_status_codes,
     instrument_fastapi_app,
     setup_tracing,
 )
-from nv_config_manager.render.api import admin_v1, render_v1
+from nv_config_manager.render.api import activation_v1, admin_v1, render_v1
 
 configure_logging(service="render")
 setup_tracing("render")
@@ -51,6 +52,13 @@ def main() -> None:
 
 app.include_router(render_v1.router, prefix="/v1", tags=["render"])
 app.include_router(admin_v1.router, prefix="/v1", tags=["admin"])
+
+# SRD FR-241/FR-245: the activation route must not exist at all when the
+# flag is off, not merely return 403 -- so this is a conditional
+# include_router() call at import time, not a per-request check inside the
+# router.
+if dynamic_template_plugins_enabled():
+    app.include_router(activation_v1.router, prefix="/v1", tags=["activation"])
 
 
 instrumentator = Instrumentator(

@@ -81,6 +81,32 @@ class TestGenerateSecrets:
         assert "django_secret_key" in state
         assert "temporal_db_password" in state
 
+    def test_template_preview_database_credentials_are_generated_like_the_other_databases(self):
+        config = NVConfigManagerInstallConfig(
+            secrets=SecretsConfig(method=SecretsMethod.KUBERNETES)
+        )
+        state = generate_secrets(config)
+
+        # The database and its owner are both named template_preview, so the user defaults to that.
+        assert state["template_preview_db_user"] == "template_preview"
+        assert len(state["template_preview_db_password"]) >= 16
+        assert state["template_preview_db_password"] != state["dhcp_db_password"]
+
+    def test_template_preview_database_credentials_are_written_to_vault_for_eso(self):
+        config = NVConfigManagerInstallConfig(
+            secrets=SecretsConfig(method=SecretsMethod.KUBERNETES)
+        )
+
+        postgres = build_openbao_secret_data(config)["postgres"]
+
+        assert postgres["templatePreviewUser"] == "template_preview"
+        assert postgres["templatePreviewPassword"]
+        # the key names the chart's ExternalSecret reads
+        assert (
+            config.secrets.vault.paths.postgres.keys["templatePreviewUser"]
+            == "template_preview_user"
+        )
+
     def test_external_dcim_token_uses_generic_secret_group(self):
         config = NVConfigManagerInstallConfig(
             dcim=DCIMConfig(provider="synthetic", server="https://synthetic.example"),

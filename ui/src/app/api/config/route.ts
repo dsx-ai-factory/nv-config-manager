@@ -31,6 +31,8 @@ export async function GET() {
     dcimDisplayName: process.env.DCIM_DISPLAY_NAME || "Nautobot",
     // Render Service
     renderServiceUrl: process.env.RENDER_SERVICE_URL || "http://localhost:9000",
+    // Template Preview (optional; empty when it is not deployed)
+    templatePreviewUrl: process.env.TEMPLATE_PREVIEW_URL || "",
     // ZTP Service
     ztpUrl: process.env.ZTP_URL || "http://localhost:9000",
     // DHCP Service

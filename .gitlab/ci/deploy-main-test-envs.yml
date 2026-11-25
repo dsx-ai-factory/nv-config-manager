@@ -39,7 +39,9 @@ main-build-chart:
       yq -i '.version = strenv(promote_version) | .appVersion = strenv(promote_version)' deploy/helm/Chart.yaml
     - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
     - helm repo add grafana https://grafana.github.io/helm-charts
-    - helm dependency build deploy/helm
+    # Trusted job (protected main): also adds the private Template Preview chart when the
+    # NVCM_TEMPLATE_PREVIEW_CHART_* variables are set; otherwise this is `helm dependency build`.
+    - bash .gitlab/ci/scripts/build_chart_dependencies.sh deploy/helm
     - helm package deploy/helm --destination chart
   artifacts:
     paths: [chart/]

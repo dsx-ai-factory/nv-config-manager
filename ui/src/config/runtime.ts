@@ -24,6 +24,7 @@ export interface RuntimeConfig {
   dcimProvider: string;
   dcimDisplayName: string;
   renderServiceUrl: string;
+  templatePreviewUrl?: string;
   ztpUrl: string;
   dhcpUrl: string;
   temporalUiUrl?: string;

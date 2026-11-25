@@ -86,7 +86,9 @@ helm-publish-release:
       helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
       helm repo add grafana https://grafana.github.io/helm-charts
       helm repo update
-      helm dependency build "${CHART_PATH}"
+      # Trusted job (protected release tag): also adds the private Template Preview chart when the
+      # NVCM_TEMPLATE_PREVIEW_CHART_* variables are set; otherwise this is `helm dependency build`.
+      bash .gitlab/ci/scripts/build_chart_dependencies.sh "${CHART_PATH}"
 
       # Package with semver version
       image_target_exports="$(bash .gitlab/ci/scripts/image_target_env.sh "${NVCM_VALUES_IMAGE_TARGET:-}")" || exit $?

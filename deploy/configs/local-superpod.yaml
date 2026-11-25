@@ -81,6 +81,15 @@ services:
 # Workflow RBAC defaults to open (all roles = "all") when omitted.
 # To restrict workflows, add an rbac: section -- see installer README.
 
+# Template Preview (the render preview and plugin management app) installed alongside NVCM. Off by
+# default. dynamic_plugins lets people register, approve and activate plugins that run as code in
+# the render service, so it must be acknowledged. One block configures both Template Preview and
+# NVCM's activation endpoint. Needs the nvcm-template-preview-backend and nvcm-template-preview-frontend images.
+# template_preview:
+#   enabled: true
+#   dynamic_plugins: true
+#   acknowledge_arbitrary_code_execution: true
+
 infrastructure:
   gateway: envoyGateway
   tls: true

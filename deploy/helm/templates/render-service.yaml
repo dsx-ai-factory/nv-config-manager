@@ -1,6 +1,11 @@
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 {{- if .Values.renderService.enabled }}
 {{- $renderName := include "nv-config-manager.componentName" (dict "root" . "component" "render") }}
+{{- /* /opt/plugins is needed whenever either plugin mechanism is on -- the
+   static image-based one (templatePlugins) or the dynamic
+   fetch-on-activation one (unsafeDynamicTemplatePlugins), not just the
+   first. */}}
+{{- $pluginsMountNeeded := or .Values.renderService.templatePlugins.enabled (eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true") }}
 ---
 # Render Service API Deployment
 apiVersion: apps/v1
@@ -49,12 +54,15 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.scheduling" .Values.renderService.api | nindent 6 }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
-      {{- if or .Values.renderService.templatePlugins.enabled .Values.dcim.providerPackages.enabled }}
+      {{- if or $pluginsMountNeeded .Values.dcim.providerPackages.enabled }}
       initContainers:
       {{- include "nv-config-manager.copyDCIMProviderImages" . | nindent 6 }}
       {{- include "nv-config-manager.installDCIMProviderPackages" . | nindent 6 }}
+      {{- if .Values.renderService.templatePlugins.enabled }}
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
+      {{- end }}
+      {{- include "nv-config-manager.fetchPluginArtifactInitContainer" . | nindent 6 }}
       {{- end }}
       containers:
       - name: api
@@ -86,6 +94,16 @@ spec:
         {{- if .Values.observability.enabled }}
         {{- include "nv-config-manager.otelAppEnv" (dict "root" . "serviceName" "nv-config-manager-render") | nindent 8 }}
         {{- end }}
+        {{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
+        # SRD §5.2 / SADD §9.3: activation is a rolling restart of the render Deployments, but this
+        # service does not do the restart: Template Preview holds that permission (see the
+        # restart Role below). The api container only records the requested plugin set and the
+        # artifacts every restarted pod installs, in this ConfigMap.
+        - name: RENDER_ACTIVATION_NAMESPACE
+          value: {{ .Values.global.namespace | quote }}
+        - name: RENDER_ACTIVATION_CONFIGMAP
+          value: "{{ $renderName }}-activation-state"
+        {{- end }}
         ports:
         - containerPort: 9000
           name: http
@@ -96,7 +114,7 @@ spec:
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         {{- include "nv-config-manager.vaultAgent.configSecretsVolumeMount" (dict "root" . "mountPath" .Values.renderService.configSecrets.mountPath) | nindent 8 }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
+        {{- if $pluginsMountNeeded }}
         - name: template-plugins-installed
           mountPath: /opt/plugins
           readOnly: true
@@ -119,7 +137,7 @@ spec:
       {{- if .Values.secrets.vault.configSecrets.enabled }}
       {{- include "nv-config-manager.vaultAgent.configSecretsVolume" . | nindent 6 }}
       {{- end }}
-      {{- if .Values.renderService.templatePlugins.enabled }}
+      {{- if $pluginsMountNeeded }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
@@ -201,6 +219,7 @@ spec:
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
       {{- end }}
+      {{- include "nv-config-manager.fetchPluginArtifactInitContainer" . | nindent 6 }}
       containers:
       - name: consumer
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -237,7 +256,7 @@ spec:
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         {{- include "nv-config-manager.vaultAgent.configSecretsVolumeMount" (dict "root" . "mountPath" .Values.renderService.configSecrets.mountPath) | nindent 8 }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
+        {{- if $pluginsMountNeeded }}
         - name: template-plugins-installed
           mountPath: /opt/plugins
           readOnly: true
@@ -255,7 +274,7 @@ spec:
       {{- if .Values.secrets.vault.configSecrets.enabled }}
       {{- include "nv-config-manager.vaultAgent.configSecretsVolume" . | nindent 6 }}
       {{- end }}
-      {{- if .Values.renderService.templatePlugins.enabled }}
+      {{- if $pluginsMountNeeded }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
@@ -316,6 +335,7 @@ spec:
       {{- include "nv-config-manager.copyTemplatePluginImages" . | nindent 6 }}
       {{- include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
       {{- end }}
+      {{- include "nv-config-manager.fetchPluginArtifactInitContainer" . | nindent 6 }}
       containers:
       - name: consumer
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -352,7 +372,7 @@ spec:
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         {{- include "nv-config-manager.vaultAgent.configSecretsVolumeMount" (dict "root" . "mountPath" .Values.renderService.configSecrets.mountPath) | nindent 8 }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
+        {{- if $pluginsMountNeeded }}
         - name: template-plugins-installed
           mountPath: /opt/plugins
           readOnly: true
@@ -370,7 +390,7 @@ spec:
       {{- if .Values.secrets.vault.configSecrets.enabled }}
       {{- include "nv-config-manager.vaultAgent.configSecretsVolume" . | nindent 6 }}
       {{- end }}
-      {{- if .Values.renderService.templatePlugins.enabled }}
+      {{- if $pluginsMountNeeded }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
@@ -434,6 +454,7 @@ spec:
       {{- end }}
       {{- include "nv-config-manager.spiffeClientSidecar" (dict "root" . "native" true) | nindent 6 }}
       {{- include "nv-config-manager.waitForSpiffeJwt" . | nindent 6 }}
+      {{- include "nv-config-manager.fetchPluginArtifactInitContainer" . | nindent 6 }}
       containers:
       - name: template-updater
         image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
@@ -469,7 +490,7 @@ spec:
         {{- if .Values.secrets.vault.configSecrets.enabled }}
         {{- include "nv-config-manager.vaultAgent.configSecretsVolumeMount" (dict "root" . "mountPath" .Values.renderService.configSecrets.mountPath) | nindent 8 }}
         {{- end }}
-        {{- if .Values.renderService.templatePlugins.enabled }}
+        {{- if $pluginsMountNeeded }}
         - name: template-plugins-installed
           mountPath: /opt/plugins
           readOnly: true
@@ -486,10 +507,102 @@ spec:
       {{- if .Values.secrets.vault.configSecrets.enabled }}
       {{- include "nv-config-manager.vaultAgent.configSecretsVolume" . | nindent 6 }}
       {{- end }}
-      {{- if .Values.renderService.templatePlugins.enabled }}
+      {{- if $pluginsMountNeeded }}
       {{- include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
       {{- end }}
       {{- include "nv-config-manager.dcimProviderPackageVolumes" . | nindent 6 }}
       {{- /* SPIFFE volumes for outbound JWT-SVID */ -}}
       {{- include "nv-config-manager.authSidecar.volumes" (dict "root" .) | nindent 6 }}
+{{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
+---
+# Pre-created by Helm so the render-service ServiceAccount never needs a
+# "create" RBAC verb on configmaps (which can't be scoped by resourceNames,
+# since the object doesn't exist yet at grant time -- see the Role below).
+# ActivationStateStore.get()/update() still tolerate this ConfigMap being
+# absent (e.g. if an operator manually deletes it with their own,
+# separately-scoped kubectl credentials), but the application's own
+# ServiceAccount is never granted the permission to recreate it itself.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $renderName }}-activation-state
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+# Deliberately no `data`: the render service owns and rewrites the state at activation time. If Helm (or
+# ArgoCD) also declared it, every upgrade/sync would either conflict with the application's writes or
+# reset the recorded active plugin set. The state store treats a missing `state.json` as empty.
+---
+# SRD §5.2: minimal RBAC for the render-service ServiceAccount: read/write the activation-state
+# ConfigMap and nothing else. It holds no permission on Deployments (it never restarts anything).
+# Only rendered when the flag is on -- matches the same convention as templatePlugins' resources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $renderName }}-activation-role
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "update"]
+    resourceNames:
+      - {{ $renderName }}-activation-state
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $renderName }}-activation-rolebinding
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $renderName }}-activation-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nv-config-manager.serviceAccountName" . }}
+    namespace: {{ .Values.global.namespace }}
+{{- if .Values.templatePreview.enabled }}
+---
+# Template Preview restarts the render Deployments to activate a plugin set (SRD §5.2), so it, not the
+# render service, holds the permission. get + patch on exactly these three Deployments: patch forces
+# the rollout, get lets it wait for the rollout to converge. RBAC cannot select by label, so the
+# Deployments are named; nothing else in the namespace is reachable with this Role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $renderName }}-restart-role
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+    resourceNames:
+      - {{ $renderName }}-api
+      - {{ $renderName }}-consumer-nautobot
+      - {{ $renderName }}-consumer-device
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $renderName }}-restart-rolebinding
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $renderName }}-restart-role
+subjects:
+  - kind: ServiceAccount
+    # Template Preview's backend ServiceAccount: <fullnameOverride>-backend (see the subchart)
+    name: {{ .Values.templatePreview.fullnameOverride }}-backend
+    namespace: {{ .Values.global.namespace }}
+{{- end }}
+{{- end }}
 {{- end }}

@@ -769,10 +769,17 @@ jwks_uri = {{ .Values.spiffe.jwksUri | default "/var/run/secrets/spiffe/bundle.j
 audiences = spiffe://{{ .Values.spiffe.trustDomain }}
 jwt_svid_path = /var/run/secrets/spiffe/jwt-svid
 
-{{- if .Values.spiffe.rbac.groupPrefixes }}
+{{- $templatePreviewGroupEntry := and (eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true") .Values.renderService.unsafeDynamicTemplatePlugins.templatePreviewSpiffeId }}
+{{- if or .Values.spiffe.rbac.groupPrefixes $templatePreviewGroupEntry }}
 [auth.spiffe.groups]
 {{- range $prefix, $group := .Values.spiffe.rbac.groupPrefixes }}
 {{ $prefix }} = {{ $group }}
+{{- end }}
+{{- if $templatePreviewGroupEntry }}
+{{/* Only entry that may call render/api/activation_v1.py -- see values.yaml
+     renderService.unsafeDynamicTemplatePlugins.templatePreviewSpiffeId and
+     ACTIVATION_GROUP in activation_v1.py; the two names must match. */}}
+{{ .Values.renderService.unsafeDynamicTemplatePlugins.templatePreviewSpiffeId }} = template-preview-activation
 {{- end }}
 {{- end }}
 {{- end }}
@@ -1259,6 +1266,40 @@ Usage: {{ include "nv-config-manager.installTemplatePlugins" . | nindent 6 }}
 {{- end -}}
 
 {{/*
+Fetch and extract the actively-activated plugin set into /opt/plugins.
+SRD FR-244 / SADD §9.6: Template Preview hosts the artifact, NVCM's render
+pods are the client -- reads which digest(s) are active from the same
+activation-state ConfigMap the activation endpoint writes to, so a pod
+started by a rolling restart installs whatever was just activated, without
+the activation endpoint needing to know anything about plugin installation
+itself.
+Usage: {{ include "nv-config-manager.fetchPluginArtifactInitContainer" . | nindent 6 }}
+*/}}
+{{- define "nv-config-manager.fetchPluginArtifactInitContainer" -}}
+{{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
+- name: fetch-plugin-artifact
+  image: "{{ include "nv-config-manager.image" (dict "root" . "image" .Values.global.images.nvConfigManager) }}"
+  imagePullPolicy: {{ .Values.global.images.nvConfigManager.pullPolicy }}
+  command: ["nv-config-manager-render-fetch-plugin-artifact"]
+  env:
+  - name: RENDER_ACTIVATION_CONFIGMAP
+    value: "{{ include "nv-config-manager.componentName" (dict "root" . "component" "render") }}-activation-state"
+  - name: RENDER_ACTIVATION_NAMESPACE
+    value: {{ .Values.global.namespace | quote }}
+  {{- if include "nv-config-manager.templatePreview.tokenSecret" . }}
+  - name: TEMPLATE_PREVIEW_ARTIFACT_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: {{ include "nv-config-manager.templatePreview.tokenSecret" . }}
+        key: token
+  {{- end }}
+  volumeMounts:
+  - name: template-plugins-installed
+    mountPath: /opt/plugins
+{{- end }}
+{{- end -}}
+
+{{/*
 Template plugin source and install volumes.
 Usage: {{ include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
 */}}
@@ -1271,6 +1312,13 @@ Usage: {{ include "nv-config-manager.templatePluginVolumes" . | nindent 6 }}
   persistentVolumeClaim:
     claimName: {{ .Values.renderService.templatePlugins.pvcName }}
   {{- end }}
+{{- end }}
+{{- /* template-plugins-installed is needed whenever EITHER
+   plugin mechanism is on, not just templatePlugins -- re-checked here
+   (not just by the caller) because this volume declaration must not
+   silently disappear if only unsafeDynamicTemplatePlugins is enabled,
+   while a container's volumeMount still references it by name. */}}
+{{- if or .Values.renderService.templatePlugins.enabled (eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true") }}
 - name: template-plugins-installed
   emptyDir: {}
 {{- end }}
@@ -1369,12 +1417,19 @@ wheels must be present under /plugin-wheels.
 {{- if .Values.dcim.providerPackages.enabled -}}
 {{- $paths = append $paths "/opt/dcim-providers" -}}
 {{- end -}}
-{{- if .Values.renderService.templatePlugins.enabled -}}
+{{- if or .Values.renderService.templatePlugins.enabled (eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true") -}}
 {{- $paths = append $paths "/opt/plugins" -}}
 {{- end -}}
 {{- if $paths }}
 - name: PYTHONPATH
   value: "{{ join ":" $paths }}:${PYTHONPATH:-}"
+{{- end }}
+{{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
+{{- /* Where the fetch init container extracts activated plugins (one folder per plugin id); the
+   renderer loads every plugin.yaml found there. Unset when the gate is closed, which keeps the
+   loader inert and the render path exactly as it is today. */}}
+- name: NVCM_DYNAMIC_PLUGINS_DIR
+  value: /opt/plugins/_dynamic
 {{- end -}}
 {{- end -}}
 
@@ -2531,3 +2586,54 @@ Renders nothing when the probe is disabled.
 {{- printf "%sProbe:\n%s" .kind (toYaml $probe | indent 2) | nindent (int .indent) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Dynamic template plugin gate (SRD FR-251/FR-252).
+
+Plugins run as arbitrary code in the render service, so the gate opens only when BOTH flags are true AND
+they are set in the SAME block. The operator-facing block is templatePreview.unsafeDynamicTemplatePlugins
+(the Template Preview subchart reads that same block, so setting it once configures both Template Preview
+and NVCM's render service; it also needs templatePreview.enabled). The older
+renderService.unsafeDynamicTemplatePlugins block still works on its own (for a Template Preview run outside
+this chart). The two blocks are not mixed: enabled from one and acknowledged from the other leaves the
+gate closed. Everything that depends on the gate (the activation endpoint, the artifact-fetch init
+container, NVCM_DYNAMIC_PLUGINS_DIR, the flags written into the service config) follows this one value,
+and it renders the string "true" or "false".
+Usage: {{- if eq (include "nv-config-manager.dynamicPlugins.enabled" .) "true" }}
+*/}}
+{{- define "nv-config-manager.dynamicPlugins.enabled" -}}
+{{- $tp := .Values.templatePreview | default dict -}}
+{{- $tpEnabled := dig "unsafeDynamicTemplatePlugins" "enabled" false $tp -}}
+{{- $tpAck := dig "unsafeDynamicTemplatePlugins" "acknowledgeArbitraryCodeExecution" false $tp -}}
+{{- $rs := .Values.renderService.unsafeDynamicTemplatePlugins -}}
+{{- if or (and $rs.enabled $rs.acknowledgeArbitraryCodeExecution) (and $tp.enabled $tpEnabled $tpAck) -}}true{{- else -}}false{{- end -}}
+{{- end }}
+
+{{/*
+The acknowledgement the render service is configured with. It is the same value as the gate: the
+acknowledgement only counts together with the enabled flag of its own block, so it is never "true" while
+the gate is closed (see nv-config-manager.dynamicPlugins.enabled).
+*/}}
+{{- define "nv-config-manager.dynamicPlugins.acknowledged" -}}
+{{- include "nv-config-manager.dynamicPlugins.enabled" . -}}
+{{- end }}
+
+{{/*
+Name prefix of the Template Preview subchart's resources (its Services are <name>-frontend and
+<name>-backend). Must match the subchart's fullnameOverride, hence required: with the chart alias the
+default name contains capital letters, which Kubernetes rejects.
+*/}}
+{{- define "nv-config-manager.templatePreview.name" -}}
+{{- required "templatePreview.fullnameOverride must be set (default: template-preview)" .Values.templatePreview.fullnameOverride -}}
+{{- end }}
+
+{{/*
+Name of the Secret holding the artifact bearer token. One value configures both sides: the Template
+Preview backend (templatePreview.backend.internalArtifactToken.existingSecret) serves the token, and
+NVCM's render pods present it. The NVCM-side key renderService.unsafeDynamicTemplatePlugins.
+templatePreviewArtifactTokenSecret still wins when set.
+*/}}
+{{- define "nv-config-manager.templatePreview.tokenSecret" -}}
+{{- $tp := .Values.templatePreview | default dict -}}
+{{- .Values.renderService.unsafeDynamicTemplatePlugins.templatePreviewArtifactTokenSecret | default (dig "backend" "internalArtifactToken" "existingSecret" "" $tp) -}}
+{{- end }}

@@ -226,6 +226,8 @@ class VaultPathsConfig(BaseModel):
             dhcpPassword="dhcp_password",
             nautobotUser="nautobot_user",
             nautobotPassword="nautobot_password",
+            templatePreviewUser="template_preview_user",
+            templatePreviewPassword="template_preview_password",
         )
     )
     network: VaultPathConfig = Field(
@@ -1148,6 +1150,45 @@ class RBACConfig(BaseModel):
     workflow_overrides: list[WorkflowRBACOverride] = Field(default_factory=list)
 
 
+class TemplatePreviewImage(BaseModel):
+    """One Template Preview image. Empty fields keep the chart's default."""
+
+    repository: str = ""
+    tag: str = ""
+    digest: str = ""
+
+
+class TemplatePreviewConfig(BaseModel):
+    """Template Preview deployed alongside NVCM as the ``templatePreview`` Helm subchart.
+
+    Off by default. ``dynamic_plugins`` turns on the plugin control plane (register, approve and
+    activate plugins that run as code in the render service); it needs
+    ``acknowledge_arbitrary_code_execution`` as well, and gives Template Preview a database
+    (a CloudNativePG cluster in this release, created from the credentials the installer already
+    provides). The same settings configure NVCM's side of activation, so there is nothing else to
+    set on the render service.
+    """
+
+    enabled: bool = False
+    dynamic_plugins: bool = False
+    acknowledge_arbitrary_code_execution: bool = False
+    internal_artifact_token_secret: str = ""
+    backend_image: TemplatePreviewImage = Field(default_factory=TemplatePreviewImage)
+    frontend_image: TemplatePreviewImage = Field(default_factory=TemplatePreviewImage)
+
+    @model_validator(mode="after")
+    def validate_dynamic_plugins(self) -> TemplatePreviewConfig:
+        """Plugins that run as code must be asked for and acknowledged explicitly."""
+        if self.dynamic_plugins and not self.enabled:
+            raise ValueError("template_preview.dynamic_plugins requires template_preview.enabled")
+        if self.dynamic_plugins and not self.acknowledge_arbitrary_code_execution:
+            raise ValueError(
+                "template_preview.dynamic_plugins runs plugin code in the render service: set "
+                "template_preview.acknowledge_arbitrary_code_execution to true to confirm"
+            )
+        return self
+
+
 # ---------------------------------------------------------------------------
 # Root model
 # ---------------------------------------------------------------------------
@@ -1174,6 +1215,7 @@ class NVConfigManagerInstallConfig(BaseModel):
     images: ImagesConfig = Field(default_factory=ImagesConfig)
     rbac: RBACConfig = Field(default_factory=RBACConfig)
     redfish: RedfishConfig = Field(default_factory=RedfishConfig)
+    template_preview: TemplatePreviewConfig = Field(default_factory=TemplatePreviewConfig)
 
     @model_validator(mode="after")
     def validate_external_nautobot(self) -> NVConfigManagerInstallConfig:

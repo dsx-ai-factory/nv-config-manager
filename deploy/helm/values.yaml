@@ -454,6 +454,8 @@ secrets:
           dhcpPassword: "dhcp_password"
           nautobotUser: "nautobot_user"
           nautobotPassword: "nautobot_password"
+          templatePreviewUser: "template_preview_user"
+          templatePreviewPassword: "template_preview_password"
       network:
         path: "" # Required: e.g., "my-org/nv-config-manager/dev/network"
         keys:
@@ -1292,6 +1294,37 @@ renderService:
     # Image-based plugin sources for ArgoCD-managed deployments.
     # Each image can provide /plugin-wheels/*.whl and/or /plugin-source/pyproject.toml.
     images: []
+  # Dynamic template plugin activation endpoint (SRD FR-240, FR-245;
+  # SADD §9). Activation is a rolling restart of the render-service
+  # Deployments (SRD §5.2 / SADD §9.3 -- pod restart is acceptable as long
+  # as it's transparent to users), not an in-process warm subprocess pool.
+  #
+  # Both enabled AND acknowledgeArbitraryCodeExecution must be true for the
+  # activation route to be mounted at all (not just reachable) -- see
+  # common.config.dynamic_template_plugins_enabled() and
+  # render/api/main.py. This is an explicitly unsafe, disabled-by-default
+  # feature: a plugin activated through it runs as arbitrary code in the
+  # renderer.
+  unsafeDynamicTemplatePlugins:
+    enabled: false
+    acknowledgeArbitraryCodeExecution: false
+    # Template Preview's SPIFFE ID, e.g.
+    # "spiffe://trust-domain/ns/template-preview/sa/template-preview".
+    # When set (and both flags above are true), this gets mapped to the
+    # "template-preview-activation" group in [auth.spiffe.groups], which is
+    # the only group authorized to call the activation endpoint
+    # (render/api/activation_v1.py's require_group(ACTIVATION_GROUP)).
+    # Leave empty until Template Preview is actually deployed and its
+    # SPIFFE identity is known.
+    templatePreviewSpiffeId: ""
+    # (The rollout wait is no longer configured here: Template Preview restarts the render
+    # Deployments and waits for them, see templatePreview.backend.env.KIWI_RENDER_ROLLOUT_TIMEOUT_SECONDS.)
+    # Name of a pre-existing Secret (key "token") holding the bearer token
+    # Template Preview's /internal/artifacts endpoint expects (see
+    # nvcm-template-preview's KIWI_RENDER_INTERNAL_ARTIFACT_TOKEN). Empty means
+    # no token is sent -- fine for a local dev loop where Template Preview
+    # also has no token configured, not for anything beyond that.
+    templatePreviewArtifactTokenSecret: ""
   # ---------------------------------------------------------------------------
   # KEDA Autoscaling (NATS queue-based scaling for consumers)
   # ---------------------------------------------------------------------------
@@ -2611,6 +2644,7 @@ cnpg:
     - temporalVisibility
     - configStore
     - dhcp
+    - templatePreview
   # ---------------------------------------------------------------------------
   # Backup Configuration (shared settings)
   # ---------------------------------------------------------------------------
@@ -2739,6 +2773,46 @@ cnpg:
       enabled: false
       schedule: "0 0 0 * * *"
       retentionPolicy: "30d" # Config store may need longer retention
+      target: preferStandby
+  # Template Preview control-plane database (plugin registry, approvals, activation history, audit
+  # trail). Off by default: enable it with the Template Preview subchart (templatePreview.enabled) and
+  # point the subchart at the credentials Secret, see templatePreview.controlPlane.database. Without it
+  # Template Preview keeps its control plane in a SQLite file on a single volume.
+  templatePreview:
+    enabled: false
+    clusterName: cluster-template-preview
+    database: template_preview
+    owner: template_preview
+    # false (the default, and what production uses, like the clusters above): the installer or
+    # Vault/ExternalSecrets provides <clusterName>-app (username, password) before the cluster is
+    # created, and both the cluster and Template Preview's backend read it. true: CloudNativePG
+    # generates that Secret itself. Only a shortcut for trying the chart without an installer or
+    # Vault; it creates a Secret in a different shape than production provides.
+    generateCredentials: false
+    instances: 3
+    enablePDB: true
+    postgresql:
+      maxConnections: "100"
+      sharedBuffers: "256MB"
+    storage:
+      size: 10Gi
+      storageClass: ""
+    resources:
+      limits:
+        cpu: '2'
+        memory: 2Gi
+      requests:
+        cpu: '250m'
+        memory: 512Mi
+    affinity:
+      # nodeSelector:  # Uncomment for production node placement
+      # nv-config-manager.nvidia.com/node-type: database
+      # enablePodAntiAffinity: true  # Uncomment for production
+      topologyKey: kubernetes.io/hostname
+    backup:
+      enabled: false
+      schedule: "0 0 0 * * *"
+      retentionPolicy: "30d" # the approval and audit records are evidence; keep them
       target: preferStandby
   # DHCP database cluster
   dhcp:
@@ -3349,5 +3423,94 @@ loki:
   enabled: false
 alloy:
   enabled: false
+
+# =============================================================================
+# Template Preview (SRD FR-250-261, SADD §6) -- bundled as an optional
+# subchart (see the nvcm-template-preview dependency, aliased "templatePreview", in
+# Chart.yaml). Off by default, matching every other top-level component here.
+# =============================================================================
+templatePreview:
+  enabled: false
+  # Name prefix of the subchart's resources: Services are <name>-frontend and <name>-backend, PVCs are
+  # <name>-*. Required, and must be lowercase -- without it the chart alias produces names containing
+  # capital letters, which Kubernetes rejects. NVCM's own templates (gateway route, SSO proxy, UI tile)
+  # address the subchart through this name.
+  fullnameOverride: template-preview
+
+  # The dynamic template plugin switch (SRD FR-251/FR-252). One block configures BOTH sides: the
+  # subchart reads it to decide whether to mount its plugin control-plane routes, and NVCM reads it to
+  # turn on its render-service activation endpoint, rollout RBAC and artifact-fetch init containers.
+  # Both must be true for any of it to exist. Keep false outside deployments that accept plugins
+  # running as arbitrary code in the renderer.
+  unsafeDynamicTemplatePlugins:
+    enabled: false
+    acknowledgeArbitraryCodeExecution: false
+
+  # The control-plane database (plugins, approvals, activation history, audit trail). It lives in the
+  # CloudNativePG cluster cnpg.templatePreview (enable that with this subchart), created from the
+  # credentials Secret cluster-template-preview-app: a username and a password, provided like every other
+  # NVCM database credential (the installer, or Vault through ExternalSecrets). Plugin archives are kept
+  # in the same database, so there is no volume to lose. To use another PostgreSQL, change host, name and
+  # the Secret. With the plugin control plane enabled the chart refuses to install without a database
+  # Secret unless controlPlane.database.allowSqlite=true (local development only).
+  controlPlane:
+    database:
+      existingSecret: cluster-template-preview-app
+      host: cluster-template-preview-rw
+      name: template_preview
+
+  # Container images (published by the nvcm-template-preview pipeline). Pin digests in production.
+  backend:
+    image:
+      repository: nvcm-template-preview-backend
+      tag: latest
+      digest: ""
+    # Bearer token NVCM's render pods present when fetching plugin artifacts. Name an existing Secret
+    # holding it under key "token" (Vault/ExternalSecrets/kubectl); NVCM's render pods use the same
+    # Secret automatically. Empty = no token (local development only).
+    internalArtifactToken:
+      existingSecret: ""
+    env:
+      # NVCM's render-api Service, which Template Preview calls to activate plugins. Same namespace, so
+      # the short name resolves; it assumes the default release name "nv-config-manager" -- override it
+      # when installing under another release name.
+      KIWI_RENDER_NVCM_RENDER_SERVICE_URL: "http://nv-config-manager-render-api:9000"
+      # The render Deployments Template Preview restarts to activate a plugin set, and how long it
+      # waits for them to roll out. NVCM grants Template Preview get+patch on exactly these (the
+      # restart Role in render-service.yaml). Like the URL above they assume the default release
+      # name "nv-config-manager"; override them together with it.
+      KIWI_RENDER_RENDER_DEPLOYMENTS: "nv-config-manager-render-api,nv-config-manager-render-consumer-nautobot,nv-config-manager-render-consumer-device"
+      KIWI_RENDER_ROLLOUT_TIMEOUT_SECONDS: "300"
+  frontend:
+    image:
+      repository: nvcm-template-preview-frontend
+      tag: latest
+      digest: ""
+
+  # Saved Nautobot instances offered in the UI: an existing Secret whose key "instances.json" holds
+  # [{"name": "...", "url": "...", "token": "..."}]. Empty = users enter a URL and token by hand.
+  nautobotInstances:
+    existingSecret: ""
+
+  # Template repositories cloned at startup. Empty by default: the subchart's built-in list points at
+  # repositories that need credentials, which would leave the pod in Init:Error. Register repositories
+  # later through the UI/API, or list them here; a private one takes a token Secret:
+  #   repos:
+  #     - name: my-templates
+  #       displayName: "My Templates"
+  #       description: "..."
+  #       url: https://gitlab.example.com/group/my-templates.git
+  #       branch: main
+  #       mountPath: /repos/my-templates
+  #       pvcSuffix: my-templates
+  #       credentialsSecret: {name: my-templates-git-token, key: token}
+  repos: []
+
+  # Exposure through NVCM's Gateway, replacing the subchart's own nginx Ingress (disabled).
+  ingress:
+    enabled: false
+  gateway:
+    # Served at this hostname by the Gateway (NVCM-owned key; the subchart ignores it).
+    hostname: "template-preview.{{ .Values.gateway.baseHostname }}"
 tempo:
   enabled: false

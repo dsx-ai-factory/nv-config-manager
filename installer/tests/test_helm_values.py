@@ -16,12 +16,15 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import tempfile
 from itertools import product
 from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from nv_config_manager_installer.helm_values import (
     _GLOBAL_IMAGE_DEFAULTS,
@@ -68,6 +71,8 @@ from nv_config_manager_installer.schema import (
     SSOProvider,
     TemplatePath,
     TemplatePluginsConfig,
+    TemplatePreviewConfig,
+    TemplatePreviewImage,
     TemporalDeploymentConfig,
     VaultConfig,
     VaultPathConfig,
@@ -1848,3 +1853,321 @@ class TestRedfishInHelmValues:
     def test_temporal_still_has_client(self):
         values = _gen(_make_config())
         assert values["temporal"]["client"]["useInternalEndpoint"] is True
+
+
+class TestTemplatePreview:
+    """Template Preview as a subchart: off unless asked for, one block for both sides."""
+
+    def test_off_by_default_emits_nothing(self):
+        values = _gen(_make_config())
+
+        assert "templatePreview" not in values
+        assert "templatePreview" not in values["cnpg"]
+
+    def test_enabled_without_plugins_keeps_the_plugin_gate_closed(self):
+        values = _gen(_make_config(template_preview=TemplatePreviewConfig(enabled=True)))
+
+        gate = values["templatePreview"]["unsafeDynamicTemplatePlugins"]
+        assert values["templatePreview"]["enabled"] is True
+        assert gate == {"enabled": False, "acknowledgeArbitraryCodeExecution": False}
+
+    def test_enabled_creates_the_database_even_with_the_plugin_gate_closed(self):
+        # The chart always points the backend at cluster-template-preview (its migration init
+        # container waits for it), so the cluster must exist whenever Template Preview is deployed.
+        values = _gen(_make_config(template_preview=TemplatePreviewConfig(enabled=True)))
+
+        assert values["cnpg"]["templatePreview"]["enabled"] is True
+
+    def test_plugins_open_the_gate_and_create_the_database(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                dynamic_plugins=True,
+                acknowledge_arbitrary_code_execution=True,
+            )
+        )
+        values = _gen(config)
+
+        gate = values["templatePreview"]["unsafeDynamicTemplatePlugins"]
+        assert gate == {"enabled": True, "acknowledgeArbitraryCodeExecution": True}
+        assert values["cnpg"]["templatePreview"]["enabled"] is True
+        assert values["cnpg"]["templatePreview"]["enablePDB"] is False
+        # one block configures both sides: nothing is set on the render service
+        assert "unsafeDynamicTemplatePlugins" not in values.get("renderService", {})
+
+    def test_images_and_token_secret_are_passed_through_only_when_set(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                backend_image=TemplatePreviewImage(
+                    repository="registry.example.com/tp-backend", tag="1.2.3"
+                ),
+                internal_artifact_token_secret="template-preview-artifact-token",
+            )
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert section["backend"]["image"] == {
+            "repository": "registry.example.com/tp-backend",
+            "tag": "1.2.3",
+        }
+        assert section["backend"]["internalArtifactToken"] == {
+            "existingSecret": "template-preview-artifact-token"
+        }
+        # the frontend image was not given, so it comes from the registry (see the tests below)
+        assert section["frontend"]["image"] == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-frontend"
+        }
+
+    def test_registry_deployments_pull_template_preview_from_the_images_registry(self):
+        # The chart's own default is a bare name (nvcm-template-preview-backend), which a registry
+        # deployment cannot pull: the installer builds the repository from images.registry instead.
+        section = _gen(_make_config(template_preview=TemplatePreviewConfig(enabled=True)))[
+            "templatePreview"
+        ]
+
+        assert section["backend"]["image"] == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-backend"
+        }
+        assert section["frontend"]["image"] == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-frontend"
+        }
+
+    def test_the_registry_comes_from_the_config_and_a_trailing_slash_is_harmless(self):
+        config = _make_config(
+            images=ImagesConfig(registry="registry.example.com/team/"),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert (
+            section["backend"]["image"]["repository"]
+            == "registry.example.com/team/nvcm-template-preview-backend"
+        )
+        assert (
+            section["frontend"]["image"]["repository"]
+            == "registry.example.com/team/nvcm-template-preview-frontend"
+        )
+
+    def test_a_tag_is_never_guessed_from_the_nvcm_tag(self):
+        # Template Preview is released on its own schedule: its tag is the chart's default or the one
+        # given, never images.tag (NVCM's).
+        config = _make_config(
+            images=ImagesConfig(tag="9.9.9"),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert "tag" not in section["backend"]["image"]
+        assert "tag" not in section["frontend"]["image"]
+
+    def test_a_tag_alone_keeps_the_registry_repository(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True, backend_image=TemplatePreviewImage(tag="0.7.0")
+            )
+        )
+        image = _gen(config)["templatePreview"]["backend"]["image"]
+
+        assert image == {
+            "repository": "nvcr.io/nvidian/cfa/nvcm-template-preview-backend",
+            "tag": "0.7.0",
+        }
+
+    def test_an_explicit_repository_wins_over_the_registry(self):
+        config = _make_config(
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                frontend_image=TemplatePreviewImage(repository="mirror.example.com/tp-ui", tag="2"),
+            )
+        )
+        section = _gen(config)["templatePreview"]
+
+        assert section["frontend"]["image"] == {
+            "repository": "mirror.example.com/tp-ui",
+            "tag": "2",
+        }
+        assert (
+            section["backend"]["image"]["repository"]
+            == "nvcr.io/nvidian/cfa/nvcm-template-preview-backend"
+        )
+
+    @pytest.mark.parametrize("how", ["source", "flag"])
+    def test_local_deployments_keep_the_names_they_are_given(self, how):
+        # On kind the images are built and loaded locally: nothing is pulled from a registry, so the
+        # registry is not put in front of the names.
+        if how == "source":
+            config = _make_config(
+                images=ImagesConfig(source=ImageSource.LOCAL),
+                template_preview=TemplatePreviewConfig(
+                    enabled=True,
+                    backend_image=TemplatePreviewImage(
+                        repository="nvcm-template-preview-backend", tag="dev"
+                    ),
+                ),
+            )
+            section = _gen(config)["templatePreview"]
+        else:
+            config = _make_config(
+                template_preview=TemplatePreviewConfig(
+                    enabled=True,
+                    backend_image=TemplatePreviewImage(
+                        repository="nvcm-template-preview-backend", tag="dev"
+                    ),
+                )
+            )
+            section = _gen(config, local_images=True)["templatePreview"]
+
+        assert section["backend"]["image"] == {
+            "repository": "nvcm-template-preview-backend",
+            "tag": "dev",
+        }
+        assert "frontend" not in section
+
+    @staticmethod
+    def _gate_open(release_name):
+        return _make_config(
+            cluster=ClusterConfig(
+                hostname="test.example.com", environment="prod", release_name=release_name
+            ),
+            template_preview=TemplatePreviewConfig(
+                enabled=True, dynamic_plugins=True, acknowledge_arbitrary_code_execution=True
+            ),
+        )
+
+    def test_activation_targets_follow_the_default_release_name(self):
+        env = _gen(self._gate_open("nv-config-manager"))["templatePreview"]["backend"]["env"]
+
+        assert (
+            env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"] == "http://nv-config-manager-render-api:9000"
+        )
+        assert env["KIWI_RENDER_RENDER_DEPLOYMENTS"] == (
+            "nv-config-manager-render-api,"
+            "nv-config-manager-render-consumer-nautobot,"
+            "nv-config-manager-render-consumer-device"
+        )
+
+    def test_activation_targets_follow_another_release_name(self):
+        # The chart names its resources <release>-nv-config-manager-...; Template Preview's own default
+        # names nv-config-manager-render-api, so under another release it would resolve nothing.
+        env = _gen(self._gate_open("prod"))["templatePreview"]["backend"]["env"]
+
+        assert (
+            env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"]
+            == "http://prod-nv-config-manager-render-api:9000"
+        )
+        assert env["KIWI_RENDER_RENDER_DEPLOYMENTS"].split(",") == [
+            "prod-nv-config-manager-render-api",
+            "prod-nv-config-manager-render-consumer-nautobot",
+            "prod-nv-config-manager-render-consumer-device",
+        ]
+
+    def test_a_release_name_that_already_contains_the_chart_name_is_not_doubled(self):
+        env = _gen(self._gate_open("team-nv-config-manager"))["templatePreview"]["backend"]["env"]
+
+        assert (
+            env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"]
+            == "http://team-nv-config-manager-render-api:9000"
+        )
+
+    def test_a_release_name_too_long_to_derive_the_names_from_is_refused_clearly(self):
+        # The chart shortens the render resources unpredictably for a long release name; guessing would
+        # point Template Preview at resources that do not exist.
+        with pytest.raises(ValueError, match="too long"):
+            _gen(self._gate_open("r" * 40))
+
+    def test_a_long_release_name_does_not_matter_while_the_gate_is_closed(self):
+        config = _make_config(
+            cluster=ClusterConfig(
+                hostname="test.example.com", environment="prod", release_name="r" * 40
+            ),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+
+        assert "env" not in _gen(config)["templatePreview"].get("backend", {})
+
+    def test_nothing_is_set_for_activation_while_the_gate_is_closed(self):
+        config = _make_config(template_preview=TemplatePreviewConfig(enabled=True))
+
+        assert "env" not in _gen(config)["templatePreview"].get("backend", {})
+
+    @pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
+    @pytest.mark.parametrize(
+        "release", ["nv-config-manager", "prod", "team-nv-config-manager", "production-east"]
+    )
+    def test_the_derived_names_are_the_ones_the_chart_creates(self, release):
+        chart = Path(__file__).resolve().parents[2] / "deploy" / "helm"
+        if not (chart / "charts").is_dir():
+            pytest.skip("vendored chart dependencies are required")
+        rendered = subprocess.run(
+            ["helm", "template", release, str(chart), "--values", str(chart / "values-ci.yaml")],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        created = {
+            doc["metadata"]["name"]
+            for doc in yaml.safe_load_all(rendered)
+            if doc and doc.get("kind") in ("Deployment", "Service")
+        }
+
+        env = _gen(self._gate_open(release))["templatePreview"]["backend"]["env"]
+        deployments = env["KIWI_RENDER_RENDER_DEPLOYMENTS"].split(",")
+        service = env["KIWI_RENDER_NVCM_RENDER_SERVICE_URL"].removeprefix("http://").split(":")[0]
+
+        assert set(deployments) <= created
+        assert service in created
+
+    def test_an_empty_registry_is_refused_when_image_names_would_be_built_from_it(self):
+        # "<empty>/nvcm-template-preview-backend" would be "/nvcm-template-preview-backend", which is not
+        # a valid image reference: say what is wrong instead of producing pods that cannot pull.
+        config = _make_config(
+            images=ImagesConfig(registry=""),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+
+        with pytest.raises(ValueError, match="images.registry"):
+            _gen(config)
+
+    def test_an_empty_registry_is_fine_when_every_repository_is_given(self):
+        config = _make_config(
+            images=ImagesConfig(registry=""),
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                backend_image=TemplatePreviewImage(repository="mirror.example.com/tp-api"),
+                frontend_image=TemplatePreviewImage(repository="mirror.example.com/tp-ui"),
+            ),
+        )
+
+        section = _gen(config)["templatePreview"]
+
+        assert section["backend"]["image"]["repository"] == "mirror.example.com/tp-api"
+        assert section["frontend"]["image"]["repository"] == "mirror.example.com/tp-ui"
+
+    def test_an_empty_registry_is_refused_when_only_one_repository_is_given(self):
+        config = _make_config(
+            images=ImagesConfig(registry=""),
+            template_preview=TemplatePreviewConfig(
+                enabled=True,
+                backend_image=TemplatePreviewImage(repository="mirror.example.com/tp-api"),
+            ),
+        )
+
+        with pytest.raises(ValueError, match="frontend"):
+            _gen(config)
+
+    def test_an_empty_registry_does_not_matter_to_a_local_deployment(self):
+        config = _make_config(
+            images=ImagesConfig(source=ImageSource.LOCAL, registry=""),
+            template_preview=TemplatePreviewConfig(enabled=True),
+        )
+
+        assert "image" not in _gen(config)["templatePreview"].get("backend", {})
+
+    def test_plugins_must_be_acknowledged(self):
+        with pytest.raises(ValidationError, match="acknowledge_arbitrary_code_execution"):
+            TemplatePreviewConfig(enabled=True, dynamic_plugins=True)
+
+    def test_plugins_need_template_preview_enabled(self):
+        with pytest.raises(ValidationError, match="requires template_preview.enabled"):
+            TemplatePreviewConfig(dynamic_plugins=True, acknowledge_arbitrary_code_execution=True)

@@ -91,6 +91,36 @@ def _spiffe_jwt_path() -> str:
     return load_config().get("auth.spiffe", "jwt_svid_path", fallback="")
 
 
+def dynamic_template_plugins_enabled(config: ConfigParser | None = None) -> bool:
+    """Whether the dynamic template plugin activation endpoint is reachable.
+
+    Mirrors ``renderService.unsafeDynamicTemplatePlugins.{enabled,
+    acknowledgeArbitraryCodeExecution}`` in Helm -- both must be true.
+    Checked at router-mount time in render/api/main.py: when this is
+    false, the activation router is never included in the FastAPI app,
+    so the endpoint does not exist, not merely return 403.
+
+    Args:
+        config: ConfigParser instance (uses load_config() if None)
+
+    Returns:
+        True only if both the enabled flag and the arbitrary-code-execution
+        acknowledgement are set in the [render] section.
+    """
+    config = resolve_config(config)
+    # Method-style config.getboolean(section, key, fallback=...) tolerates a
+    # missing [render] section (returns fallback); config["render"] would
+    # raise KeyError instead. This runs at process startup (main.py, import
+    # time) -- a missing section must never crash the whole service.
+    return config.getboolean(
+        "render", "unsafe_dynamic_template_plugins_enabled", fallback=False
+    ) and config.getboolean(
+        "render",
+        "unsafe_dynamic_template_plugins_acknowledge_arbitrary_code_execution",
+        fallback=False,
+    )
+
+
 def _read_spiffe_jwt() -> str | None:
     """Read the current JWT-SVID from the file written by spiffe-helper.
 

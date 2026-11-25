@@ -266,6 +266,32 @@ spec:
     {{- include "nv-config-manager.browserBackendRefs" (dict "root" . "backendName" (printf "%s-api" $renderName) "backendPort" 9000 "proxyPort" 9101) | nindent 4 }}
 {{- end }}
 
+# Template Preview HTTPRoute (optional subchart). Browser traffic goes through the SSO proxy when
+# OIDC is enabled, exactly like the other UIs; the "upload" timeout profile is used because plugin
+# activation waits for a rolling restart of the render service and can take several minutes.
+{{- if .Values.templatePreview.enabled }}
+{{- $templatePreviewName := include "nv-config-manager.templatePreview.name" . }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $templatePreviewName }}
+  namespace: {{ .Values.global.namespace }}
+  {{- include "nv-config-manager.httpRoutePolicyLabels" (dict "root" . "timeoutProfile" "upload") | nindent 2 }}
+spec:
+  parentRefs:
+  {{- include "nv-config-manager.gatewayParentRef" . | nindent 2 }}
+  hostnames:
+  - {{ tpl .Values.templatePreview.gateway.hostname . | quote }}
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    {{- include "nv-config-manager.protectedIdentityHeaders" (dict "redirectHostname" (tpl .Values.templatePreview.gateway.hostname .)) | nindent 4 }}
+    {{- include "nv-config-manager.browserBackendRefs" (dict "root" . "backendName" (printf "%s-frontend" $templatePreviewName) "backendPort" 3000 "proxyPort" 9110) | nindent 4 }}
+{{- end }}
+
 # Network ZTP svc-* HTTPRoute (JWT-only)
 {{- if .Values.networkZtp.enabled }}
 {{- include "nv-config-manager.svcHTTPRoute" (dict

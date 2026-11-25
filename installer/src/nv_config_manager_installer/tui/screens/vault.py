@@ -96,6 +96,8 @@ _K8S_GROUPS: list[tuple[str, str, bool, list[tuple[str, str]]]] = [
             ("dhcpPassword", "DHCP Password"),
             ("nautobotUser", "Nautobot DB User"),
             ("nautobotPassword", "Nautobot DB Password"),
+            ("templatePreviewUser", "Template Preview DB User"),
+            ("templatePreviewPassword", "Template Preview DB Password"),
         ],
     ),
     (

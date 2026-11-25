@@ -178,6 +178,12 @@ The local SuperPOD profile uses `config-manager.local` as the base hostname. Add
 127.0.0.1 svc-nautobot.config-manager.local
 ```
 
+When the optional Template Preview app is deployed (`templatePreview.enabled`, see `deploy/helm/values-template-preview.yaml`), also add:
+
+```text
+127.0.0.1 template-preview.config-manager.local
+```
+
 Local endpoints:
 
 - UI: <https://config-manager.local>
@@ -185,6 +191,7 @@ Local endpoints:
 - Workflow API: <https://workflow.config-manager.local>
 - Config Store API: <https://config-store.config-manager.local>
 - MCP endpoint: <https://mcp.config-manager.local/mcp>
+- Template Preview (only when enabled): <https://template-preview.config-manager.local>
 
 For the local SuperPOD profile, Nautobot login is `admin` / `admin`. For generated credentials:
 
