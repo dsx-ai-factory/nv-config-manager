@@ -236,6 +236,20 @@ async def _record_published(
         logger.warning("Could not record queued devices, so a retry may queue them again: %s", exc)
 
 
+async def renew_published(retry_key: str) -> None:
+    """Keep the record of devices a request queued while that request is still retried.
+
+    For a failure that happens before the request reaches ``queue_render_batch``,
+    which renews the record itself.
+    """
+    logger = get_logger(__name__, category=LogCategory.RENDER_EVENT)
+    client = _get_queue_redis_client()
+    try:
+        await _record_published(retry_key, [], client, logger)
+    finally:
+        await _close_queue_redis_client(client)
+
+
 def _log_duplicate(logger: logging.Logger | logging.LoggerAdapter, device_uuid: str) -> None:
     logger.info(
         "Device %s already has a pending render, skipping duplicate queue request", device_uuid

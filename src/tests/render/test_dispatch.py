@@ -208,6 +208,53 @@ async def test_dcim_event_dispatch_stops_on_unexpected_queue_error() -> None:
     queue_render_batch.assert_awaited_once()
 
 
+class FailingRenderEventProvider:
+    """Provider whose handler fails before it identifies any device."""
+
+    def __init__(self, failure: Exception) -> None:
+        self.failure = failure
+
+    def register_render_event_handlers(self, registry: EventDispatcher) -> None:
+        registry.register_render_event_handler("synthetic.device", self.handle_device)
+
+    async def handle_device(
+        self, event: DCIMChangeEvent, dcim_client: AsyncMock
+    ) -> tuple[RenderEventRequest, ...]:
+        raise self.failure
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_renews_retry_record_when_handler_is_retried() -> None:
+    """A delivery that fails before enqueue keeps the record of devices already queued."""
+    dispatcher = EventDispatcher(FailingRenderEventProvider(DCIMConnectivityError("down")))
+    event = _synthetic_event()
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.renew_published", new_callable=AsyncMock
+        ) as renew_published,
+    ):
+        with pytest.raises(DCIMConnectivityError):
+            await dispatcher.dcim_event_dispatch(event)
+
+    renew_published.assert_awaited_once_with(_event_retry_key(event))
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_does_not_renew_retry_record_for_consumed_event() -> None:
+    """An event that is not retried has no record to keep."""
+    dispatcher = EventDispatcher(FailingRenderEventProvider(DCIMInvalidDataError("bad record")))
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.renew_published", new_callable=AsyncMock
+        ) as renew_published,
+    ):
+        await dispatcher.dcim_event_dispatch(_synthetic_event())
+
+    renew_published.assert_not_awaited()
+
+
 def test_event_retry_key_is_stable_per_event() -> None:
     """Redeliveries of one event share a key, and another event gets its own."""
     event = _synthetic_event()

@@ -37,6 +37,7 @@ from nv_config_manager.render.events.util import (
     is_queued,
     queue_render,
     queue_render_batch,
+    renew_published,
     should_run,
 )
 
@@ -803,6 +804,24 @@ async def test_batch_retry_skips_devices_a_successful_batch_queued(
             ) == (1, [])
 
     assert _published_devices(batch_nats) == ["device-a"]
+
+
+@pytest.mark.asyncio
+async def test_renew_published_extends_the_record_without_adding_devices() -> None:
+    """A delivery that queued nothing still keeps the earlier deliveries' record alive."""
+    redis_client = _batch_redis(set())
+
+    with patch(
+        "nv_config_manager.render.events.util._get_queue_redis_client", return_value=redis_client
+    ):
+        await renew_published("event")
+
+    redis_client.pipe.sadd.assert_not_called()
+    redis_client.pipe.expire.assert_called_once_with(
+        "render_event_published:event", PUBLISHED_DEVICES_TTL_SECONDS
+    )
+    redis_client.pipe.execute.assert_awaited_once()
+    redis_client.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

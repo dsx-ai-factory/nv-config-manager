@@ -37,7 +37,7 @@ from nv_config_manager.dcim import (
     dcim_client_session,
     get_dcim_provider,
 )
-from nv_config_manager.render.events.util import queue_render_batch
+from nv_config_manager.render.events.util import queue_render_batch, renew_published
 from nv_config_manager.render.exceptions import (
     RenderException,
     RenderScopeMismatch,
@@ -242,7 +242,14 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
         try:
             with EVENT_PROCESSING_TIME.labels(model, self.instance, self.namespace).time():
                 async with dcim_client_session() as dcim_client:
-                    requests = tuple(await handler(event, dcim_client))
+                    try:
+                        requests = tuple(await handler(event, dcim_client))
+                    except Exception as exc:
+                        # This delivery never reaches the batches that renew the
+                        # record of devices an earlier delivery queued.
+                        if is_transient_dependency_error(exc):
+                            await renew_published(_event_retry_key(event))
+                        raise
                     await self._queue_requests(requests, event, dcim_client)
                 EVENT_PROCESSED_COUNTER.labels(model, self.instance, self.namespace).inc()
         except DCIMError as exc:
