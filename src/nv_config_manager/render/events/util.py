@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 QUEUED_FLAG_TTL_SECONDS = 60
 # Outlasts the default delivery limit's retries of one change event, and is
-# renewed by every attempt that fails again.
+# renewed by every attempt that queues a device or fails.
 PUBLISHED_DEVICES_TTL_SECONDS = 3600
 
 _RETAKE_CLAIM = """
@@ -55,6 +55,12 @@ if redis.call('GET', KEYS[1]) == ARGV[1] then
     return redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
 end
 return false
+"""
+_RELEASE_CLAIM = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
 """
 
 
@@ -129,10 +135,8 @@ async def claim_queued(
     try:
         queue_key = f"{device_uuid}_queued"
         if retake and token is not None:
-            retaken = await async_result(
-                client.redis.eval(_RETAKE_CLAIM, 1, queue_key, token, QUEUED_FLAG_TTL_SECONDS)
-            )
-            if retaken:
+            retake_claim = client.redis.register_script(_RETAKE_CLAIM)
+            if await retake_claim(keys=[queue_key], args=[token, QUEUED_FLAG_TTL_SECONDS]):
                 return True
         return bool(
             await client.redis.set(queue_key, token or 1, nx=True, ex=QUEUED_FLAG_TTL_SECONDS)
@@ -154,8 +158,14 @@ async def _is_own_claim(device_uuid: str, token: str | None, client: RedisClient
     return value in (token, token.encode())
 
 
-async def clear_queued(device_uuid: str, client: RedisClient | None = None) -> None:
-    """Clear the queued flag for a device."""
+async def clear_queued(
+    device_uuid: str, client: RedisClient | None = None, token: str | None = None
+) -> None:
+    """Clear the queued flag for a device.
+
+    With ``token``, the flag is cleared only while it still holds that
+    request's claim, so a claim another producer made since is left alone.
+    """
     owned_client = client is None
     client = client or _get_queue_redis_client()
     if client is None:
@@ -164,7 +174,10 @@ async def clear_queued(device_uuid: str, client: RedisClient | None = None) -> N
 
     try:
         queue_key = f"{device_uuid}_queued"
-        await client.delete(queue_key)
+        if token is None:
+            await client.delete(queue_key)
+        else:
+            await client.redis.register_script(_RELEASE_CLAIM)(keys=[queue_key], args=[token])
     finally:
         if owned_client:
             await _close_queue_redis_client(client)
@@ -208,7 +221,7 @@ async def _record_published(
 ) -> None:
     """Remember the devices this attempt queued so a retry skips them.
 
-    Every failed attempt renews the record, including one that queued nothing.
+    Every attempt that queues a device or fails renews the record.
     """
     if retry_key is None or client is None:
         return
@@ -303,7 +316,7 @@ async def _process_single_device_enqueue(
         # Another producer's flag still stands for its own pending render.
         if claimed:
             try:
-                await clear_queued(device_uuid, queue_client)
+                await clear_queued(device_uuid, queue_client, token=claim_token)
             except Exception as clear_exc:  # pylint: disable=broad-exception-caught
                 logger.warning(
                     "Could not clear the queued flag for %s, so requests in the next "
@@ -501,7 +514,9 @@ async def queue_render_batch(
                     # a publish that failed, so it must stay eligible for a retry.
                     queued_devices.append(device_uuid)
 
-            if transient_errors:
+            # Recorded even when this batch succeeds: the caller retries the whole
+            # request if another of its batches fails.
+            if queued_devices or transient_errors:
                 await _record_published(retry_key, queued_devices, queue_client, logger)
         finally:
             await _close_queue_redis_client(queue_client)

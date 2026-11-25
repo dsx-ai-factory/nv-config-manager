@@ -14,7 +14,8 @@
 # limitations under the License.
 """Tests for provider-backed render event utility functions."""
 
-from collections.abc import Callable, Iterator
+import json
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,6 +26,7 @@ import redis.exceptions
 
 from nv_config_manager.dcim import DCIMConnectivityError, RenderDeviceStatus
 from nv_config_manager.render.events.util import (
+    _RELEASE_CLAIM,
     _RETAKE_CLAIM,
     PUBLISHED_DEVICES_TTL_SECONDS,
     DeviceNotEnabledError,
@@ -195,6 +197,10 @@ def _enqueue_redis(claimed: bool, queued: bool = False) -> MagicMock:
     redis.redis.exists = AsyncMock(return_value=int(queued))
     redis.redis.set = AsyncMock(return_value=True if claimed else None)
     redis.delete = AsyncMock()
+    redis.scripts = {}
+    redis.redis.register_script = MagicMock(
+        side_effect=lambda source: redis.scripts.setdefault(source, AsyncMock(return_value=None))
+    )
     return redis
 
 
@@ -372,7 +378,7 @@ async def test_enqueue_retry_publishes_over_its_own_leftover_claim(
     _enable_device(mock_dcim_client)
     redis_client = _enqueue_redis(claimed=True, queued=True)
     redis_client.redis.get = AsyncMock(return_value=b"event")
-    redis_client.redis.eval = AsyncMock(return_value=b"OK")
+    redis_client.scripts[_RETAKE_CLAIM] = AsyncMock(return_value=b"OK")
     jetstream = _jetstream()
 
     result = await _process_single_device_enqueue(
@@ -389,7 +395,9 @@ async def test_enqueue_retry_publishes_over_its_own_leftover_claim(
 
     assert result is EnqueueResult.PUBLISHED
     jetstream.publish.assert_awaited_once()
-    redis_client.redis.eval.assert_awaited_once_with(_RETAKE_CLAIM, 1, "device_queued", "event", 60)
+    redis_client.scripts[_RETAKE_CLAIM].assert_awaited_once_with(
+        keys=["device_queued"], args=["event", 60]
+    )
     redis_client.redis.set.assert_not_awaited()
 
 
@@ -403,7 +411,6 @@ async def test_enqueue_retry_does_not_overwrite_a_claim_made_since_its_check(
     _enable_device(mock_dcim_client)
     redis_client = _enqueue_redis(claimed=claimed, queued=True)
     redis_client.redis.get = AsyncMock(return_value=b"event")
-    redis_client.redis.eval = AsyncMock(return_value=None)
     jetstream = _jetstream()
 
     result = await _process_single_device_enqueue(
@@ -614,7 +621,7 @@ async def test_batch_retry_skips_devices_an_earlier_attempt_queued(
     assert (queued, failed) == (2, [])
     mock_dcim_client.get_render_device_status.assert_awaited_once_with("device-b")
     batch_nats.jetstream.return_value.publish.assert_awaited_once()
-    redis_client.redis.pipeline.assert_not_called()
+    redis_client.pipe.sadd.assert_called_once_with("render_event_published:event", "device-b")
 
 
 @pytest.mark.asyncio
@@ -641,6 +648,161 @@ async def test_batch_retry_queues_every_device_when_redis_cannot_be_read(
 
     assert (queued, failed) == (2, [])
     assert batch_nats.jetstream.return_value.publish.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_enqueue_failure_releases_only_its_own_claim(
+    mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A request with a claim token clears the flag only while it still holds that token."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _enqueue_redis(claimed=True)
+    jetstream = _jetstream()
+    jetstream.publish.side_effect = TimeoutError()
+
+    with pytest.raises(TimeoutError):
+        await _process_single_device_enqueue(
+            "device",
+            "msg",
+            "user",
+            "ts",
+            jetstream,
+            MagicMock(),
+            redis_client,
+            mock_dcim_client,
+            claim_token="event",
+        )
+
+    redis_client.scripts[_RELEASE_CLAIM].assert_awaited_once_with(
+        keys=["device_queued"], args=["event"]
+    )
+    redis_client.delete.assert_not_awaited()
+
+
+class _FakeRedis:
+    """An in-memory stand-in for the Redis commands the enqueue path uses."""
+
+    def __init__(self) -> None:
+        self.values: dict[str, bytes] = {}
+        self.sets: dict[str, set[bytes]] = {}
+        self.fail_release = False
+        self.redis = self
+
+    async def exists(self, key: str) -> int:
+        return int(key in self.values)
+
+    async def smembers(self, key: str) -> set[bytes]:
+        return set(self.sets.get(key, set()))
+
+    async def get(self, key: str) -> bytes | None:
+        return self.values.get(key)
+
+    async def set(self, key: str, value: object, nx: bool = False, ex: int = 0) -> bool | None:
+        if nx and key in self.values:
+            return None
+        self.values[key] = str(value).encode()
+        return True
+
+    async def delete(self, key: str) -> None:
+        self.values.pop(key, None)
+
+    def register_script(self, source: str) -> Callable[..., Awaitable[object]]:
+        async def run(keys: list[str], args: list[object]) -> object:
+            held = self.values.get(keys[0]) == str(args[0]).encode()
+            if source == _RELEASE_CLAIM:
+                if self.fail_release:
+                    raise redis.exceptions.ConnectionError("redis down")
+                if held:
+                    del self.values[keys[0]]
+                return int(held)
+            return b"OK" if held else None
+
+        return run
+
+    def pipeline(self, transaction: bool = True) -> "_FakeRedis":
+        return self
+
+    async def __aenter__(self) -> "_FakeRedis":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
+
+    def sadd(self, key: str, *members: str) -> None:
+        self.sets.setdefault(key, set()).update(member.encode() for member in members)
+
+    def expire(self, key: str, seconds: int) -> None:
+        return None
+
+    async def execute(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
+def _published_devices(connection: MagicMock) -> list[str]:
+    publish = connection.jetstream.return_value.publish
+    return [json.loads(call.kwargs["payload"])["device_id"] for call in publish.await_args_list]
+
+
+@pytest.mark.asyncio
+async def test_batch_retry_publishes_device_whose_claim_could_not_be_cleared(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A failed publish whose flag outlives it is published by the retry, and nothing twice."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    fake = _FakeRedis()
+    publish = batch_nats.jetstream.return_value.publish
+
+    async def fail_device_a(subject: str, payload: bytes, stream: str) -> None:
+        if json.loads(payload)["device_id"] == "device-a":
+            raise TimeoutError
+
+    async def deliver() -> tuple[int, list[dict[str, str]]]:
+        return await queue_render_batch(
+            ["device-a", "device-b"],
+            "msg",
+            "user",
+            "ts",
+            dcim_client=mock_dcim_client,
+            raise_transient_errors=True,
+            retry_key="event",
+        )
+
+    with patch("nv_config_manager.render.events.util._get_queue_redis_client", return_value=fake):
+        publish.side_effect = fail_device_a
+        fake.fail_release = True
+        with pytest.raises(TimeoutError):
+            await deliver()
+        assert fake.values["device-a_queued"] == b"event"
+
+        publish.side_effect = None
+        fake.fail_release = False
+        publish.reset_mock()
+        assert await deliver() == (2, [])
+
+    assert _published_devices(batch_nats) == ["device-a"]
+
+
+@pytest.mark.asyncio
+async def test_batch_retry_skips_devices_a_successful_batch_queued(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A batch that succeeded is not published again when its request is retried."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    fake = _FakeRedis()
+
+    with patch("nv_config_manager.render.events.util._get_queue_redis_client", return_value=fake):
+        for _ in range(2):
+            assert await queue_render_batch(
+                ["device-a"], "first", "user", "ts", dcim_client=mock_dcim_client, retry_key="event"
+            ) == (1, [])
+
+    assert _published_devices(batch_nats) == ["device-a"]
 
 
 @pytest.mark.asyncio
