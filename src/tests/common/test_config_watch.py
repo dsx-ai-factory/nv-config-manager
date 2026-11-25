@@ -297,16 +297,34 @@ def test_the_watch_waits_out_its_delay_before_signalling(ini: Path) -> None:
     assert signals == [(os.getpid(), signal.SIGTERM)]
 
 
+def _scheduling() -> tuple[threading.Event, Callable[..., float]]:
+    """Return an event set once the watch has scheduled a restart, and the stub that sets it.
+
+    A test that changes the file again during the delay has to wait for this.
+    Sleeping instead leaves it to the scheduler whether the watch saw the
+    first change at all.
+    """
+    scheduled = threading.Event()
+
+    def schedule(*_args: object) -> float:
+        scheduled.set()
+        return 0.3
+
+    return scheduled, schedule
+
+
 def test_a_second_change_during_the_delay_reschedules_from_the_newer_version(ini: Path) -> None:
     """A container that slept through the second change would signal apart from its pod."""
 
+    scheduled, schedule = _scheduling()
+
     def change_twice() -> None:
         ini.write_text(ROTATED)
-        time.sleep(POLL_INTERVAL * 10)
+        assert scheduled.wait(timeout=5.0)
         ini.write_text(RENAMED_STREAM)
 
     with patch(
-        "nv_config_manager.common.config_watch._seconds_until_restart", return_value=0.3
+        "nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule
     ) as wait:
         signals = _watch_while(ini, change=change_twice)
 
@@ -322,13 +340,15 @@ def test_a_change_that_is_undone_during_the_delay_does_not_restart(
 ) -> None:
     """A value that flips and flips back leaves a process nothing to pick up."""
 
+    scheduled, schedule = _scheduling()
+
     def flip_and_flip_back() -> None:
         ini.write_text(ROTATED)
-        time.sleep(POLL_INTERVAL * 10)
+        assert scheduled.wait(timeout=5.0)
         ini.write_text(ORIGINAL)
 
     with (
-        patch("nv_config_manager.common.config_watch._seconds_until_restart", return_value=0.3),
+        patch("nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule),
         caplog.at_level("INFO", logger=config_watch.logger.name),
     ):
         signals = _watch_while(ini, change=flip_and_flip_back)
@@ -351,14 +371,19 @@ def test_a_change_that_breaks_during_the_delay_does_not_restart(
 ) -> None:
     """A working process must not be stopped for a file it could not load."""
 
+    scheduled, schedule = _scheduling()
+
     def change_then_break() -> None:
         ini.write_text(ROTATED)
-        time.sleep(POLL_INTERVAL * 10)
+        assert scheduled.wait(timeout=5.0)
         replace(ini)
 
-    with patch("nv_config_manager.common.config_watch._seconds_until_restart", return_value=0.3):
+    with patch(
+        "nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule
+    ):
         signals = _watch_while(ini, change=change_then_break)
 
+    assert scheduled.is_set()
     assert signals == []
 
 
