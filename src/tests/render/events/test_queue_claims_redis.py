@@ -15,18 +15,21 @@
 """Run the queued-claim scripts and the published-device record against a real Redis.
 
 The unit tests in ``test_util.py`` mock Redis, so they cannot show that the Lua
-scripts leave another producer's claim alone. These use testcontainers inline,
-following ``src/tests/dhcp/test_kea_sync_integration.py``.
+scripts leave another producer's claim alone.
+
+Opt-in, like ``src/tests/common/test_lock_redis.py``: runs against ``REDIS_HOST``
+or a throwaway testcontainers Redis when ``QUEUE_REDIS_TEST`` is set, and skips
+otherwise.
 """
 
-import time
-from collections.abc import AsyncIterator, Iterator
+import contextlib
+import os
+from collections.abc import AsyncIterator
 from unittest.mock import MagicMock
 
 import pytest
-import redis as redis_sync
 from nv_config_manager_infrastructure.redis import RedisClient
-from testcontainers.core.container import DockerContainer
+from testcontainers.redis import RedisContainer
 
 from nv_config_manager.render.events.util import (
     PUBLISHED_DEVICES_TTL_SECONDS,
@@ -37,47 +40,39 @@ from nv_config_manager.render.events.util import (
     clear_queued,
 )
 
-REDIS_IMAGE = "redis:7-alpine"
-REDIS_PORT = 6379
-
 pytestmark = pytest.mark.timeout(120)
 
 
-@pytest.fixture(scope="module")
-def redis_endpoint() -> Iterator[tuple[str, int]]:
-    """Run one Redis server for the module and yield its endpoint."""
-    with DockerContainer(REDIS_IMAGE).with_exposed_ports(REDIS_PORT) as container:
-        host = container.get_container_host_ip()
-        port = int(container.get_exposed_port(REDIS_PORT))
-        _wait_for_redis(host, port)
-        yield host, port
-
-
-def _wait_for_redis(host: str, port: int, timeout: int = 60) -> None:
-    """Block until Redis answers a ping, or fail the test."""
-    deadline = time.monotonic() + timeout
-    last_error: Exception | str = "no attempt made"
-    while time.monotonic() < deadline:
-        try:
-            with redis_sync.Redis(host=host, port=port, socket_timeout=2) as probe:
-                if probe.ping():
-                    return
-        except redis_sync.RedisError as exc:
-            last_error = exc
-        time.sleep(0.5)
-    pytest.fail(f"Redis never became ready within {timeout}s: {last_error}")
-
-
 @pytest.fixture
-async def queue_redis(redis_endpoint: tuple[str, int]) -> AsyncIterator[RedisClient]:
-    """Yield a client on an empty database."""
-    host, port = redis_endpoint
-    client = RedisClient(host, port)
-    await client.redis.flushdb()
+async def queue_redis() -> AsyncIterator[RedisClient]:
+    """Yield a client on an empty database of a real Redis, or skip when none is available."""
+    host = os.environ.get("REDIS_HOST")
+    port = int(os.environ.get("REDIS_PORT", "6379"))
+    container = None
+
+    if not host:
+        if not os.environ.get("QUEUE_REDIS_TEST"):
+            pytest.skip("Set REDIS_HOST or QUEUE_REDIS_TEST=1 to run the Redis-backed claim tests")
+        try:
+            container = RedisContainer("redis:7-alpine")
+            container.start()
+            host = container.get_container_host_ip()
+            port = int(container.get_exposed_port(6379))
+        except Exception as exc:
+            if container is not None:
+                with contextlib.suppress(Exception):
+                    container.stop()
+            pytest.skip(f"No Redis available for claim tests: {exc}")
+
+    client = RedisClient(host=host, port=port)
     try:
+        await client.ping()
+        await client.redis.flushdb()
         yield client
     finally:
         await client.redis.aclose()
+        if container is not None:
+            container.stop()
 
 
 @pytest.mark.asyncio
