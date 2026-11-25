@@ -331,6 +331,7 @@ def _response_error(status: int) -> aiohttp.ClientResponseError:
         _response_error(503),
         _response_error(429),
         aiohttp.ClientConnectionError("refused"),
+        aiohttp.ClientPayloadError("Response payload is not completed"),
         TimeoutError(),
     ],
 )
@@ -341,6 +342,33 @@ async def test_config_store_reports_unavailable_service(failure: Exception) -> N
             await client.get_config_file("device", "startup.yaml")
         with pytest.raises(ConfigStoreUnavailableError):
             await client.list_device_configs("device")
+
+
+async def test_config_store_reports_truncated_response_as_unavailable(
+    unused_tcp_port: int,
+) -> None:
+    """A response that ends before its declared body is retryable, not a rejected request."""
+
+    async def truncate(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse(headers={"Content-Length": "100"})
+        await response.prepare(request)
+        await response.write(b"{")
+        assert request.transport is not None
+        request.transport.close()
+        return response
+
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", truncate)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", unused_tcp_port).start()
+    url = f"http://127.0.0.1:{unused_tcp_port}"
+    try:
+        async with ConfigStoreClient(url, "intended", url) as client:
+            with pytest.raises(ConfigStoreUnavailableError):
+                await client.get_config_file("device", "startup.yaml")
+    finally:
+        await runner.cleanup()
 
 
 @pytest.mark.parametrize("failure", [_response_error(403), ValueError("bad payload")])

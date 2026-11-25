@@ -24,6 +24,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 import nats.js
+from nv_config_manager_infrastructure.redis import async_result
 
 from nv_config_manager.common.client.factory import redis_client
 from nv_config_manager.common.config.environment import (
@@ -45,6 +46,9 @@ if TYPE_CHECKING:
 
 
 QUEUED_FLAG_TTL_SECONDS = 60
+# Outlasts the default delivery limit's retries of one change event, and is
+# renewed by every attempt that fails again.
+PUBLISHED_DEVICES_TTL_SECONDS = 3600
 
 
 class DeviceNotEnabledError(Exception):
@@ -139,6 +143,43 @@ async def should_run(device_uuid: str, dcim_client: DCIMClient) -> bool:
     return env_aggregate_managed == device.is_aggregate_managed
 
 
+def _published_key(retry_key: str) -> str:
+    return f"render_event_published:{retry_key}"
+
+
+async def _load_published(
+    retry_key: str | None,
+    client: RedisClient | None,
+    logger: logging.Logger | logging.LoggerAdapter,
+) -> set[str]:
+    """Return the devices an earlier attempt at this request already queued."""
+    if retry_key is None or client is None:
+        return set()
+    try:
+        members = await async_result(client.redis.smembers(_published_key(retry_key)))
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning("Could not read devices already queued for this request: %s", exc)
+        return set()
+    return {member.decode() if isinstance(member, bytes) else member for member in members}
+
+
+async def _record_published(
+    retry_key: str | None,
+    device_uuids: list[str],
+    client: RedisClient | None,
+    logger: logging.Logger | logging.LoggerAdapter,
+) -> None:
+    """Remember the devices this attempt queued so a retry skips them."""
+    if retry_key is None or client is None or not device_uuids:
+        return
+    key = _published_key(retry_key)
+    try:
+        await async_result(client.redis.sadd(key, *device_uuids))
+        await client.redis.expire(key, PUBLISHED_DEVICES_TTL_SECONDS)
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning("Could not record queued devices, so a retry may queue them again: %s", exc)
+
+
 def _log_duplicate(logger: logging.Logger | logging.LoggerAdapter, device_uuid: str) -> None:
     logger.info(
         "Device %s already has a pending render, skipping duplicate queue request", device_uuid
@@ -211,7 +252,16 @@ async def _process_single_device_enqueue(
     except Exception as exc:
         # Another producer's flag still stands for its own pending render.
         if claimed:
-            await clear_queued(device_uuid, queue_client)
+            try:
+                await clear_queued(device_uuid, queue_client)
+            except Exception as clear_exc:  # pylint: disable=broad-exception-caught
+                logger.warning(
+                    "Could not clear the queued flag for %s, so requests in the next "
+                    "%d seconds are skipped as duplicates: %s",
+                    device_uuid,
+                    QUEUED_FLAG_TTL_SECONDS,
+                    clear_exc,
+                )
         if is_transient_dependency_error(exc):
             raise
         error_msg = str(exc)
@@ -298,6 +348,7 @@ async def queue_render_batch(
     max_concurrency: int = 20,
     dcim_client: DCIMClient | None = None,
     raise_transient_errors: bool = False,
+    retry_key: str | None = None,
 ) -> tuple[int, list[dict[str, str]]]:
     """
     Queue renders for multiple devices in parallel with controlled concurrency.
@@ -311,6 +362,9 @@ async def queue_render_batch(
         raise_transient_errors: Raise the first transient DCIM or Config Store
             failure after the batch completes, so the caller can retry it,
             instead of reporting it as a failed device
+        retry_key: Identifies a request the caller repeats after a transient
+            failure. Devices queued by an earlier attempt are skipped, so the
+            retry queues only the devices that failed
 
     Returns:
         Tuple of (queued_count, failed_devices)
@@ -358,34 +412,45 @@ async def queue_render_batch(
                     session_client,
                 )
 
+        failed_devices = []
+        transient_errors: list[BaseException] = []
+
         try:
+            published = await _load_published(retry_key, queue_client, logger)
+            pending = [device_uuid for device_uuid in device_uuids if device_uuid not in published]
+            if published:
+                logger.info(
+                    "Skipping %d devices an earlier attempt already queued",
+                    len(device_uuids) - len(pending),
+                )
+
             if dcim_client is None:
                 async with dcim_client_session() as session_client:
                     tasks = [
                         process_single_device(device_uuid, session_client)
-                        for device_uuid in device_uuids
+                        for device_uuid in pending
                     ]
                     results = await asyncio.gather(*tasks, return_exceptions=True)
             else:
-                tasks = [
-                    process_single_device(device_uuid, dcim_client) for device_uuid in device_uuids
-                ]
+                tasks = [process_single_device(device_uuid, dcim_client) for device_uuid in pending]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            queued_devices = []
+            for device_uuid, result in zip(pending, results, strict=True):
+                if isinstance(result, BaseException):
+                    if is_transient_dependency_error(result):
+                        transient_errors.append(result)
+                    failed_devices.append({"device_uuid": device_uuid, "error": str(result)})
+                elif isinstance(result, dict):
+                    # Failed device (result is dict[str, str])
+                    failed_devices.append(result)
+                else:
+                    queued_devices.append(device_uuid)
+
+            if transient_errors:
+                await _record_published(retry_key, queued_devices, queue_client, logger)
         finally:
             await _close_queue_redis_client(queue_client)
-
-        failed_devices = []
-        transient_errors: list[BaseException] = []
-
-        for device_uuid, result in zip(device_uuids, results, strict=True):
-            if isinstance(result, BaseException):
-                if is_transient_dependency_error(result):
-                    transient_errors.append(result)
-                failed_devices.append({"device_uuid": device_uuid, "error": str(result)})
-            elif isinstance(result, dict):
-                # Failed device (result is dict[str, str])
-                failed_devices.append(result)
-            # Otherwise it was published or already queued - no action needed
 
         queued_count = len(device_uuids) - len(failed_devices)
         logger.info(

@@ -14,6 +14,7 @@
 # limitations under the License.
 """Tests for provider-registered render event dispatching."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -36,6 +37,7 @@ from nv_config_manager.render.dispatch import (
     HISTOGRAM_BUCKETS,
     NAUTOBOT_CHANGE_FAILED_COUNTER,
     EventDispatcher,
+    _event_retry_key,
 )
 from nv_config_manager.render.exceptions import RenderException, RenderScopeMismatch
 
@@ -90,6 +92,7 @@ async def test_dispatch_uses_provider_registered_handler():
         "2026-07-20T00:00:00Z",
         dcim_client=dcim_client,
         raise_transient_errors=True,
+        retry_key=_event_retry_key(event),
     )
 
 
@@ -106,12 +109,12 @@ def _synthetic_event() -> DCIMChangeEvent:
 
 
 @asynccontextmanager
-async def _dcim_session():
+async def _dcim_session() -> AsyncIterator[AsyncMock]:
     yield AsyncMock()
 
 
 @pytest.mark.asyncio
-async def test_dcim_event_dispatch_reraises_transient_dcim_failure():
+async def test_dcim_event_dispatch_reraises_transient_dcim_failure() -> None:
     """A DCIM outage leaves the event for redelivery instead of dropping it."""
     dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     with (
@@ -129,7 +132,7 @@ async def test_dcim_event_dispatch_reraises_transient_dcim_failure():
 
 
 @pytest.mark.asyncio
-async def test_dcim_event_dispatch_counts_failure_outside_dcim_errors():
+async def test_dcim_event_dispatch_counts_failure_outside_dcim_errors() -> None:
     """A raw timeout is retried by the consumer and still counted as a failure."""
     dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     failed = EVENT_FAILED_COUNTER.labels(
@@ -149,8 +152,73 @@ async def test_dcim_event_dispatch_counts_failure_outside_dcim_errors():
     assert failed._value.get() == before + 1
 
 
+class TwoMessageRenderEventProvider:
+    """Provider whose handler asks for renders under two commit messages."""
+
+    def register_render_event_handlers(self, registry: EventDispatcher) -> None:
+        registry.register_render_event_handler("synthetic.device", self.handle_device)
+
+    async def handle_device(
+        self, event: DCIMChangeEvent, dcim_client: AsyncMock
+    ) -> tuple[RenderEventRequest, ...]:
+        return (
+            RenderEventRequest(device_id="device-a", commit_message="first"),
+            RenderEventRequest(device_id="device-b", commit_message="second"),
+        )
+
+
 @pytest.mark.asyncio
-async def test_dcim_event_dispatch_consumes_dcim_data_error():
+async def test_dcim_event_dispatch_queues_every_group_before_retrying() -> None:
+    """An outage in one commit-message group does not hold back the next group."""
+    dispatcher = EventDispatcher(TwoMessageRenderEventProvider())
+    outage = DCIMConnectivityError("DCIM unreachable")
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.queue_render_batch",
+            new_callable=AsyncMock,
+            side_effect=[outage, (1, [])],
+        ) as queue_render_batch,
+    ):
+        with pytest.raises(DCIMConnectivityError) as caught:
+            await dispatcher.dcim_event_dispatch(_synthetic_event())
+
+    assert caught.value is outage
+    assert [call.args[0] for call in queue_render_batch.await_args_list] == [
+        ["device-a"],
+        ["device-b"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_stops_on_unexpected_queue_error() -> None:
+    """A failure a retry is not known to fix is raised as soon as it happens."""
+    dispatcher = EventDispatcher(TwoMessageRenderEventProvider())
+    with (
+        patch("nv_config_manager.render.dispatch.dcim_client_session", _dcim_session),
+        patch(
+            "nv_config_manager.render.dispatch.queue_render_batch",
+            new_callable=AsyncMock,
+            side_effect=ValueError("unexpected"),
+        ) as queue_render_batch,
+    ):
+        with pytest.raises(ValueError, match="unexpected"):
+            await dispatcher.dcim_event_dispatch(_synthetic_event())
+
+    queue_render_batch.assert_awaited_once()
+
+
+def test_event_retry_key_is_stable_per_event() -> None:
+    """Redeliveries of one event share a key, and another event gets its own."""
+    event = _synthetic_event()
+    assert _event_retry_key(event) == _event_retry_key(_synthetic_event())
+    assert _event_retry_key(event) != _event_retry_key(
+        event.model_copy(update={"timestamp": "2026-07-20T00:00:01Z"})
+    )
+
+
+@pytest.mark.asyncio
+async def test_dcim_event_dispatch_consumes_dcim_data_error() -> None:
     """Bad DCIM data will not render on retry, so the event is consumed."""
     dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     with (
@@ -271,7 +339,9 @@ _RENDER_MESSAGE = {
 )
 @patch("nv_config_manager.render.dispatch.execute_render", new_callable=AsyncMock)
 @pytest.mark.asyncio
-async def test_nautobot_change_dispatch_reraises_transient_failure(mock_render, failure):
+async def test_nautobot_change_dispatch_reraises_transient_failure(
+    mock_render: AsyncMock, failure: Exception
+) -> None:
     """A dependency outage is counted and left for the consumer to retry with backoff."""
     dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     mock_render.side_effect = failure
@@ -296,7 +366,9 @@ async def test_nautobot_change_dispatch_reraises_transient_failure(mock_render, 
 )
 @patch("nv_config_manager.render.dispatch.execute_render", new_callable=AsyncMock)
 @pytest.mark.asyncio
-async def test_nautobot_change_dispatch_consumes_data_errors(mock_render, failure):
+async def test_nautobot_change_dispatch_consumes_data_errors(
+    mock_render: AsyncMock, failure: Exception
+) -> None:
     """Errors a retry cannot fix are logged and the message is consumed."""
     dispatcher = EventDispatcher(SyntheticRenderEventProvider())
     mock_render.side_effect = failure

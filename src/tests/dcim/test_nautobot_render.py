@@ -19,8 +19,16 @@ from pathlib import Path
 from unittest.mock import AsyncMock, call
 
 import pytest
-from nv_config_manager_dcim import DCIMInvalidDataError, RenderDataRequirement
-from nv_config_manager_dcim_nautobot_2x.client import NautobotException
+from aioresponses import aioresponses
+from nv_config_manager_dcim import (
+    DCIMConnectivityError,
+    DCIMInvalidDataError,
+    RenderDataRequirement,
+)
+from nv_config_manager_dcim_nautobot_2x.client import (
+    NautobotException,
+    NautobotUnavailableError,
+)
 from nv_config_manager_dcim_nautobot_2x.provider import NautobotDCIMClient
 from nv_config_manager_dcim_nautobot_2x.render import (
     _bgp_instances,
@@ -30,6 +38,7 @@ from nv_config_manager_dcim_nautobot_2x.render import (
 )
 
 from nv_config_manager.dcim import IntendedConfigurationUpdate, RenderDataRequest
+from nv_config_manager.render.exceptions import is_transient_dependency_error
 from nv_config_manager_workflows.activities.cable_validation.helpers import (
     _check_lldp_validity,
     _check_port_description_validity,
@@ -670,3 +679,78 @@ async def test_air_hyperreach_fixture_requires_parent_chassis_for_validation() -
     assert not _check_port_description_validity(
         "swp2", intended.model_copy(update={"chassis_name": None}), actual
     )
+
+
+_REST_URL = "https://nautobot.example/api/"
+_INTENDED_CONFIGURATION_URL = f"{_REST_URL}plugins/nv-config-manager/intendedconfig/"
+
+
+def _intended_configuration_update() -> IntendedConfigurationUpdate:
+    return IntendedConfigurationUpdate(
+        device_id="device-id",
+        config_store_instance="https://config-store/",
+        path="startup.yaml",
+        commit_id="commit-id",
+        updated="2026-07-20T00:00:00+00:00",
+        updated_by="user",
+        commit_message="render",
+        template_version="version",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [429, 500, 503])
+async def test_intended_configuration_write_reports_unavailable_nautobot(status: int) -> None:
+    """A metadata write Nautobot could not serve is retryable, not a rejected request."""
+    with aioresponses() as mocked:
+        mocked.post(_INTENDED_CONFIGURATION_URL, status=status, payload={"detail": "busy"})
+        async with _client() as client:
+            with pytest.raises(NautobotUnavailableError) as caught:
+                await client.upsert_intended_configuration(_intended_configuration_update())
+
+    assert caught.value.status_code == status
+    assert isinstance(caught.value, DCIMConnectivityError)
+    assert is_transient_dependency_error(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_intended_configuration_write_keeps_rejections_permanent() -> None:
+    """A request Nautobot rejects is not retried."""
+    with aioresponses() as mocked:
+        mocked.post(_INTENDED_CONFIGURATION_URL, status=403, payload={"detail": "denied"})
+        async with _client() as client:
+            with pytest.raises(NautobotException) as caught:
+                await client.upsert_intended_configuration(_intended_configuration_update())
+
+    assert not is_transient_dependency_error(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_intended_configuration_duplicate_still_updates_over_rest() -> None:
+    """A 400 for an existing record still falls back from create to update."""
+    with aioresponses() as mocked:
+        mocked.post(
+            _INTENDED_CONFIGURATION_URL,
+            status=400,
+            payload={"device_id": ["Intended Config Settings with this Device id already exists."]},
+        )
+        mocked.patch(f"{_INTENDED_CONFIGURATION_URL}device-id/", payload={})
+        async with _client() as client:
+            await client.upsert_intended_configuration(_intended_configuration_update())
+
+
+@pytest.mark.asyncio
+async def test_cable_event_lookup_reports_unavailable_nautobot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An event lookup Nautobot could not serve is retryable once its own retry is spent."""
+    monkeypatch.setattr("nv_config_manager_dcim_nautobot_2x.client.asyncio.sleep", AsyncMock())
+    with aioresponses() as mocked:
+        mocked.get(f"{_REST_URL}dcim/interfaces/interface-1/", status=503, repeat=True)
+        async with _client() as client:
+            with pytest.raises(NautobotUnavailableError) as caught:
+                await client.get_cable_termination_device_id(
+                    {"url": "/api/dcim/interfaces/interface-1/"}
+                )
+
+    assert is_transient_dependency_error(caught.value)

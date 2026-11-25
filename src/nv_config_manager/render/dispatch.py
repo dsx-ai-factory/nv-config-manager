@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections import defaultdict
 from datetime import UTC, datetime
@@ -130,6 +131,21 @@ NAUTOBOT_CHANGE_FAILED_COUNTER = Counter(
 )
 
 
+def _event_retry_key(event: DCIMChangeEvent) -> str:
+    """Return a key that is the same for every delivery of one change event."""
+    identity = "\x1f".join(
+        (
+            event.provider,
+            event.object_type,
+            event.object_id,
+            event.operation,
+            event.timestamp,
+            event.correlation_id or "",
+        )
+    )
+    return hashlib.sha256(identity.encode()).hexdigest()
+
+
 class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-public-methods
     """Provider-neutral dispatcher for render-triggering DCIM events."""
 
@@ -171,21 +187,33 @@ class EventDispatcher(DCIMRenderEventRegistry):  # pylint: disable=too-few-publi
         for request in requests:
             requests_by_message[request.commit_message].append(request.device_id)
 
+        retry_key = _event_retry_key(event)
+        transient_error: Exception | None = None
         for commit_message, device_ids in requests_by_message.items():
-            _, failures = await queue_render_batch(
-                device_ids,
-                commit_message,
-                event.actor,
-                event.timestamp,
-                dcim_client=dcim_client,
-                raise_transient_errors=True,
-            )
+            try:
+                _, failures = await queue_render_batch(
+                    device_ids,
+                    commit_message,
+                    event.actor,
+                    event.timestamp,
+                    dcim_client=dcim_client,
+                    raise_transient_errors=True,
+                    retry_key=retry_key,
+                )
+            except Exception as exc:
+                if not is_transient_dependency_error(exc):
+                    raise
+                # Keep going so one group's outage does not hold back the others.
+                transient_error = transient_error or exc
+                continue
             for failure in failures:
                 self.logger.info(
                     "Render request for %s was not queued: %s",
                     failure["device_uuid"],
                     failure["error"],
                 )
+        if transient_error is not None:
+            raise transient_error
 
     async def dcim_event_dispatch(self, event: DCIMChangeEvent) -> None:
         """Invoke the selected provider's handler for one normalized event."""

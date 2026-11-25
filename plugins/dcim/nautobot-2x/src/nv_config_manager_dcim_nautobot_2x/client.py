@@ -29,7 +29,12 @@ import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
 from aiohttp_retry import ExponentialRetry, RetryClient
 from graphql import GraphQLError, OperationDefinitionNode, OperationType, parse
-from nv_config_manager_dcim.errors import DCIMError, DCIMInvalidDataError, DCIMReadCancelledError
+from nv_config_manager_dcim.errors import (
+    DCIMConnectivityError,
+    DCIMError,
+    DCIMInvalidDataError,
+    DCIMReadCancelledError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +147,14 @@ class NautobotReadCancelledError(NautobotException, DCIMReadCancelledError):
 
     Also a DCIMReadCancelledError so callers that never import this provider
     can tell "try again later" apart from "this query is wrong".
+    """
+
+
+class NautobotUnavailableError(NautobotException, DCIMConnectivityError):
+    """Nautobot's REST API answered with HTTP 429 or a server error.
+
+    Also a DCIMConnectivityError so callers that never import this provider
+    can retry the request instead of treating it as a rejected one.
     """
 
 
@@ -282,7 +295,8 @@ class NautobotClient:
             path: API path that was requested
 
         Raises:
-            NautobotException: Always raised with status and response body details
+            NautobotException: Always raised with status and response body details.
+                HTTP 429 and 5xx raise its NautobotUnavailableError subclass.
         """
         # Try to get the response body for error details
         try:
@@ -294,7 +308,12 @@ class NautobotClient:
             except Exception:
                 error_body = "<unable to read response body>"
 
-        raise NautobotException(
+        error_type = (
+            NautobotUnavailableError
+            if rsp.status == 429 or rsp.status >= 500
+            else NautobotException
+        )
+        raise error_type(
             f"Nautobot API error: {method} {path} returned {rsp.status}: {error_body}",
             status_code=rsp.status,
         )

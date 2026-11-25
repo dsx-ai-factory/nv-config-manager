@@ -20,6 +20,7 @@ import aiohttp
 import nats.errors
 import nats.js.errors
 import pytest
+import redis.exceptions
 
 from nv_config_manager.common.client.config_store import (
     ConfigStoreException,
@@ -48,7 +49,11 @@ def _response_error(status: int) -> aiohttp.ClientResponseError:
         DCIMReadCancelledError("cancelled"),
         ConfigStoreUnavailableError("unavailable"),
         aiohttp.ClientConnectionError("refused"),
+        aiohttp.ClientPayloadError("Response payload is not completed"),
         TimeoutError(),
+        redis.exceptions.ConnectionError("refused"),
+        redis.exceptions.TimeoutError("timed out"),
+        redis.exceptions.BusyLoadingError("loading"),
         _response_error(500),
         _response_error(503),
         _response_error(429),
@@ -82,6 +87,7 @@ def test_failures_that_may_succeed_later_are_transient(exc: Exception) -> None:
         _response_error(400),
         _response_error(404),
         KeyError("commit_message"),
+        redis.exceptions.ResponseError("WRONGTYPE"),
         nats.errors.BadSubjectError(),
         nats.errors.MaxPayloadError(),
         nats.errors.AuthorizationError(),

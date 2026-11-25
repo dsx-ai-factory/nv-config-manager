@@ -17,6 +17,7 @@
 import aiohttp
 import nats.errors
 import nats.js.errors
+import redis.exceptions
 
 from nv_config_manager.common.client.config_store import ConfigStoreUnavailableError
 from nv_config_manager.dcim import DCIMConnectivityError, DCIMReadCancelledError
@@ -31,7 +32,7 @@ class RenderScopeMismatch(RenderException):
 
 
 def is_transient_dependency_error(exc: BaseException) -> bool:
-    """Return whether a DCIM, Config Store, or NATS failure may succeed if retried.
+    """Return whether a DCIM, Config Store, NATS, or Redis failure may succeed if retried.
 
     Data errors are not transient: the render cannot succeed until the data is
     fixed, and fixing it publishes a new change event anyway.
@@ -45,7 +46,10 @@ def is_transient_dependency_error(exc: BaseException) -> bool:
             DCIMReadCancelledError,
             ConfigStoreUnavailableError,
             aiohttp.ClientConnectionError,
+            aiohttp.ClientPayloadError,
             TimeoutError,
+            redis.exceptions.ConnectionError,
+            redis.exceptions.TimeoutError,
             nats.errors.NoRespondersError,
             nats.errors.NoServersError,
             nats.errors.ConnectionClosedError,

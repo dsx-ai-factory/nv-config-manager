@@ -226,7 +226,9 @@ async def _render_with_data_failure(failure: Exception) -> None:
 @pytest.mark.parametrize(
     "failure", [DCIMConnectivityError("unreachable"), aiohttp.ClientConnectionError("refused")]
 )
-async def test_execute_render_keeps_transient_data_failures_retryable(failure) -> None:
+async def test_execute_render_keeps_transient_data_failures_retryable(
+    failure: Exception,
+) -> None:
     """An outage while loading render data is not reported as a render failure."""
     with pytest.raises(type(failure)) as caught:
         await _render_with_data_failure(failure)

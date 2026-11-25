@@ -14,15 +14,18 @@
 # limitations under the License.
 """Tests for provider-backed render event utility functions."""
 
+from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import nats.errors
 import nats.js.errors
 import pytest
+import redis.exceptions
 
 from nv_config_manager.dcim import DCIMConnectivityError, RenderDeviceStatus
 from nv_config_manager.render.events.util import (
+    PUBLISHED_DEVICES_TTL_SECONDS,
     DeviceNotEnabledError,
     EnqueueResult,
     _process_single_device_enqueue,
@@ -284,7 +287,9 @@ async def test_enqueue_failure_keeps_another_producers_flag(mock_dcim_client, cu
 
 
 @pytest.mark.asyncio
-async def test_enqueue_reraises_transient_dcim_failure(mock_dcim_client, custom_ini):
+async def test_enqueue_reraises_transient_dcim_failure(
+    mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
     """A DCIM outage during the status check is raised so the event can be retried."""
     custom_ini("[nats]\n")
     mock_dcim_client.get_render_device_status.side_effect = DCIMConnectivityError("down")
@@ -302,8 +307,8 @@ async def test_enqueue_reraises_transient_dcim_failure(mock_dcim_client, custom_
     "error", [TimeoutError, nats.js.errors.NoStreamResponseError, nats.errors.ConnectionClosedError]
 )
 async def test_enqueue_releases_claim_before_reraising_transient_failure(
-    error, mock_dcim_client, custom_ini
-):
+    error: type[Exception], mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
     """A publish NATS cannot complete releases this producer's claim so a retry can publish."""
     custom_ini("[nats]\n")
     _enable_device(mock_dcim_client)
@@ -318,8 +323,47 @@ async def test_enqueue_releases_claim_before_reraising_transient_failure(
     redis.delete.assert_awaited_once_with("device_queued")
 
 
+@pytest.mark.asyncio
+async def test_enqueue_keeps_publish_error_when_clearing_the_claim_fails(
+    mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A failed cleanup does not replace the publish failure the caller retries on."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _enqueue_redis(claimed=True)
+    redis_client.delete.side_effect = redis.exceptions.ConnectionError("redis down")
+    jetstream = _jetstream()
+    jetstream.publish.side_effect = TimeoutError()
+    logger = MagicMock()
+
+    with pytest.raises(TimeoutError):
+        await _process_single_device_enqueue(
+            "device", "msg", "user", "ts", jetstream, logger, redis_client, mock_dcim_client
+        )
+    logger.warning.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["exists", "set"])
+async def test_enqueue_reraises_redis_outage(
+    command: str, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A Redis outage during the queued check or claim is raised so the event is retried."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _enqueue_redis(claimed=True)
+    getattr(redis_client.redis, command).side_effect = redis.exceptions.ConnectionError("down")
+    jetstream = _jetstream()
+
+    with pytest.raises(redis.exceptions.ConnectionError):
+        await _process_single_device_enqueue(
+            "device", "msg", "user", "ts", jetstream, MagicMock(), redis_client, mock_dcim_client
+        )
+    jetstream.publish.assert_not_awaited()
+
+
 @pytest.fixture
-def batch_nats():
+def batch_nats() -> Iterator[MagicMock]:
     """Give the batch path a shared NATS connection and no Redis."""
     connection = MagicMock()
     connection.is_closed = False
@@ -339,7 +383,9 @@ def _status_or_outage(device_uuid: str) -> RenderDeviceStatus:
 
 
 @pytest.mark.asyncio
-async def test_batch_reports_transient_failure_by_device(batch_nats, mock_dcim_client, custom_ini):
+async def test_batch_reports_transient_failure_by_device(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
     """Callers that do not retry see the failed device rather than an exception."""
     custom_ini("[nats]\n")
     mock_dcim_client.get_render_device_status.side_effect = _status_or_outage
@@ -353,7 +399,9 @@ async def test_batch_reports_transient_failure_by_device(batch_nats, mock_dcim_c
 
 
 @pytest.mark.asyncio
-async def test_batch_raises_transient_failure_when_asked(batch_nats, mock_dcim_client, custom_ini):
+async def test_batch_raises_transient_failure_when_asked(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
     """The event dispatcher has the whole batch retried after a DCIM outage."""
     custom_ini("[nats]\n")
     mock_dcim_client.get_render_device_status.side_effect = _status_or_outage
@@ -368,6 +416,102 @@ async def test_batch_raises_transient_failure_when_asked(batch_nats, mock_dcim_c
             raise_transient_errors=True,
         )
     batch_nats.jetstream.return_value.publish.assert_awaited_once()
+
+
+def _batch_redis(published: set[bytes]) -> MagicMock:
+    """Give the batch path a Redis that remembers which devices a request queued."""
+    redis_client = _enqueue_redis(claimed=True)
+    redis_client.redis.smembers = AsyncMock(return_value=published)
+    redis_client.redis.sadd = AsyncMock()
+    redis_client.redis.expire = AsyncMock()
+    redis_client.close = AsyncMock()
+    return redis_client
+
+
+@pytest.mark.asyncio
+async def test_batch_retry_records_queued_devices_after_transient_failure(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A request that will be retried remembers the devices it already queued."""
+    custom_ini("[nats]\n")
+    mock_dcim_client.get_render_device_status.side_effect = _status_or_outage
+    redis_client = _batch_redis(set())
+
+    with (
+        patch(
+            "nv_config_manager.render.events.util._get_queue_redis_client",
+            return_value=redis_client,
+        ),
+        pytest.raises(DCIMConnectivityError),
+    ):
+        await queue_render_batch(
+            ["device-a", "device-b"],
+            "msg",
+            "user",
+            "ts",
+            dcim_client=mock_dcim_client,
+            raise_transient_errors=True,
+            retry_key="event",
+        )
+
+    redis_client.redis.sadd.assert_awaited_once_with("render_event_published:event", "device-a")
+    redis_client.redis.expire.assert_awaited_once_with(
+        "render_event_published:event", PUBLISHED_DEVICES_TTL_SECONDS
+    )
+
+
+@pytest.mark.asyncio
+async def test_batch_retry_skips_devices_an_earlier_attempt_queued(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A retried request queues only the devices that failed the first time."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _batch_redis({b"device-a"})
+
+    with patch(
+        "nv_config_manager.render.events.util._get_queue_redis_client", return_value=redis_client
+    ):
+        queued, failed = await queue_render_batch(
+            ["device-a", "device-b"],
+            "msg",
+            "user",
+            "ts",
+            dcim_client=mock_dcim_client,
+            raise_transient_errors=True,
+            retry_key="event",
+        )
+
+    assert (queued, failed) == (2, [])
+    mock_dcim_client.get_render_device_status.assert_awaited_once_with("device-b")
+    batch_nats.jetstream.return_value.publish.assert_awaited_once()
+    redis_client.redis.sadd.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_retry_queues_every_device_when_redis_cannot_be_read(
+    batch_nats: MagicMock, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """Losing the record of an earlier attempt repeats renders rather than dropping them."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _batch_redis(set())
+    redis_client.redis.smembers.side_effect = redis.exceptions.ConnectionError("down")
+
+    with patch(
+        "nv_config_manager.render.events.util._get_queue_redis_client", return_value=redis_client
+    ):
+        queued, failed = await queue_render_batch(
+            ["device-a", "device-b"],
+            "msg",
+            "user",
+            "ts",
+            dcim_client=mock_dcim_client,
+            retry_key="event",
+        )
+
+    assert (queued, failed) == (2, [])
+    assert batch_nats.jetstream.return_value.publish.await_count == 2
 
 
 @pytest.mark.asyncio
