@@ -222,7 +222,7 @@ def test_the_restart_is_spread_across_replicas() -> None:
         "nv_config_manager.common.config_watch.socket.gethostname",
         side_effect=[f"render-api-{replica}" for replica in range(20)],
     ):
-        delays = {config_watch._restart_delay(120.0) for _ in range(20)}
+        delays = {config_watch._restart_delay(120.0, _digest(ROTATED)) for _ in range(20)}
 
     assert len(delays) == 20
     assert all(0 <= delay <= 120.0 for delay in delays)
@@ -231,9 +231,18 @@ def test_the_restart_is_spread_across_replicas() -> None:
 def test_the_containers_of_a_pod_restart_together() -> None:
     """A pod whose containers drew separate delays would go unready once for each."""
     with patch("nv_config_manager.common.config_watch.socket.gethostname", return_value="dhcp-0"):
-        delays = {config_watch._restart_delay(120.0) for _ in range(3)}
+        delays = {config_watch._restart_delay(120.0, _digest(ROTATED)) for _ in range(3)}
 
     assert len(delays) == 1
+
+
+def test_each_change_draws_a_new_delay_for_the_pod() -> None:
+    """Replicas whose delays once fell close together must not overlap on every change."""
+    with patch("nv_config_manager.common.config_watch.socket.gethostname", return_value="dhcp-0"):
+        first = config_watch._restart_delay(120.0, _digest(ROTATED))
+        second = config_watch._restart_delay(120.0, _digest(RENAMED_STREAM))
+
+    assert first != second
 
 
 def test_containers_that_notice_at_different_times_signal_at_the_same_time(ini: Path) -> None:
@@ -244,7 +253,7 @@ def test_containers_that_notice_at_different_times_signal_at_the_same_time(ini: 
         for noticed_after in (1.0, 12.0, 29.0):
             now = changed_at + noticed_after
             with patch("nv_config_manager.common.config_watch.time.time", return_value=now):
-                wait = config_watch._seconds_until_restart(str(ini), 30.0, 120.0)
+                wait = config_watch._seconds_until_restart(str(ini), 30.0, 120.0, "digest")
             signal_times.add(round(now + wait, 6))
 
     assert signal_times == {round(changed_at + 30.0 + 40.0, 6)}
@@ -257,11 +266,11 @@ def test_a_change_noticed_late_is_not_delayed_further(ini: Path) -> None:
         with patch(
             "nv_config_manager.common.config_watch.time.time", return_value=changed_at + 600.0
         ):
-            assert config_watch._seconds_until_restart(str(ini), 30.0, 120.0) == 0.0
+            assert config_watch._seconds_until_restart(str(ini), 30.0, 120.0, "digest") == 0.0
         with patch(
             "nv_config_manager.common.config_watch.time.time", return_value=changed_at - 600.0
         ):
-            assert config_watch._seconds_until_restart(str(ini), 30.0, 120.0) == 70.0
+            assert config_watch._seconds_until_restart(str(ini), 30.0, 120.0, "digest") == 70.0
 
 
 def test_the_watch_waits_out_its_delay_before_signalling(ini: Path) -> None:
@@ -271,7 +280,27 @@ def test_the_watch_waits_out_its_delay_before_signalling(ini: Path) -> None:
     ) as wait:
         signals = _watch_while(ini, change=lambda: ini.write_text(ROTATED), max_jitter=20.0)
 
-    wait.assert_called_once_with(str(ini), POLL_INTERVAL, 20.0)
+    wait.assert_called_once_with(str(ini), POLL_INTERVAL, 20.0, _digest(ROTATED))
+    assert signals == [(os.getpid(), signal.SIGTERM)]
+
+
+def test_a_second_change_during_the_delay_reschedules_from_the_newer_version(ini: Path) -> None:
+    """A container that slept through the second change would signal apart from its pod."""
+
+    def change_twice() -> None:
+        ini.write_text(ROTATED)
+        time.sleep(POLL_INTERVAL * 10)
+        ini.write_text(RENAMED_STREAM)
+
+    with patch(
+        "nv_config_manager.common.config_watch._seconds_until_restart", return_value=0.3
+    ) as wait:
+        signals = _watch_while(ini, change=change_twice)
+
+    assert [call.args[3] for call in wait.call_args_list] == [
+        _digest(ROTATED),
+        _digest(RENAMED_STREAM),
+    ]
     assert signals == [(os.getpid(), signal.SIGTERM)]
 
 

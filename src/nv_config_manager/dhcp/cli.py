@@ -481,11 +481,17 @@ def _cancel_on_sigterm() -> None:
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
 
 
-def _run_until_sigterm(loop: Coroutine[Any, Any, None]) -> None:
-    """Run a loop to completion, treating a shutdown request as a clean exit."""
+def _run_until_sigterm(loop: Coroutine[Any, Any, None], periodic: bool) -> None:
+    """Run a loop to completion, treating a shutdown of a periodic run as a clean exit.
+
+    A one-shot run reports through its exit status whether the work was done,
+    so a cancellation there is left to fail the command.
+    """
     try:
         asyncio.run(loop)
     except asyncio.CancelledError:
+        if not periodic:
+            raise
         logger.info("Received SIGTERM, stopping")
 
 
@@ -593,7 +599,9 @@ def refresh_kea_configuration(
     if refresh_interval:
         restart_on_config_change()
 
-    _run_until_sigterm(_refresh_loop_async(ip_version, check, refresh_interval))
+    _run_until_sigterm(
+        _refresh_loop_async(ip_version, check, refresh_interval), periodic=bool(refresh_interval)
+    )
 
 
 async def _load_kea_config_with_timeout(
@@ -1026,7 +1034,8 @@ def sync_kea_configuration(
         restart_on_config_change()
 
     _run_until_sigterm(
-        _sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file)
+        _sync_kea_configuration_async(ip_version, refresh_interval, debug, heartbeat_file),
+        periodic=bool(refresh_interval),
     )
 
 

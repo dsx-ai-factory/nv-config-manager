@@ -13,10 +13,12 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 - Long-lived services now exit, and Kubernetes restarts them, when a setting in
   `nv-config-manager.ini` changes, so a rotated credential or renamed NATS
-  stream takes effect without a manual rollout. Each pod waits a delay of up
-  to two minutes first, shared by its containers so the pod goes unready once,
-  and the log line names the settings that changed, never their values. Expect
-  container restarts a few minutes after the mounted Secret updates. A change
+  stream takes effect without a manual rollout. Each pod restarts between 30
+  seconds and two and a half minutes after the file changes, at a moment
+  shared by its containers so the pod goes unready once and drawn afresh for
+  each change, and the log line names the settings that changed, never their
+  values. Expect container restarts a few minutes after the mounted Secret
+  updates. A change
   to comments, whitespace, or ordering alone restarts nothing, and neither
   does a value that changes back before the delay ends. For a file that
   cannot be parsed, the restart watcher logs an error and does not restart;

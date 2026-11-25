@@ -1001,10 +1001,20 @@ def test_sigterm_stops_a_loop_cleanly(caplog: pytest.LogCaptureFixture) -> None:
             closed.append(True)
 
     with caplog.at_level(logging.INFO):
-        cli._run_until_sigterm(loop())
+        cli._run_until_sigterm(loop(), periodic=True)
 
     assert closed == [True]
     assert "Received SIGTERM, stopping" in caplog.text
+
+
+def test_a_cancelled_one_shot_run_does_not_report_success() -> None:
+    """A one-shot run that did not finish must not look like one that did."""
+
+    async def cancelled() -> None:
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        cli._run_until_sigterm(cancelled(), periodic=False)
 
 
 @pytest.mark.parametrize(("refresh_interval", "handled"), [(300, True), (0, False)])

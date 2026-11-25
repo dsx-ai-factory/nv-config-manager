@@ -26,6 +26,7 @@ every service, forever. Restarting replaces all of it at once.
 from __future__ import annotations
 
 import configparser
+import enum
 import os
 import random
 import signal
@@ -54,24 +55,31 @@ DEFAULT_POLL_INTERVAL_SECONDS = 30.0
 DEFAULT_MAX_JITTER_SECONDS = 120.0
 
 
-def _restart_delay(max_jitter: float) -> float:
-    """Pick this pod's share of the restart spread.
+def _restart_delay(max_jitter: float, digest: str) -> float:
+    """Pick this pod's share of the restart spread for one version of the file.
 
-    The containers of a pod share a hostname, so they draw the same delay and
-    the pod goes unready once. Drawn per process, each container would take
-    the pod out of service at a different moment in the window.
+    The containers of a pod share a hostname and read the same file, so they
+    draw the same delay and the pod goes unready once. Drawn per process, each
+    container would take the pod out of service at a different moment in the
+    window. The file's digest is part of the seed so that each change draws
+    afresh: seeded by hostname alone, replicas whose delays happened to fall
+    close together would overlap on every change for as long as they lived.
 
     Args:
         max_jitter: Upper bound on the delay
+        digest: Content digest of the version being restarted into
 
     Returns:
-        Seconds to wait before signalling, the same for every call in this pod
+        Seconds to wait before signalling, the same for every container in
+        this pod that sees this version
     """
     # Spreading load, not cryptography.
-    return random.Random(socket.gethostname()).uniform(0, max_jitter)  # noqa: S311
+    return random.Random(f"{socket.gethostname()}:{digest}").uniform(0, max_jitter)  # noqa: S311
 
 
-def _seconds_until_restart(path: str, poll_interval: float, max_jitter: float) -> float:
+def _seconds_until_restart(
+    path: str, poll_interval: float, max_jitter: float, digest: str
+) -> float:
     """Return how long to wait so that a pod's containers signal together.
 
     Each container polls on its own phase and notices a change up to one poll
@@ -83,12 +91,13 @@ def _seconds_until_restart(path: str, poll_interval: float, max_jitter: float) -
         path: File that changed
         poll_interval: Seconds between checks
         max_jitter: Upper bound on the pod's delay
+        digest: Content digest of the version being restarted into
 
     Returns:
         Seconds to wait before signalling, never more than a delay counted
         from now
     """
-    from_now = poll_interval + _restart_delay(max_jitter)
+    from_now = poll_interval + _restart_delay(max_jitter, digest)
     try:
         changed_at = os.stat(path).st_mtime
     except OSError:
@@ -161,6 +170,73 @@ def changed_keys(before: str, after: str) -> list[str]:
     return _differing(_settings(before) or {}, _settings(after) or {})
 
 
+class _Hold(enum.Enum):
+    """How the wait between noticing a change and acting on it ended."""
+
+    RESTART = enum.auto()
+    CANCELLED = enum.auto()
+    STOPPED = enum.auto()
+
+
+def _hold_for_restart(
+    path: str,
+    settings: dict[str, str],
+    scheduled: str,
+    poll_interval: float,
+    max_jitter: float,
+    stop: threading.Event,
+) -> tuple[_Hold, str | None]:
+    """Wait out this pod's delay, following the file while it does.
+
+    The file can change again during the delay. It is read on every poll so
+    that all of a pod's containers end up scheduled from the same version: one
+    that slept through a second change would otherwise signal on the first
+    version's time while its neighbours signalled on the second's. A file that
+    keeps changing keeps the restart pending until it settles.
+
+    Args:
+        path: File that changed
+        settings: Settings the process already holds
+        scheduled: Digest of the version the wait starts from
+        poll_interval: Seconds between checks
+        max_jitter: Upper bound on the pod's delay
+        stop: Set this to abandon the watch without touching the process
+
+    Returns:
+        RESTART when the delay ran out on a version the process should pick
+        up. CANCELLED when the restart is off, with the digest to adopt when
+        the settings went back to what the process holds. STOPPED when the
+        watch itself was abandoned.
+    """
+    deadline = time.time() + _seconds_until_restart(path, poll_interval, max_jitter, scheduled)
+    while True:
+        if stop.wait(min(poll_interval, max(0.0, deadline - time.time()))):
+            return _Hold.STOPPED, None
+
+        # Restart only into a file the process can load and that still
+        # differs from what it holds.
+        latest = read_config_snapshot(path)
+        latest_settings = _settings(_decode(latest[1])) if latest is not None else None
+        if latest is None or latest_settings is None:
+            logger.error(
+                "Configuration file %s can no longer be loaded, "
+                "keeping the configuration already loaded",
+                path,
+            )
+            return _Hold.CANCELLED, None
+        if not _differing(settings, latest_settings):
+            logger.info("Configuration file %s changed back, not restarting", path)
+            return _Hold.CANCELLED, latest[0]
+        if latest[0] != scheduled:
+            scheduled = latest[0]
+            deadline = time.time() + _seconds_until_restart(
+                path, poll_interval, max_jitter, scheduled
+            )
+            continue
+        if time.time() >= deadline:
+            return _Hold.RESTART, None
+
+
 def _watch(
     path: str,
     poll_interval: float,
@@ -224,24 +300,13 @@ def _watch(
             path,
             ", ".join(changed),
         )
-        if stop.wait(_seconds_until_restart(path, poll_interval, max_jitter)):
+        outcome, adopted = _hold_for_restart(
+            path, settings, current, poll_interval, max_jitter, stop
+        )
+        if outcome is _Hold.STOPPED:
             return
-
-        # The file can change again during the delay, so look once more before
-        # disturbing the process. Restart only into a file it can load and
-        # that still differs from what it holds.
-        latest = read_config_snapshot(path)
-        latest_settings = _settings(_decode(latest[1])) if latest is not None else None
-        if latest is None or latest_settings is None:
-            logger.error(
-                "Configuration file %s can no longer be loaded, "
-                "keeping the configuration already loaded",
-                path,
-            )
-            continue
-        if not _differing(settings, latest_settings):
-            logger.info("Configuration file %s changed back, not restarting", path)
-            digest = latest[0]
+        if outcome is _Hold.CANCELLED:
+            digest = adopted if adopted is not None else digest
             continue
 
         # Each service already shuts down cleanly on SIGTERM, the same way it
