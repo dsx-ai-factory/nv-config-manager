@@ -39,14 +39,6 @@ The promotion workflow extracts GitHub release notes from that commit.
   seconds for the message it is handling before closing its NATS connection.
   Before, it closed the connection at once, so a render that finished
   afterwards could not acknowledge its message and was delivered again.
-- File-backed ZTP uploads are now written to a staging file under `.uploads`
-  in the file store and moved into place once complete, and the manifest is
-  replaced the same way. An upload interrupted during the copy leaves the
-  previous file and manifest entry intact, and a retry no longer fails with
-  "File already exists". Replacing an image now needs free space for the
-  whole new file, since the old one is kept until the new one is complete. A
-  process killed in the instant between the file and the manifest being
-  replaced can still leave the two out of step.
 - The Config Manager Temporal worker now handles SIGTERM: it stops taking new
   tasks and gives running activities 25 seconds to finish before cancelling
   them. Before, it ignored the signal and was killed at the end of the pod's
