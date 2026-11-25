@@ -20,9 +20,10 @@ import os
 import signal
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -125,19 +126,24 @@ def _watch_while(
         )
         watcher.start()
 
-        # Changing the file before the watch has read it would make the new
-        # contents its baseline, and the change would go unnoticed.
-        assert baseline_taken.wait(timeout=5.0)
-        if change is not None:
-            change()
+        try:
+            # Changing the file before the watch has read it would make the new
+            # contents its baseline, and the change would go unnoticed.
+            assert baseline_taken.wait(timeout=5.0)
+            if change is not None:
+                change()
 
-        # A watch with nothing to act on never returns, so give it a bounded
-        # chance to react and then take it down.
-        deadline = time.monotonic() + 1.0
-        while not signals and time.monotonic() < deadline:
-            time.sleep(POLL_INTERVAL)
-        stop.set()
-        watcher.join(timeout=5.0)
+            # A watch with nothing to act on never returns, so give it a bounded
+            # chance to react and then take it down.
+            deadline = time.monotonic() + 1.0
+            while not signals and time.monotonic() < deadline:
+                time.sleep(POLL_INTERVAL)
+        finally:
+            # Stopped while os.kill is still patched: a watch left running by a
+            # failed assertion would otherwise signal the test process itself.
+            stop.set()
+            watcher.join(timeout=5.0)
+            assert not watcher.is_alive()
 
     return signals
 
@@ -297,35 +303,54 @@ def test_the_watch_waits_out_its_delay_before_signalling(ini: Path) -> None:
     assert signals == [(os.getpid(), signal.SIGTERM)]
 
 
-def _scheduling() -> tuple[threading.Event, Callable[..., float]]:
-    """Return an event set once the watch has scheduled a restart, and the stub that sets it.
+@contextmanager
+def _second_write(
+    write: Callable[[], object],
+) -> Iterator[tuple[Callable[[], None], MagicMock]]:
+    """Patch the restart delay so a second write always lands inside it.
 
-    A test that changes the file again during the delay has to wait for this.
-    Sleeping instead leaves it to the scheduler whether the watch saw the
-    first change at all.
+    The watch blocks in its first scheduling call until the test has written
+    the file again, so neither side depends on how the threads are scheduled:
+    the second write cannot come before the watch saw the first change, nor
+    after the delay has run out.
+
+    Args:
+        write: Makes the second change to the file
+
+    Yields:
+        A function to call after the first change, which waits for the watch
+        to schedule it and then makes the second, and the patched delay
     """
     scheduled = threading.Event()
+    released = threading.Event()
 
     def schedule(*_args: object) -> float:
         scheduled.set()
-        return 0.3
+        released.wait(timeout=5.0)
+        return 0.0
 
-    return scheduled, schedule
+    def write_again() -> None:
+        try:
+            assert scheduled.wait(timeout=5.0)
+            write()
+        finally:
+            released.set()
+
+    with patch(
+        "nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule
+    ) as wait:
+        yield write_again, wait
 
 
 def test_a_second_change_during_the_delay_reschedules_from_the_newer_version(ini: Path) -> None:
     """A container that slept through the second change would signal apart from its pod."""
 
-    scheduled, schedule = _scheduling()
+    with _second_write(lambda: ini.write_text(RENAMED_STREAM)) as (write_again, wait):
 
-    def change_twice() -> None:
-        ini.write_text(ROTATED)
-        assert scheduled.wait(timeout=5.0)
-        ini.write_text(RENAMED_STREAM)
+        def change_twice() -> None:
+            ini.write_text(ROTATED)
+            write_again()
 
-    with patch(
-        "nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule
-    ) as wait:
         signals = _watch_while(ini, change=change_twice)
 
     assert [call.args[3] for call in wait.call_args_list] == [
@@ -340,19 +365,18 @@ def test_a_change_that_is_undone_during_the_delay_does_not_restart(
 ) -> None:
     """A value that flips and flips back leaves a process nothing to pick up."""
 
-    scheduled, schedule = _scheduling()
-
-    def flip_and_flip_back() -> None:
-        ini.write_text(ROTATED)
-        assert scheduled.wait(timeout=5.0)
-        ini.write_text(ORIGINAL)
-
     with (
-        patch("nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule),
+        _second_write(lambda: ini.write_text(ORIGINAL)) as (write_again, wait),
         caplog.at_level("INFO", logger=config_watch.logger.name),
     ):
+
+        def flip_and_flip_back() -> None:
+            ini.write_text(ROTATED)
+            write_again()
+
         signals = _watch_while(ini, change=flip_and_flip_back)
 
+    wait.assert_called_once()
     assert signals == []
     assert f"Configuration file {ini} changed back, not restarting" in caplog.messages
 
@@ -371,19 +395,15 @@ def test_a_change_that_breaks_during_the_delay_does_not_restart(
 ) -> None:
     """A working process must not be stopped for a file it could not load."""
 
-    scheduled, schedule = _scheduling()
+    with _second_write(lambda: replace(ini)) as (write_again, wait):
 
-    def change_then_break() -> None:
-        ini.write_text(ROTATED)
-        assert scheduled.wait(timeout=5.0)
-        replace(ini)
+        def change_then_break() -> None:
+            ini.write_text(ROTATED)
+            write_again()
 
-    with patch(
-        "nv_config_manager.common.config_watch._seconds_until_restart", side_effect=schedule
-    ):
         signals = _watch_while(ini, change=change_then_break)
 
-    assert scheduled.is_set()
+    wait.assert_called_once()
     assert signals == []
 
 
