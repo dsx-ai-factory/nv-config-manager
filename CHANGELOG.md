@@ -25,7 +25,9 @@ The promotion workflow extracts GitHub release notes from that commit.
   services that re-read the file themselves still fail until it is fixed. A
   process still running 30 seconds after the restart request is stopped
   outright. This covers the DHCP configuration refresh and sync loops as well
-  as the API, consumer, worker, and scheduler services.
+  as the API, consumer, worker, and scheduler services. The DHCP API reads
+  everything except `dhcp.cors_origins` from the file on each request, so it
+  restarts only when that setting changes.
 - The API services now wait at most 25 seconds for open requests to finish
   after SIGTERM, so a long request can no longer hold a shutdown past the
   pod's grace period.

@@ -83,6 +83,7 @@ def _watch_while(
     path: Path,
     change: Callable[[], None] | None = None,
     max_jitter: float = 0.0,
+    only: tuple[str, ...] | None = None,
 ) -> list[tuple[int, int]]:
     """Start a watch, apply a change to the file, and report any signal sent.
 
@@ -93,6 +94,7 @@ def _watch_while(
         path: INI file being watched
         change: Applied once the watch has taken its baseline
         max_jitter: Upper bound on the delay before signalling
+        only: Names of the settings the watch restarts for, or None for all
 
     Returns:
         The (pid, signal) pairs the watch sent
@@ -118,6 +120,7 @@ def _watch_while(
         watcher = threading.Thread(
             target=_watch,
             args=(str(path), POLL_INTERVAL, max_jitter, stop),
+            kwargs={"only": only},
             daemon=True,
         )
         watcher.start()
@@ -151,6 +154,16 @@ def test_a_renamed_stream_stops_the_process(ini: Path) -> None:
     signals = _watch_while(ini, change=lambda: ini.write_text(RENAMED_STREAM))
 
     assert signals == [(os.getpid(), signal.SIGTERM)]
+
+
+def test_a_service_restarts_only_for_the_settings_it_reads_at_startup(ini: Path) -> None:
+    """A service that reads a setting on each use gains nothing from a restart for it."""
+    only = ("nats.config_manager_stream",)
+
+    assert _watch_while(ini, change=lambda: ini.write_text(ROTATED), only=only) == []
+    assert _watch_while(ini, change=lambda: ini.write_text(RENAMED_STREAM), only=only) == [
+        (os.getpid(), signal.SIGTERM)
+    ]
 
 
 def test_an_unchanged_file_leaves_the_process_alone(ini: Path) -> None:

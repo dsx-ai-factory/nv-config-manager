@@ -33,6 +33,7 @@ import signal
 import socket
 import threading
 import time
+from collections.abc import Collection
 
 from nv_config_manager.common.ini import (
     config_path,
@@ -119,11 +120,12 @@ FORCED_EXIT_CODE = 1
 _watch_started = threading.Lock()
 
 
-def _settings(text: str | None) -> dict[str, str] | None:
+def _settings(text: str | None, only: Collection[str] | None = None) -> dict[str, str] | None:
     """Parse INI text the way the loader does, flattened to "section.option".
 
     Args:
         text: Contents of an INI file, or None when they could not be decoded
+        only: Names of the settings to keep, or None to keep them all
 
     Returns:
         The settings, or None when a service could not load this file
@@ -139,6 +141,7 @@ def _settings(text: str | None) -> dict[str, str] | None:
         f"{section}.{option}": value
         for section in parser.sections()
         for option, value in parser[section].items()
+        if only is None or f"{section}.{option}" in only
     }
 
 
@@ -185,6 +188,7 @@ def _hold_for_restart(
     poll_interval: float,
     max_jitter: float,
     stop: threading.Event,
+    only: Collection[str] | None = None,
 ) -> tuple[_Hold, str | None]:
     """Wait out this pod's delay, following the file while it does.
 
@@ -201,6 +205,7 @@ def _hold_for_restart(
         poll_interval: Seconds between checks
         max_jitter: Upper bound on the pod's delay
         stop: Set this to abandon the watch without touching the process
+        only: Names of the settings this process restarts for, or None for all
 
     Returns:
         RESTART when the delay ran out on a version the process should pick
@@ -216,7 +221,7 @@ def _hold_for_restart(
         # Restart only into a file the process can load and that still
         # differs from what it holds.
         latest = read_config_snapshot(path)
-        latest_settings = _settings(_decode(latest[1])) if latest is not None else None
+        latest_settings = _settings(_decode(latest[1]), only) if latest is not None else None
         if latest is None or latest_settings is None:
             logger.error(
                 "Configuration file %s can no longer be loaded, "
@@ -244,6 +249,7 @@ def _watch(
     stop: threading.Event,
     baseline: tuple[str, str] | None = None,
     shutdown_grace: float = DEFAULT_SHUTDOWN_GRACE_SECONDS,
+    only: Collection[str] | None = None,
 ) -> None:
     """Poll until the file's settings change, then signal a shutdown.
 
@@ -256,11 +262,12 @@ def _watch(
             the file is not a safe baseline: the process is still using the
             earlier copy, so a change in between would never restart it.
         shutdown_grace: Seconds the process gets to exit after the signal
+        only: Names of the settings this process restarts for, or None for all
     """
     if baseline is None:
         baseline = _read_baseline(path)
     digest, contents = baseline if baseline is not None else (None, "")
-    settings = _settings(contents) or {}
+    settings = _settings(contents, only) or {}
     rejected: str | None = None
 
     while not stop.wait(poll_interval):
@@ -274,7 +281,7 @@ def _watch(
             continue
 
         current, raw = snapshot
-        new_settings = _settings(_decode(raw))
+        new_settings = _settings(_decode(raw), only)
         if new_settings is None:
             # Restarting would trade a working process for one that cannot
             # load its configuration, in every service at once. Keep running on
@@ -301,7 +308,7 @@ def _watch(
             ", ".join(changed),
         )
         outcome, adopted = _hold_for_restart(
-            path, settings, current, poll_interval, max_jitter, stop
+            path, settings, current, poll_interval, max_jitter, stop, only
         )
         if outcome is _Hold.STOPPED:
             return
@@ -343,6 +350,7 @@ def restart_on_config_change(
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
     max_jitter: float = DEFAULT_MAX_JITTER_SECONDS,
     shutdown_grace: float = DEFAULT_SHUTDOWN_GRACE_SECONDS,
+    only: Collection[str] | None = None,
 ) -> bool:
     """Watch the unified INI file and stop this process when it changes.
 
@@ -356,6 +364,10 @@ def restart_on_config_change(
         shutdown_grace: Seconds the process gets to exit cleanly before it is
             stopped outright. Pass more than the default for a service whose
             own shutdown is allowed to take longer.
+        only: "section.option" names of the settings this process restarts
+            for. Leave unset unless the service reads everything else from
+            the file on each use, so that a restart for those would only cost
+            availability.
 
     Returns:
         True when a watch was started, False when one was already running
@@ -370,9 +382,13 @@ def restart_on_config_change(
     baseline = loaded_config_snapshot(path) or _read_baseline(path)
     threading.Thread(
         target=_watch,
-        args=(path, poll_interval, max_jitter, threading.Event(), baseline, shutdown_grace),
+        args=(path, poll_interval, max_jitter, threading.Event(), baseline, shutdown_grace, only),
         name="config-watch",
         daemon=True,
     ).start()
-    logger.info("Watching %s for configuration changes", path)
+    logger.info(
+        "Watching %s for configuration changes to %s",
+        path,
+        ", ".join(sorted(only)) if only is not None else "any setting",
+    )
     return True

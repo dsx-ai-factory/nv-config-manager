@@ -73,6 +73,12 @@ setup_tracing("dhcp")
 
 _MAX_KEA_LEASE_PAGES_PER_REQUEST = 10
 
+# The one setting this process reads only at startup. Its Kea and Redis
+# clients and its auth settings are built from the file on each request, so
+# restarting for any other change would only take the pod out of service
+# while the API starts up again.
+STARTUP_ONLY_SETTINGS = ("dhcp.cors_origins",)
+
 
 def _install_cors(application: FastAPI) -> None:
     """Allow configured UI origins to call the DHCP API with credentials."""
@@ -328,7 +334,7 @@ def main() -> None:
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind to")
     args = parser.parse_args()
 
-    restart_on_config_change()
+    restart_on_config_change(only=STARTUP_ONLY_SETTINGS)
     uvicorn.run(
         "nv_config_manager.dhcp.api:app",
         host=args.host,
