@@ -35,6 +35,14 @@ The promotion workflow extracts GitHub release notes from that commit.
   refresh service now stop promptly on SIGTERM. Before, the loops ignored the
   signal and the cache refresh service did not act on it until its next
   refresh, so each was killed at the end of the pod's grace period.
+- A render consumer that is shut down now stops fetching and waits up to 25
+  seconds for the message it is handling before closing its NATS connection.
+  Before, it closed the connection at once, so a render that finished
+  afterwards could not acknowledge its message and was delivered again.
+- File-backed ZTP uploads are now written to a temporary file and renamed into
+  place, and the manifest is replaced the same way. An upload interrupted by a
+  restart leaves the previous file and manifest entry intact, and a retry no
+  longer fails with "File already exists".
 - The Config Manager Temporal worker now handles SIGTERM: it stops taking new
   tasks and gives running activities 25 seconds to finish before cancelling
   them. Before, it ignored the signal and was killed at the end of the pod's

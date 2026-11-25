@@ -47,7 +47,10 @@ from nv_config_manager.common.config.nats import (
     nats_nautobot_change_config,
     nats_render_change_config,
 )
-from nv_config_manager.common.config_watch import restart_on_config_change
+from nv_config_manager.common.config_watch import (
+    SERVICE_DRAIN_SECONDS,
+    restart_on_config_change,
+)
 from nv_config_manager.common.log import LogCategory, configure_logging, get_logger
 from nv_config_manager.common.nats_admin import (
     CONSUMER_ACK_WAIT_SECONDS,
@@ -76,6 +79,12 @@ RETRY_BACKOFF_MAX_SECONDS = 60
 # render's device lock outlast how long that lock can be held.
 LOCK_RETRY_INITIAL_SECONDS = 5
 LOCK_RETRY_MAX_SECONDS = 30
+
+# How long a shutdown waits for the message being handled before it closes the
+# connection anyway. It matches the drain other services allow, which ends
+# inside the grace period a process gets before it is stopped outright.
+SHUTDOWN_DRAIN_SECONDS = float(SERVICE_DRAIN_SECONDS)
+SHUTDOWN_DRAIN_POLL_SECONDS = 0.1
 
 CONSUMER_METRIC_LABELS = ["consumer_name", "stream_name", "namespace"]
 CONSUMER_PENDING = Gauge(
@@ -235,6 +244,7 @@ class PullConsumer:
             )
         self._last_round_trip = time.monotonic()
         self._handler_started: float | None = None
+        self._close_task: asyncio.Task[None] | None = None
 
     def run(self) -> None:
         """Run the consumer."""
@@ -250,6 +260,13 @@ class PullConsumer:
         try:
             self.loop.run_until_complete(self.main())
         finally:
+            # A shutdown closes the connection from its own task. Let it finish,
+            # or the cleanup below would cancel it before the connection closed.
+            if self._close_task is not None and not self.loop.is_closed():
+                try:
+                    self.loop.run_until_complete(self._close_task)
+                except Exception as e:
+                    self.logger.warning("Error closing NATS connection: %s", str(e))
             # Clean up any remaining tasks before closing the loop
             try:
                 # Only get pending tasks if the loop is still running
@@ -739,13 +756,34 @@ class PullConsumer:
         if terminated:
             CONSUMER_GIVEN_UP.labels(self.queue, self.stream, self.namespace, metric_reason).inc()
 
+    async def _drain_active_handler(self) -> None:
+        """Give the message being handled time to finish before the connection closes.
+
+        A render that completes after its connection is closed cannot
+        acknowledge its message, so JetStream delivers work that is already
+        done a second time. The fetch loop stops on its own once ``running``
+        is false, so only the handler in flight is waited for.
+        """
+        if self._handler_started is None:
+            return
+        self.logger.info("Waiting for the message being handled before closing NATS")
+        deadline = time.monotonic() + SHUTDOWN_DRAIN_SECONDS
+        while self._handler_started is not None and time.monotonic() < deadline:
+            await asyncio.sleep(SHUTDOWN_DRAIN_POLL_SECONDS)
+        if self._handler_started is not None:
+            self.logger.warning(
+                "Message still being handled after %.0fs, closing NATS; it will be redelivered",
+                SHUTDOWN_DRAIN_SECONDS,
+            )
+
     def _clean_exit(self) -> None:
-        """Cancel all running tasks and close the connection to NATS."""
+        """Stop fetching, let the active handler finish, then close the connection to NATS."""
         self.logger.info("Received shutdown signal, initiating clean exit...")
         self.running = False
         self._stop_requested = True
 
         async def close_connection() -> None:
+            await self._drain_active_handler()
             #
             # This quells "returning true from eof_received() has no"
             # effect when using ssl". Ref: asyncio/sslproto.py:_call_eof_received()
@@ -774,9 +812,9 @@ class PullConsumer:
             asyncio.log.logger.setLevel(old_asyncio_loglevel)
 
         # Closing the NATS connection will stop the subscriber task
-        if self.loop and not self.loop.is_closed():
+        if self._close_task is None and self.loop and not self.loop.is_closed():
             try:
-                self.loop.create_task(close_connection())
+                self._close_task = self.loop.create_task(close_connection())
             except RuntimeError as e:
                 self.logger.warning("Could not schedule close_connection task: %s", str(e))
 

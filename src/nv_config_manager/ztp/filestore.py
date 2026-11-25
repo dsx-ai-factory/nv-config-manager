@@ -17,9 +17,11 @@
 import asyncio
 import json
 import os
+import time
 from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO, Self
+from uuid import uuid4
 
 from nv_config_manager.ztp.storage import (
     ObjectStorageChangedException,
@@ -31,6 +33,23 @@ from nv_config_manager.ztp.storage import (
     ObjectStorageNotFoundException,
     parse_http_range,
 )
+
+# Suffix of a file still being uploaded. Such files are hidden from listings.
+_PARTIAL_UPLOAD_SUFFIX = ".uploading"
+
+# A partial upload older than this belongs to a process that stopped mid-copy.
+_STALE_UPLOAD_SECONDS = 3600
+
+
+def _remove_stale_uploads(directory: Path) -> None:
+    """Delete partial uploads left behind by a process that stopped mid-copy."""
+    cutoff = time.time() - _STALE_UPLOAD_SECONDS
+    for partial in directory.glob(f".*{_PARTIAL_UPLOAD_SUFFIX}"):
+        try:
+            if partial.stat().st_mtime < cutoff:
+                partial.unlink()
+        except OSError:
+            continue
 
 
 class FileStoreException(ObjectStorageException):
@@ -307,7 +326,7 @@ class FileStoreClient(ObjectStorageClient):
 
             objects: list[dict[str, Any]] = []
             for entry in os.scandir(str(dir_path)):
-                if entry.is_file():
+                if entry.is_file() and not entry.name.endswith(_PARTIAL_UPLOAD_SUFFIX):
                     stat = entry.stat()
                     objects.append(
                         {
@@ -383,20 +402,37 @@ class FileStoreClient(ObjectStorageClient):
 
             # Create directory if it doesn't exist
             file_path.parent.mkdir(parents=True, exist_ok=True)
+            _remove_stale_uploads(file_path.parent)
 
-            # Write the file
-            with open(file_path, mode="wb") as f:
-                while True:
-                    chunk = file.read(10 * 1024 * 1024)  # 10MB chunks
-                    if not chunk:
-                        break
-                    f.write(chunk)
-
-        await asyncio.to_thread(_write_file)
+            # Written beside the destination and renamed into place once
+            # complete, so a process that stops mid-upload leaves the previous
+            # file untouched instead of a truncated or half-replaced one.
+            partial = file_path.with_name(
+                f".{file_path.name}.{uuid4().hex}{_PARTIAL_UPLOAD_SUFFIX}"
+            )
+            try:
+                with open(partial, mode="wb") as f:
+                    while True:
+                        chunk = file.read(10 * 1024 * 1024)  # 10MB chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                os.replace(partial, file_path)
+            except BaseException:
+                partial.unlink(missing_ok=True)
+                raise
 
         tags = {"firmware-image": ""} if firmware_image else None
-        # Update manifest with the new upload
-        await self._add_to_manifest(platform, version, filename, checksum, tags)
+
+        async def _store() -> None:
+            await asyncio.to_thread(_write_file)
+            # Update manifest with the new upload
+            await self._add_to_manifest(platform, version, filename, checksum, tags)
+
+        # Shielded so a request cancelled during shutdown cannot stop between
+        # the rename and the manifest update: the copy runs on a thread that
+        # finishes regardless, and the manifest has to follow it.
+        await asyncio.shield(_store())
 
     async def _add_to_manifest(
         self,
@@ -438,7 +474,18 @@ class FileStoreClient(ObjectStorageClient):
             self.manifest.setdefault("images", []).append(entry)
 
         def _persist() -> None:
-            with open(self.manifest_path, "w") as f:
-                json.dump(self.manifest, f, indent=2)
+            # Renamed into place for the same reason as an upload: a manifest
+            # truncated by an interrupted write would lose every entry.
+            manifest_path = Path(self.manifest_path)
+            partial = manifest_path.with_name(
+                f".{manifest_path.name}.{uuid4().hex}{_PARTIAL_UPLOAD_SUFFIX}"
+            )
+            try:
+                with open(partial, "w") as f:
+                    json.dump(self.manifest, f, indent=2)
+                os.replace(partial, manifest_path)
+            except BaseException:
+                partial.unlink(missing_ok=True)
+                raise
 
         await asyncio.to_thread(_persist)

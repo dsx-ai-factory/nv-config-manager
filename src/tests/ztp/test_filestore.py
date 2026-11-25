@@ -14,8 +14,10 @@
 # limitations under the License.
 """Unit tests for FileStoreClient."""
 
+import asyncio
 import io
 import json
+import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -461,6 +463,108 @@ async def test_upload_file_overwrite_success(temp_storage_dir, monkeypatch):
 
     # Verify file was overwritten
     assert existing_file.read_bytes() == b"new content"
+
+
+class _FailsMidCopy(io.BytesIO):
+    """An upload whose source stops after its first chunk."""
+
+    def read(self, size: int | None = -1) -> bytes:
+        if self.tell():
+            raise OSError("connection lost")
+        return super().read(8)
+
+
+@pytest.mark.asyncio
+async def test_interrupted_overwrite_keeps_the_previous_file(temp_storage_dir, monkeypatch):
+    """A half-written image would no longer match the checksum the manifest publishes."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    await client.upload_file("test-platform", "1.0.0", "image.bin", "old", io.BytesIO(b"old"))
+    manifest_before = (Path(temp_storage_dir) / "manifest.json").read_text()
+
+    with pytest.raises(OSError, match="connection lost"):
+        await client.upload_file(
+            "test-platform", "1.0.0", "image.bin", "new", _FailsMidCopy(b"x" * 64), overwrite=True
+        )
+
+    directory = Path(temp_storage_dir) / "test-platform/1.0.0"
+    assert (directory / "image.bin").read_bytes() == b"old"
+    assert [p.name for p in directory.iterdir()] == ["image.bin"]
+    assert (Path(temp_storage_dir) / "manifest.json").read_text() == manifest_before
+
+
+@pytest.mark.asyncio
+async def test_interrupted_new_upload_can_be_retried(temp_storage_dir, monkeypatch):
+    """A leftover file with no manifest entry used to block the retry."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+
+    with pytest.raises(OSError, match="connection lost"):
+        await client.upload_file(
+            "test-platform", "1.0.0", "new.bin", "sum", _FailsMidCopy(b"x" * 64)
+        )
+    await client.upload_file("test-platform", "1.0.0", "new.bin", "sum", io.BytesIO(b"complete"))
+
+    assert (Path(temp_storage_dir) / "test-platform/1.0.0/new.bin").read_bytes() == b"complete"
+
+
+@pytest.mark.asyncio
+async def test_cancelled_upload_still_records_the_file_it_stored(temp_storage_dir, monkeypatch):
+    """A request cancelled at shutdown must not leave a stored file out of the manifest."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    reached_manifest = asyncio.Event()
+    release = asyncio.Event()
+    add_to_manifest = client._add_to_manifest
+
+    async def slow_add(*args, **kwargs):
+        reached_manifest.set()
+        await release.wait()
+        await add_to_manifest(*args, **kwargs)
+
+    monkeypatch.setattr(client, "_add_to_manifest", slow_add)
+    upload = asyncio.create_task(
+        client.upload_file("test-platform", "1.0.0", "image.bin", "sum", io.BytesIO(b"data"))
+    )
+    await asyncio.wait_for(reached_manifest.wait(), timeout=5.0)
+    upload.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await upload
+    release.set()
+    for _ in range(100):
+        if "image.bin" in (Path(temp_storage_dir) / "manifest.json").read_text():
+            break
+        await asyncio.sleep(0.01)
+
+    manifest = json.loads((Path(temp_storage_dir) / "manifest.json").read_text())
+    assert "test-platform/1.0.0/image.bin" in [image["path"] for image in manifest["images"]]
+
+
+@pytest.mark.asyncio
+async def test_partial_uploads_are_hidden_and_stale_ones_removed(temp_storage_dir, monkeypatch):
+    """A file still being copied is not an object, and an abandoned one is cleaned up."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    directory = Path(temp_storage_dir) / "test-platform/1.0.0"
+    directory.mkdir(parents=True)
+    stale = directory / ".old.bin.abc.uploading"
+    stale.write_bytes(b"abandoned")
+    os.utime(stale, (0, 0))
+    fresh = directory / ".other.bin.def.uploading"
+    fresh.write_bytes(b"in progress")
+
+    assert await client.list_object_keys("test-platform", "1.0.0") == []
+    await client.upload_file("test-platform", "1.0.0", "image.bin", "sum", io.BytesIO(b"data"))
+
+    assert not stale.exists()
+    assert fresh.exists()
+    assert [o["file"] for o in await client.list_object_keys("test-platform", "1.0.0")] == [
+        "image.bin"
+    ]
 
 
 @pytest.mark.asyncio
