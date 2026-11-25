@@ -15,6 +15,7 @@
 """Unit tests for FileStoreClient."""
 
 import asyncio
+import fcntl
 import io
 import json
 import os
@@ -734,6 +735,54 @@ async def test_uploads_through_separate_clients_keep_each_others_entries(
     paths = [image["path"] for image in manifest["images"]]
     assert "test-platform/1.0.0/a.bin" in paths
     assert "test-platform/1.0.0/b.bin" in paths
+
+
+@pytest.mark.asyncio
+async def test_manifest_updates_wait_for_another_process(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Replicas share the volume, so an update must wait for one in another process."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    client = FileStoreClient()
+    await client.connect()
+    manifest_path = Path(temp_storage_dir) / "manifest.json"
+
+    # A second open file description stands in for another process: flock
+    # locks belong to the description, not to the process.
+    with open(Path(temp_storage_dir) / ".manifest.lock", "a") as other:
+        fcntl.flock(other, fcntl.LOCK_EX)
+        upload = asyncio.create_task(
+            client.upload_file("test-platform", "1.0.0", "a.bin", "sum", io.BytesIO(b"a"))
+        )
+        await asyncio.sleep(0.2)
+        assert not upload.done()
+        assert "a.bin" not in manifest_path.read_text()
+
+        # The other process adds its entry and releases the lock.
+        manifest = json.loads(manifest_path.read_text())
+        manifest["images"].append({"path": "test-platform/1.0.0/other.bin", "sha256": "x"})
+        manifest_path.write_text(json.dumps(manifest))
+        fcntl.flock(other, fcntl.LOCK_UN)
+
+    await asyncio.wait_for(upload, timeout=5.0)
+    paths = [image["path"] for image in json.loads(manifest_path.read_text())["images"]]
+    assert "test-platform/1.0.0/a.bin" in paths
+    assert "test-platform/1.0.0/other.bin" in paths
+
+
+@pytest.mark.asyncio
+async def test_manifest_updates_proceed_when_the_volume_cannot_lock(
+    temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A volume without lock support must not stop uploads."""
+    monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
+    monkeypatch.setattr(fcntl, "flock", MagicMock(side_effect=OSError("not supported")))
+    client = FileStoreClient()
+    await client.connect()
+
+    await client.upload_file("test-platform", "1.0.0", "a.bin", "sum", io.BytesIO(b"a"))
+
+    assert "a.bin" in (Path(temp_storage_dir) / "manifest.json").read_text()
 
 
 @pytest.mark.asyncio

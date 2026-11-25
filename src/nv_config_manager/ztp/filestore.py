@@ -15,15 +15,19 @@
 """File Storage Client for PVC-based image storage."""
 
 import asyncio
+import fcntl
 import json
 import os
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO, Self
 from uuid import uuid4
 
+from nv_config_manager.common.log import LogCategory, get_logger
 from nv_config_manager.ztp.storage import (
     ObjectStorageChangedException,
     ObjectStorageClient,
@@ -34,6 +38,8 @@ from nv_config_manager.ztp.storage import (
     ObjectStorageNotFoundException,
     parse_http_range,
 )
+
+logger = get_logger(__name__, category=LogCategory.ZTP)
 
 # Files still being written live here, directly under the store's base path.
 # Stored objects are always three levels down (platform/version/filename), so
@@ -111,9 +117,34 @@ class FileStoreNotAuthorizedException(ObjectStorageNotAuthorizedException):
 _PATH_TRAVERSAL_MSG = "Path traversal detected: resolved path escapes base directory"
 
 # Clients are created per request and each holds its own copy of the manifest,
-# so updates are ordered across all of them in this process: the manifest is
-# read again, changed and replaced under this lock.
+# and every replica of the service mounts the same volume. Updates are ordered
+# across all of them: the manifest is read again, changed and replaced while
+# holding this lock within the process and a lock on the file below across
+# processes.
 _MANIFEST_LOCK = threading.Lock()
+
+# Lives at the store root rather than in the staging directory, whose stale
+# files are deleted: removing a lock file that is held would let a second
+# writer lock a new file of the same name.
+_MANIFEST_LOCK_FILE = ".manifest.lock"
+
+
+@contextmanager
+def _manifest_update(base_path: Path) -> Iterator[None]:
+    """Hold the manifest for one read-modify-replace, across threads and processes."""
+    with _MANIFEST_LOCK, open(base_path / _MANIFEST_LOCK_FILE, "a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        except OSError as exc:
+            # The volume does not support locks. Updates are then ordered
+            # within this process only, as they were before.
+            logger.warning("Could not lock the manifest across processes: %s", exc)
+            yield
+            return
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _file_revision(stat: os.stat_result) -> str:
@@ -501,8 +532,8 @@ class FileStoreClient(ObjectStorageClient):
         rel_path = f"{platform_normalized}/{version}/{filename}"
         self._within_store(self.base_path / rel_path)
 
-        with _MANIFEST_LOCK:
-            # Another client may have added entries since this one loaded its
+        with _manifest_update(self.base_path):
+            # Another client or replica may have added entries since this one loaded its
             # copy. Writing that copy back would drop them.
             try:
                 with open(self.manifest_path) as current:
