@@ -25,6 +25,7 @@ import redis.exceptions
 
 from nv_config_manager.dcim import DCIMConnectivityError, RenderDeviceStatus
 from nv_config_manager.render.events.util import (
+    _RETAKE_CLAIM,
     PUBLISHED_DEVICES_TTL_SECONDS,
     DeviceNotEnabledError,
     EnqueueResult,
@@ -371,6 +372,7 @@ async def test_enqueue_retry_publishes_over_its_own_leftover_claim(
     _enable_device(mock_dcim_client)
     redis_client = _enqueue_redis(claimed=True, queued=True)
     redis_client.redis.get = AsyncMock(return_value=b"event")
+    redis_client.redis.eval = AsyncMock(return_value=b"OK")
     jetstream = _jetstream()
 
     result = await _process_single_device_enqueue(
@@ -387,7 +389,38 @@ async def test_enqueue_retry_publishes_over_its_own_leftover_claim(
 
     assert result is EnqueueResult.PUBLISHED
     jetstream.publish.assert_awaited_once()
-    redis_client.redis.set.assert_awaited_once_with("device_queued", "event", nx=False, ex=60)
+    redis_client.redis.eval.assert_awaited_once_with(_RETAKE_CLAIM, 1, "device_queued", "event", 60)
+    redis_client.redis.set.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("claimed", "expected"), [(True, "PUBLISHED"), (False, "ALREADY_QUEUED")])
+async def test_enqueue_retry_does_not_overwrite_a_claim_made_since_its_check(
+    claimed: bool, expected: str, mock_dcim_client: AsyncMock, custom_ini: Callable[[str], None]
+) -> None:
+    """A leftover claim that is gone by the takeover is claimed afresh, or left to its new owner."""
+    custom_ini("[nats]\n")
+    _enable_device(mock_dcim_client)
+    redis_client = _enqueue_redis(claimed=claimed, queued=True)
+    redis_client.redis.get = AsyncMock(return_value=b"event")
+    redis_client.redis.eval = AsyncMock(return_value=None)
+    jetstream = _jetstream()
+
+    result = await _process_single_device_enqueue(
+        "device",
+        "msg",
+        "user",
+        "ts",
+        jetstream,
+        MagicMock(),
+        redis_client,
+        mock_dcim_client,
+        claim_token="event",
+    )
+
+    assert result is EnqueueResult[expected]
+    redis_client.redis.set.assert_awaited_once_with("device_queued", "event", nx=True, ex=60)
+    assert jetstream.publish.await_count == int(claimed)
 
 
 @pytest.mark.asyncio

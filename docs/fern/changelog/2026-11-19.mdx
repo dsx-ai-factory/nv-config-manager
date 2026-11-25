@@ -134,6 +134,10 @@ The timeline date is the preparation date; release qualification is pending.
   on every delivery under their own `exception_class`, so alerts on those
   counters also see retried attempts. See
   [Render service](../../render/render-service.mdx#error-handling).
+- A render whose commit message is longer than 255 characters no longer leaves
+  Nautobot pointing at the previous configuration version. Nautobot rejected
+  the whole intended-configuration record; the message is now shortened in
+  that record, and the Config Store keeps it in full.
 - Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
   NVLink firmware upgrade, and reprovisioning now await the backup child's result
   so failures and timeouts reach stage failure handling. Previously a failed or

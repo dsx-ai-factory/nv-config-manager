@@ -50,6 +50,13 @@ QUEUED_FLAG_TTL_SECONDS = 60
 # renewed by every attempt that fails again.
 PUBLISHED_DEVICES_TTL_SECONDS = 3600
 
+_RETAKE_CLAIM = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+end
+return false
+"""
+
 
 class DeviceNotEnabledError(Exception):
     """To be raised if a device is not enabled for NVIDIA Config Manager."""
@@ -101,7 +108,7 @@ async def claim_queued(
     device_uuid: str,
     client: RedisClient | None = None,
     token: str | None = None,
-    replace: bool = False,
+    retake: bool = False,
 ) -> bool:
     """Mark a device as queued for rendering unless it already is.
 
@@ -109,8 +116,9 @@ async def claim_queued(
     command keeps two concurrent producers from both publishing a render.
 
     ``token`` identifies the request making the claim, so a retry of that
-    request can recognize a claim it left behind. ``replace`` takes the flag
-    even when it is set, for such a claim.
+    request can recognize a claim it left behind. ``retake`` renews the flag
+    when it still holds that token, and otherwise claims it as usual, so a
+    claim another producer made in the meantime is never overwritten.
     """
     owned_client = client is None
     client = client or _get_queue_redis_client()
@@ -120,10 +128,14 @@ async def claim_queued(
 
     try:
         queue_key = f"{device_uuid}_queued"
-        return bool(
-            await client.redis.set(
-                queue_key, token or 1, nx=not replace, ex=QUEUED_FLAG_TTL_SECONDS
+        if retake and token is not None:
+            retaken = await async_result(
+                client.redis.eval(_RETAKE_CLAIM, 1, queue_key, token, QUEUED_FLAG_TTL_SECONDS)
             )
+            if retaken:
+                return True
+        return bool(
+            await client.redis.set(queue_key, token or 1, nx=True, ex=QUEUED_FLAG_TTL_SECONDS)
         )
     finally:
         if owned_client:
@@ -264,9 +276,7 @@ async def _process_single_device_enqueue(
                 "error": f"{device_uuid} is not enabled for configuration renders.",
             }
 
-        claimed = await claim_queued(
-            device_uuid, queue_client, token=claim_token, replace=own_claim
-        )
+        claimed = await claim_queued(device_uuid, queue_client, token=claim_token, retake=own_claim)
         if not claimed:
             _log_duplicate(logger, device_uuid)
             return EnqueueResult.ALREADY_QUEUED

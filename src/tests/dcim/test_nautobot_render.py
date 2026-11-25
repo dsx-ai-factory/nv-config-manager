@@ -754,3 +754,21 @@ async def test_cable_event_lookup_reports_unavailable_nautobot(
                 )
 
     assert is_transient_dependency_error(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("message", "sent"),
+    [("m" * 255, "m" * 255), ("m" * 260, "m" * 252 + "...")],
+)
+async def test_intended_configuration_write_fits_commit_message_to_nautobot(
+    message: str, sent: str
+) -> None:
+    """A message longer than the plugin's field is shortened instead of failing the write."""
+    client = _client()
+    client.post = AsyncMock()
+    update = _intended_configuration_update().model_copy(update={"commit_message": message})
+
+    await client.upsert_intended_configuration(update)
+
+    assert client.post.await_args.args[1]["commit_message"] == sent

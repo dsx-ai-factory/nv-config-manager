@@ -178,6 +178,10 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   on every delivery under their own `exception_class`, so alerts on those
   counters also see retried attempts. See
   [Render service](docs/render/render-service.mdx#error-handling).
+- A render whose commit message is longer than 255 characters no longer leaves
+  Nautobot pointing at the previous configuration version. Nautobot rejected
+  the whole intended-configuration record; the message is now shortened in
+  that record, and the Config Store keeps it in full.
 - The DHCP config refresh no longer restarts when the DCIM times out, cannot be
   reached, or returns a server error, as it does for a minute or two while its
   database fails over. It skips that cycle, keeps Kea on its last good
