@@ -457,19 +457,21 @@ class FileStoreClient(ObjectStorageClient):
 
         tags = {"firmware-image": ""} if firmware_image else None
 
-        async def _store() -> None:
-            await asyncio.to_thread(_write_file)
+        def _store() -> None:
+            _write_file()
             # Update manifest with the new upload
-            await self._add_to_manifest(platform, version, filename, checksum, tags)
+            self._add_to_manifest(platform, version, filename, checksum, tags)
 
-        # Shielded so a request cancelled during shutdown cannot stop between
-        # publishing the file and updating the manifest: the copy runs on a
-        # thread that finishes regardless, and the manifest has to follow it.
-        # A process that is killed between the two can still leave them out of
-        # step; that window is now two renames wide instead of a whole copy.
-        await asyncio.shield(_store())
+        # The copy and the manifest update run as one call on one thread. A
+        # request cancelled when a shutdown's drain runs out stops waiting for
+        # that thread but cannot stop it, and the event loop waits for its
+        # threads before the process exits, so a file that gets published also
+        # gets its manifest entry. A process that is killed between the two
+        # can still leave them out of step; that window is now two renames
+        # wide instead of a whole copy.
+        await asyncio.to_thread(_store)
 
-    async def _add_to_manifest(
+    def _add_to_manifest(
         self,
         platform: str,
         version: str,
@@ -508,16 +510,13 @@ class FileStoreClient(ObjectStorageClient):
                 entry["tags"] = tags
             self.manifest.setdefault("images", []).append(entry)
 
-        def _persist() -> None:
-            # Renamed into place for the same reason as an upload: a manifest
-            # truncated by an interrupted write would lose every entry.
-            staged = _staging_file(self.base_path)
-            try:
-                with open(staged, "w") as f:
-                    json.dump(self.manifest, f, indent=2)
-                os.replace(staged, self.manifest_path)
-            except BaseException:
-                staged.unlink(missing_ok=True)
-                raise
-
-        await asyncio.to_thread(_persist)
+        # Renamed into place for the same reason as an upload: a manifest
+        # truncated by an interrupted write would lose every entry.
+        staged = _staging_file(self.base_path)
+        try:
+            with open(staged, "w") as f:
+                json.dump(self.manifest, f, indent=2)
+            os.replace(staged, self.manifest_path)
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise

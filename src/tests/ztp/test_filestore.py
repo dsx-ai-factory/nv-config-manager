@@ -19,8 +19,8 @@ import io
 import json
 import os
 import tempfile
+import threading
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -520,40 +520,42 @@ async def test_interrupted_new_upload_can_be_retried(
 async def test_cancelled_upload_still_records_the_file_it_stored(
     temp_storage_dir: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A cancelled request must not leave a stored file out of the manifest.
+    """An upload cancelled mid-copy, as when a shutdown's drain runs out, stays consistent.
 
-    This covers cancellation inside a running process. A process killed
-    between publishing the file and updating the manifest can still leave the
-    two out of step.
+    The copy runs on a thread that cancellation cannot stop, so the file is
+    still published and its manifest entry has to follow. A process killed
+    between the two can still leave them out of step.
     """
     monkeypatch.setenv("FILE_STORE_PATH", temp_storage_dir)
     client = FileStoreClient()
     await client.connect()
-    reached_manifest = asyncio.Event()
-    release = asyncio.Event()
-    add_to_manifest = client._add_to_manifest
+    copying = threading.Event()
+    release = threading.Event()
 
-    async def slow_add(*args: Any, **kwargs: Any) -> None:
-        reached_manifest.set()
-        await release.wait()
-        await add_to_manifest(*args, **kwargs)
+    class _PausesMidCopy(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            copying.set()
+            assert release.wait(timeout=5.0)
+            return super().read(size)
 
-    monkeypatch.setattr(client, "_add_to_manifest", slow_add)
     upload = asyncio.create_task(
-        client.upload_file("test-platform", "1.0.0", "image.bin", "sum", io.BytesIO(b"data"))
+        client.upload_file("test-platform", "1.0.0", "image.bin", "sum", _PausesMidCopy(b"data"))
     )
-    await asyncio.wait_for(reached_manifest.wait(), timeout=5.0)
+    assert await asyncio.to_thread(copying.wait, 5.0)
     upload.cancel()
     with pytest.raises(asyncio.CancelledError):
         await upload
     release.set()
-    for _ in range(100):
-        if "image.bin" in (Path(temp_storage_dir) / "manifest.json").read_text():
+
+    manifest_path = Path(temp_storage_dir) / "manifest.json"
+    for _ in range(500):
+        if "image.bin" in manifest_path.read_text():
             break
         await asyncio.sleep(0.01)
 
-    manifest = json.loads((Path(temp_storage_dir) / "manifest.json").read_text())
+    manifest = json.loads(manifest_path.read_text())
     assert "test-platform/1.0.0/image.bin" in [image["path"] for image in manifest["images"]]
+    assert (Path(temp_storage_dir) / "test-platform/1.0.0/image.bin").read_bytes() == b"data"
 
 
 @pytest.mark.asyncio
