@@ -65,9 +65,9 @@ RUN ui_version="${TEMPORAL_UI_VERSION%%@*}" && \
     cp -R /go/pkg/mod/github.com/temporalio/ui-server/v2@v${ui_version}/. . && \
     chmod -R u+w . && \
     go get github.com/gomarkdown/markdown@v0.0.0-20260724235538-61af6e1e6971 \
-        golang.org/x/crypto@v0.57.0 \
-        golang.org/x/net@v0.60.0 \
-        golang.org/x/text@v0.42.0 \
+        golang.org/x/crypto@v0.59.0 \
+        golang.org/x/net@v0.63.0 \
+        golang.org/x/text@v0.44.0 \
         google.golang.org/grpc@v1.83.2 && \
     CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/ui-server ./cmd/server/main.go
 
