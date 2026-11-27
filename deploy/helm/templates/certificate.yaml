@@ -1,8 +1,11 @@
 {{- if and .Values.gateway.enabled .Values.gateway.create .Values.gateway.certificates.enabled }}
 {{- $selfsignedIssuerName := include "nv-config-manager.componentName" (dict "root" . "component" "selfsigned-issuer") }}
+{{- $selfsignedCaName := include "nv-config-manager.componentName" (dict "root" . "component" "gateway-ca") }}
+{{- $selfsignedCaIssuerName := include "nv-config-manager.componentName" (dict "root" . "component" "gateway-ca-issuer") }}
 {{- $tlsCertName := include "nv-config-manager.componentName" (dict "root" . "component" "gateway-tls") }}
+{{- $localCAEnabled := and .Values.gateway.certificates.selfSigned .Values.gateway.certificates.localCA }}
 # =============================================================================
-# Self-Signed Issuer (for local development)
+# Local Certificate Authority (for local development)
 # =============================================================================
 {{- if .Values.gateway.certificates.selfSigned }}
 ---
@@ -15,6 +18,40 @@ metadata:
     {{- include "nv-config-manager.labels" . | nindent 4 }}
 spec:
   selfSigned: {}
+{{- if $localCAEnabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $selfsignedCaName }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: "{{ .Values.gateway.baseHostname }} local development CA"
+  secretName: {{ $selfsignedCaName }}
+  # A long-lived root avoids disrupting local clients during normal leaf renewals.
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  issuerRef:
+    kind: Issuer
+    name: {{ $selfsignedIssuerName }}
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $selfsignedCaIssuerName }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "nv-config-manager.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ $selfsignedCaName }}
+{{- end }}
 {{- end }}
 ---
 apiVersion: cert-manager.io/v1
@@ -35,7 +72,10 @@ spec:
   commonName: "{{ .Values.gateway.baseHostname }}"
   {{- end }}
   issuerRef:
-    {{- if .Values.gateway.certificates.selfSigned }}
+    {{- if $localCAEnabled }}
+    kind: Issuer
+    name: {{ $selfsignedCaIssuerName }}
+    {{- else if .Values.gateway.certificates.selfSigned }}
     kind: Issuer
     name: {{ $selfsignedIssuerName }}
     {{- else }}
