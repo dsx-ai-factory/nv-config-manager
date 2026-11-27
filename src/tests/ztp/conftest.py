@@ -19,8 +19,18 @@ import os
 
 import pytest
 
+from nv_config_manager.ztp.api import storage_clients
+
 # Get the directory containing this conftest.py
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_storage_clients():
+    """Drop process-wide storage and Config Store clients between tests."""
+    storage_clients.reset_storage_clients()
+    yield
+    storage_clients.reset_storage_clients()
 
 
 @pytest.fixture
