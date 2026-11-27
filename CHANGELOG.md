@@ -15,24 +15,24 @@ Changes since 1.4.2.
 
 ### Added
 
-- Added a standalone [integration-test command](docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
+- Added a standalone [integration-test command](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
   for an existing deployment: `nvcm-installer test install.yaml`. It runs the
   tests bundled in the deployed image without redeploying. The runner requires
   bundled Nautobot and a ready ZTP SFTP container. SSO deployments can
   use Keycloak client credentials or a supplied access-token file. Check the
-  [suite prerequisites](docs/install/install-airgapped.mdx#test-prerequisites-and-results)
+  [suite prerequisites](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/install/install-airgapped.mdx#test-prerequisites-and-results)
   for topology and gateway hostname assumptions before running it.
-- Added a [standalone offline installer archive](installer/README.md#from-an-offline-installer-archive)
+- Added a [standalone offline installer archive](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/installer/README.md#from-an-offline-installer-archive)
   that bundles Python and dependency wheels for Linux and macOS on AMD64 and
   ARM64. It bootstraps without internet access or system Python. Stage the
   Helm chart and container images separately.
-- Added [Kea DHCPv4 thread and queue controls](docs/dhcp/index.mdx#kea-multi-threading)
+- Added [Kea DHCPv4 thread and queue controls](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/dhcp/index.mdx#kea-multi-threading)
   through `networkDhcp.kea.multiThreading` and installer
   `dhcp.kea_multi_threading`. CPU-based sizing rounds the DHCP container's CPU
   request up to at least one thread. Explicit thread and queue sizes are also
   supported. Defaults retain Kea's automatic thread count and 64-packet queue;
   CPU-based sizing and an explicit thread count cannot be combined.
-- Added [`oidc.proxy.cookieRefresh`](docs/install/gateway-api.mdx#oidc-session-refresh)
+- Added [`oidc.proxy.cookieRefresh`](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/install/gateway-api.mdx#oidc-session-refresh)
   to configure request-driven OIDC session refresh. The default remains `"1h"`.
   Set an interval shorter than the forwarded ID token's lifetime; refresh also
   depends on the identity provider and does not extend token lifetimes.
@@ -84,7 +84,7 @@ Changes since 1.4.2.
   `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
   belongs to another user, the `run-migrations` init container stops. Prefer a
   fresh token of exactly 40 lowercase hexadecimal characters in the
-  [configured Nautobot secret](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
+  [configured Nautobot secret](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
   Wait for secret synchronization, then rerun the migration init container.
   Registration deletes other tokens owned by `nvcm-mcp-read-only`; MCP clients
   using those Nautobot tokens lose access. Update every affected consumer to use
@@ -107,7 +107,7 @@ Changes since 1.4.2.
   Expect a container restart where a consumer used to stall. The render
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. Refer to
-  [Render service](docs/render/render-service.mdx).
+  [Render service](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx).
 - The Temporal archive service now exits, and Kubernetes restarts the pod, once
   its durable consumer has made no progress for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, a subscription that
@@ -118,7 +118,7 @@ Changes since 1.4.2.
   archived. The archive pod also serves progress metrics on
   `temporal.archive.metricsPort` (default 8000), scraped by a new PodMonitor when
   `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set. See
-  [Render service](docs/render/render-service.mdx).
+  [Render service](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx).
 - Retryable failed workflow stages now wait for a manual retry for a configurable
   window (three hours by default) after automatic activity or child retries are
   exhausted, instead of indefinitely. An unanswered retry wait closes the
@@ -136,7 +136,7 @@ Changes since 1.4.2.
   --reuse-values` from an earlier release, renders the default. Installer
   deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
   `nv-config-manager-install.yaml`. Refer to
-  [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
+  [Failed-stage retry window](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now
@@ -152,7 +152,7 @@ Changes since 1.4.2.
   from the corresponding metric names, such as
   `temporal_request_latency_milliseconds_*`. Duration values remain in
   milliseconds. Refer to
-  [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
+  [Temporal worker metrics](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/overview/observability.mdx#temporal-worker-metrics).
 - CNPG clusters now accept `cnpg.<cluster>.affinity.podAntiAffinityType`
   (`preferred` or `required`). The chart defaults now set
   `enablePodAntiAffinity: true` and `podAntiAffinityType: preferred`, which
@@ -185,13 +185,13 @@ Changes since 1.4.2.
   still fails on its final allowed delivery is logged and terminated. Existing
   NATS durables retain their own
   `max_deliver`, including `-1` for unlimited retries. Review externally managed
-  consumers and the [delivery-limit guidance](docs/render/render-service.mdx#external-nats-administration).
+  consumers and the [delivery-limit guidance](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx#external-nats-administration).
 - Workflow archive writes now retain their backlog in JetStream while the
   backend is unavailable, with at most two concurrent writes. New archive
   consumers default to 288 deliveries with five-minute retry delays. Permanently
   rejected records and records still failing at the durable's delivery limit
   are logged and discarded. Existing durables retain their configured limits;
-  review the [archive consumer settings](docs/render/render-service.mdx#external-nats-administration).
+  review the [archive consumer settings](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx#external-nats-administration).
 
 ### Fixed
 
