@@ -147,6 +147,7 @@ spec:
       annotations:
         checksum/config: {{ dict "proxies" $proxies "oidc" .Values.oidc "redis" .Values.externalServices.redis "baseHostname" .Values.gateway.baseHostname | toJson | sha256sum }}
     spec:
+      {{- include "nv-config-manager.runtimeClass" (dict "root" $ "component" "oidcProxy") | nindent 6 }}
       serviceAccountName: {{ include "nv-config-manager.serviceAccountName" . }}
       {{- include "nv-config-manager.podSecurityContext" . | nindent 6 }}
       {{- if .Values.global.imagePullSecrets }}
