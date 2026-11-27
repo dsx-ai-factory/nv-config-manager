@@ -4,11 +4,12 @@ tags: ["dcim", "deployment", "dhcp", "mcp", "networking", "provisioning", "rende
 
 ## Config Manager 1.4.3 (Unreleased)
 
-Adds deployment test runs and DHCP tuning, and improves workflow recovery,
-rendering, inventory access, and upgrade behavior.
+Adds an offline installer and deployment test runs, and improves service
+restarts, workflow recovery, inventory access, and upgrade behavior.
 
-Draft notes for the planned release from `main`, prepared November 19, 2026.
-The timeline date is the preparation date; release qualification is pending.
+Changes since 1.4.2, based on
+[release candidate `1.4.3-rc.12`](https://github.com/dsx-ai-factory/nv-config-manager/tree/1.4.3-rc.12).
+The timeline date reflects when these notes were first prepared.
 
 ### Added
 
@@ -16,7 +17,13 @@ The timeline date is the preparation date; release qualification is pending.
   for an existing deployment: `nvcm-installer test install.yaml`. It runs the
   tests bundled in the deployed image without redeploying. The runner requires
   bundled Nautobot and a ready ZTP SFTP container. SSO deployments can
-  use Keycloak client credentials or a supplied access-token file.
+  use Keycloak client credentials or a supplied access-token file. Review the
+  [test prerequisites](../../install/install-airgapped.mdx#test-prerequisites-and-results)
+  for topology and gateway hostname assumptions before running the suite.
+- Added a [standalone offline installer archive](https://github.com/dsx-ai-factory/nv-config-manager/blob/0e90de318f3ba1195fc8ef71d110c51c48997598/installer/README.md#from-an-offline-installer-archive)
+  for Linux and macOS on AMD64 and ARM64. The archive bundles Python and
+  dependency wheels, so it can bootstrap without internet access or a system
+  Python installation. Stage the Helm chart and container images separately.
 - Added [Kea DHCPv4 thread and queue controls](../../dhcp/index.mdx#kea-multi-threading)
   through `networkDhcp.kea.multiThreading` and installer
   `dhcp.kea_multi_threading`. CPU-based sizing rounds the DHCP container's CPU
@@ -30,6 +37,56 @@ The timeline date is the preparation date; release qualification is pending.
 
 ### Changed
 
+- Long-lived services restart 30 to 150 seconds after a change to a setting in
+  the mounted `nv-config-manager.ini`, so changes such as credential rotation
+  take effect. Watching containers in a pod aim to restart together. The
+  watcher logs only the names of settings that changed. Changes to comments,
+  whitespace, or ordering leave the service running, as does restoring a value
+  before the delay expires. If the file cannot be parsed, the watcher logs an
+  error and leaves the process running. A process that does not exit within
+  30 seconds of the restart request is stopped. The DHCP API reads settings on
+  each request and restarts only when `dhcp.cors_origins` changes.
+- API services allow up to 25 seconds for open requests to finish after
+  SIGTERM. DHCP refresh and sync loops and the Config Store cache refresh
+  service also stop promptly on SIGTERM.
+- Render consumers stop fetching on shutdown and give in-flight messages up to
+  25 seconds to finish and acknowledge their messages before closing the NATS
+  connection.
+- The Config Manager Temporal worker stops taking new tasks on SIGTERM and
+  gives running activities 25 seconds to finish before cancelling them.
+- Stable image publishing advances the `major.minor-latest` alias for its minor
+  series in configured registries. An older maintenance release can advance
+  its minor alias independently of the global `latest` alias. Release candidates
+  and stale patches cannot move either alias backward.
+- Cable-status persistence hands each device's full change set to bulk-capable
+  DCIM providers. The Nautobot plugin uses two concurrent updates and one
+  GraphQL interface-to-cable lookup per device, filtered to requested names.
+  It reads cable statuses live before deciding what to write and saves valid
+  matches even when some records are malformed. Full-device persistence now
+  allows one hour per attempt, up from 15 minutes, with up to three attempts
+  and a two-minute heartbeat timeout to detect lost workers. Providers that
+  use the single-update API still run up to ten writes concurrently. REST GETs
+  retry transient connection failures, timeouts, and HTTP 502, 503, and 504
+  once with jittered backoff. TLS verification failures are excluded.
+  New standalone device cable validations can retry transient persistence
+  failures manually without collecting device tables again. Site child
+  workflows still fail promptly, and existing histories retain their original
+  behavior on replay.
+- Bundled Nautobot assigns the MCP read-only token to the dedicated
+  `nvcm-mcp-read-only` inventory account. Before upgrading, set
+  `readOnlyToken` for existing bundled deployments and ensure
+  `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If the token
+  already belongs to a different Nautobot user, the `run-migrations` init
+  container stops. Prefer a fresh token of exactly 40 lowercase hexadecimal
+  characters, wait for the Secret to synchronize, then rerun migrations.
+  Registration removes other tokens owned by the inventory account. Update
+  affected clients and reload the MCP server configuration. Reassign an existing
+  token only if it is dedicated to MCP and the inventory account exists.
+  Initialization disables writes and restricts that account to inventory.
+  The installer generates a separate token for bundled Nautobot. External
+  Nautobot requires a separately provisioned view-only account and token for
+  inventory tools without sign-in. Follow the
+  [inventory credential upgrade steps](../../overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
@@ -43,6 +100,15 @@ The timeline date is the preparation date; release qualification is pending.
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. Refer to
   [Render service](../../render/render-service.mdx).
+- Kubernetes restarts the Temporal archive pod when neither the durable
+  consumer nor the pod makes progress for
+  `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). A pod still receiving and
+  retrying messages during a backend outage keeps running. If the durable
+  consumer is deleted while the service runs, the service re-creates it using
+  the last acknowledged message as its checkpoint. The archive pod exposes
+  [consumer progress metrics](../../render/render-service.mdx#external-nats-administration)
+  on `temporal.archive.metricsPort` (default 8000). A PodMonitor scrapes them
+  when `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set.
 - Retryable failed workflow stages now wait for a manual retry for a configurable
   window (three hours by default) after automatic activity or child retries are
   exhausted, instead of indefinitely. An unanswered retry wait closes the
@@ -119,6 +185,22 @@ The timeline date is the preparation date; release qualification is pending.
 
 ### Fixed
 
+- Switch OS upgrades keep polling during temporary device outages so transport
+  retries no longer stall the workflow heartbeat. Image verification polls for
+  up to 55 minutes per attempt, with up to two attempts and a one-hour activity
+  timeout per attempt.
+- The Nautobot NATS initialization job supports stream limits above 2 GiB by
+  formatting them in exact whole units for the NATS CLI. Helm rejects limits
+  the CLI cannot represent exactly and suggests a supported value.
+- A workflow reports completion and logs a warning if publishing its result to
+  NATS still fails after three attempts.
+- The DHCP config refresh keeps Kea on its last good configuration when the
+  DCIM times out, is unreachable, or returns a server error. The refresh
+  skips that cycle and retries at the next interval. Skips increment
+  `nv_config_manager_dhcp_query_errors_total{error_type="unavailable"}`, and a
+  sustained outage stops `cache_last_refresh_timestamp` from advancing.
+  Client errors and validation failures still restart the container, and
+  one-shot refreshes still fail.
 - Backup stages in deployment, tenant deployment, password rotation, OS upgrade,
   NVLink firmware upgrade, and reprovisioning now await the backup child's result
   so failures and timeouts reach stage failure handling. Previously a failed or
@@ -167,12 +249,6 @@ The timeline date is the preparation date; release qualification is pending.
   producing values such as `["['Active'", "'Provisioned']"]` for `--status`.
   Commands such as `site-cable-validation` then failed at the first stage unless
   you supplied every list option explicitly.
-- MCP Nautobot inventory tools now use dedicated read-only credentials when
-  sign-in is disabled. The installer provisions these for built-in Nautobot.
-  Existing deployments must populate `readOnlyToken` and rerun Nautobot
-  migrations; with ESO, wait for the read-only Secret to synchronize first.
-  External Nautobot requires a separately provisioned view-only account and
-  token. Follow the [inventory credential upgrade steps](../../overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
 - Helm now rejects CNPG backup configurations with an unsupported destination
   or missing S3 bucket or path. When enabling backups, set
   `cnpg.backup.destinationType: s3`, `cnpg.backup.s3.bucket`, and
@@ -199,11 +275,16 @@ The timeline date is the preparation date; release qualification is pending.
 
 ### Security
 
+- Config Manager 1.2.x no longer receives security updates. Upgrade to a
+  supported series, 1.3.x or 1.4.x, to continue receiving security updates.
 - Updated Python, Go, installer, UI, and runtime-image dependencies to
   incorporate security fixes. Bundled oauth2-proxy is now 7.15.6 and the Stork
   agent is 2.6.0. SSH dependencies require Paramiko 5.0.1 or later.
 - Updated the Temporal Web UI's Markdown dependency and preserved the
   Nautobot runtime image's patched zlib library instead of replacing it with
   the builder's copy.
+- Updated Temporal Web UI to 2.58.1, Next.js to 15.5.29, and
+  `graphql-core` to 3.2.14. The Temporal Web UI server build now uses
+  `golang.org/x/net` 0.63.0.
 
 <Button intent="none" outlined rightIcon="arrow-right" href="/switch-infrastructure/config-manager/services/temporal/deployment#failed-stage-retry-window">Review Workflow Upgrade Settings</Button>
