@@ -9,6 +9,21 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
+### Fixed
+
+- File-backed ZTP uploads are now written to a staging file under `.uploads`
+  in the file store and moved into place once complete, and the manifest is
+  replaced the same way. An upload interrupted during the copy leaves the
+  previous file and manifest entry intact, and a retry no longer fails with
+  "File already exists". Without `overwrite`, an upload no longer replaces a
+  file of the same name that another upload finished first. Manifest updates
+  are ordered across concurrent uploads and across replicas that share the
+  volume, so overlapping uploads no longer drop each other's entries.
+  Replacing an image now needs free space for the whole new file, since the
+  old one is kept until the new one is complete. A process killed in the
+  instant between the file and the manifest being replaced can still leave
+  the two out of step.
+
 ## 1.4.3
 
 Changes since 1.4.2.
