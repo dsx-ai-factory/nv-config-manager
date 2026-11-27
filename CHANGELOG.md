@@ -288,6 +288,8 @@ Changes since 1.4.2.
 
 ### Security
 
+- Config Manager 1.2.x no longer receives security updates. Upgrade to a
+  supported series, 1.3.x or 1.4.x, to continue receiving security updates.
 - Updated Python, Go, installer, UI, and runtime-image dependencies to
   incorporate security fixes. Bundled oauth2-proxy is now 7.15.6 and the Stork
   agent is 2.6.0. SSH dependencies require Paramiko 5.0.1 or later.
