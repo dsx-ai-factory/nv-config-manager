@@ -9,68 +9,59 @@ The promotion workflow extracts GitHub release notes from that commit.
 
 ## Unreleased
 
-### Changed
-
-- Long-lived services now exit, and Kubernetes restarts them, when a setting in
-  `nv-config-manager.ini` changes, so a rotated credential or renamed NATS
-  stream takes effect without a manual rollout. Each pod restarts between 30
-  seconds and two and a half minutes after the file changes, at a moment
-  shared by its containers so the pod goes unready once and drawn afresh for
-  each change, and the log line names the settings that changed, never their
-  values. Expect container restarts a few minutes after the mounted Secret
-  updates. A change
-  to comments, whitespace, or ordering alone restarts nothing, and neither
-  does a value that changes back before the delay ends. For a file that
-  cannot be parsed, the restart watcher logs an error and does not restart;
-  services that re-read the file themselves still fail until it is fixed. A
-  process still running 30 seconds after the restart request is stopped
-  outright. This covers the DHCP configuration refresh and sync loops as well
-  as the API, consumer, worker, and scheduler services. The DHCP API reads
-  everything except `dhcp.cors_origins` from the file on each request, so it
-  restarts only when that setting changes.
-- The API services now wait at most 25 seconds for open requests to finish
-  after SIGTERM, so a long request can no longer hold a shutdown past the
-  pod's grace period.
-- The DHCP configuration refresh and sync loops and the Config Store cache
-  refresh service now stop promptly on SIGTERM. Before, the loops ignored the
-  signal and the cache refresh service did not act on it until its next
-  refresh, so each was killed at the end of the pod's grace period.
-- A render consumer that is shut down now stops fetching and waits up to 25
-  seconds for the message it is handling before closing its NATS connection.
-  Before, it closed the connection at once, so a render that finished
-  afterwards could not acknowledge its message and was delivered again.
-- The Config Manager Temporal worker now handles SIGTERM: it stops taking new
-  tasks and gives running activities 25 seconds to finish before cancelling
-  them. Before, it ignored the signal and was killed at the end of the pod's
-  grace period while still polling.
-- A workflow whose result cannot be published to NATS after three attempts now
-  logs a warning with the cause and completes, instead of failing after its
-  work is done.
-
 ## 1.4.3
 
-Unreleased. Changes since 1.4.2, prepared for release from `main`.
+Changes since 1.4.2.
 
 ### Added
 
-- Added a standalone [integration-test command](docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
+- Added a standalone [integration-test command](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/install/install-airgapped.mdx#run-integration-tests-after-deployment)
   for an existing deployment: `nvcm-installer test install.yaml`. It runs the
   tests bundled in the deployed image without redeploying. The runner requires
   bundled Nautobot and a ready ZTP SFTP container. SSO deployments can
-  use Keycloak client credentials or a supplied access-token file.
-- Added [Kea DHCPv4 thread and queue controls](docs/dhcp/index.mdx#kea-multi-threading)
+  use Keycloak client credentials or a supplied access-token file. Check the
+  [suite prerequisites](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/install/install-airgapped.mdx#test-prerequisites-and-results)
+  for topology and gateway hostname assumptions before running it.
+- Added a [standalone offline installer archive](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/installer/README.md#from-an-offline-installer-archive)
+  that bundles Python and dependency wheels for Linux and macOS on AMD64 and
+  ARM64. It bootstraps without internet access or system Python. Stage the
+  Helm chart and container images separately.
+- Added [Kea DHCPv4 thread and queue controls](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/dhcp/index.mdx#kea-multi-threading)
   through `networkDhcp.kea.multiThreading` and installer
   `dhcp.kea_multi_threading`. CPU-based sizing rounds the DHCP container's CPU
   request up to at least one thread. Explicit thread and queue sizes are also
   supported. Defaults retain Kea's automatic thread count and 64-packet queue;
   CPU-based sizing and an explicit thread count cannot be combined.
-- Added [`oidc.proxy.cookieRefresh`](docs/install/gateway-api.mdx#oidc-session-refresh)
+- Added [`oidc.proxy.cookieRefresh`](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/install/gateway-api.mdx#oidc-session-refresh)
   to configure request-driven OIDC session refresh. The default remains `"1h"`.
   Set an interval shorter than the forwarded ID token's lifetime; refresh also
   depends on the identity provider and does not extend token lifetimes.
 
 ### Changed
 
+- Long-lived services restart when settings in `nv-config-manager.ini`
+  change, so changes such as credential rotation take effect after the
+  mounted configuration updates. Watching containers in a pod aim to restart
+  together 30 to 150 seconds after the file changes.
+  Restart logs include only the names of changed settings. Comment,
+  whitespace, and ordering changes do not trigger a restart. Restoring a
+  value before the delay expires also cancels the restart for that change.
+  If parsing fails, the watcher logs the error and leaves
+  the process running. A process that does not exit within 30 seconds of the
+  restart request is stopped. The DHCP API reads settings on each request
+  and restarts only if `dhcp.cors_origins` changes.
+- API services allow up to 25 seconds for open requests to finish after
+  SIGTERM. DHCP refresh and sync loops and the Config Store cache refresh
+  service also stop promptly on SIGTERM.
+- Render consumers stop fetching on shutdown and give in-flight messages
+  up to 25 seconds to finish before closing the NATS connection. This gives
+  completed renders time to acknowledge their messages.
+- The Config Manager Temporal worker stops taking new tasks on SIGTERM and
+  gives running activities 25 seconds to finish before cancelling them.
+- Stable image publishing advances the `major.minor-latest` alias for its
+  minor series in configured registries. An older maintenance release can
+  advance its minor alias independently of the global `latest` alias.
+  Release candidates and stale patches cannot move either alias backward.
 - Cable-status persistence now passes each device's full change set to bulk-capable
   DCIM providers, which control their write strategy. The Nautobot plugin uses
   two concurrent updates and one GraphQL interface-to-cable lookup per device
@@ -93,14 +84,17 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   `NAUTOBOT_READ_ONLY_API_TOKEN` differs from the admin token. If its key already
   belongs to another user, the `run-migrations` init container stops. Prefer a
   fresh token of exactly 40 lowercase hexadecimal characters in the
-  [configured Nautobot secret](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
+  [configured Nautobot secret](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
   Wait for secret synchronization, then rerun the migration init container.
   Registration deletes other tokens owned by `nvcm-mcp-read-only`; MCP clients
   using those Nautobot tokens lose access. Update every affected consumer to use
   the configured token, then reload the MCP server configuration.
   Reassign an existing token only if it is dedicated to MCP, since initialization
   disables writes and restricts its access to inventory. Create `nvcm-mcp-read-only`
-  if needed before reassigning.
+  if needed before reassigning. The installer generates a separate token for
+  bundled Nautobot. Existing deployments must populate `readOnlyToken` before
+  rerunning migrations. External Nautobot deployments need their own view-only
+  account and token for inventory tools without sign-in.
 - Cable validation now allows five minutes per ARP collection attempt, up from
   two, to accommodate switches with large interface inventories and slow NVUE
   responses. New site validations allow thirty minutes per device, up from ten,
@@ -113,7 +107,7 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   Expect a container restart where a consumer used to stall. The render
   consumers also export progress metrics for stalls the exit cannot catch,
   such as a handler that never returns. Refer to
-  [Render service](docs/render/render-service.mdx).
+  [Render service](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx).
 - The Temporal archive service now exits, and Kubernetes restarts the pod, once
   its durable consumer has made no progress for
   `CONSUMER_LIVENESS_TIMEOUT_SECONDS` (default 600). Before, a subscription that
@@ -124,7 +118,7 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   archived. The archive pod also serves progress metrics on
   `temporal.archive.metricsPort` (default 8000), scraped by a new PodMonitor when
   `monitoring.podMonitors.enabled` and `temporal.archive.enabled` are set. See
-  [Render service](docs/render/render-service.mdx).
+  [Render service](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx).
 - Retryable failed workflow stages now wait for a manual retry for a configurable
   window (three hours by default) after automatic activity or child retries are
   exhausted, instead of indefinitely. An unanswered retry wait closes the
@@ -142,7 +136,7 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   --reuse-values` from an earlier release, renders the default. Installer
   deployments set it with `temporal.failed_stage_retry_timeout_seconds` in
   `nv-config-manager-install.yaml`. Refer to
-  [Failed-stage retry window](docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
+  [Failed-stage retry window](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/temporal/temporal-deployment.mdx#failed-stage-retry-window).
 - The Config Manager Temporal worker now serves its Temporal SDK metrics on a
   Prometheus endpoint, scraped by a new PodMonitor, whenever
   `monitoring.enabled` and `monitoring.podMonitors.enabled` are set. Series now
@@ -158,7 +152,7 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   from the corresponding metric names, such as
   `temporal_request_latency_milliseconds_*`. Duration values remain in
   milliseconds. Refer to
-  [Temporal worker metrics](docs/overview/observability.mdx#temporal-worker-metrics).
+  [Temporal worker metrics](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/overview/observability.mdx#temporal-worker-metrics).
 - CNPG clusters now accept `cnpg.<cluster>.affinity.podAntiAffinityType`
   (`preferred` or `required`). The chart defaults now set
   `enablePodAntiAffinity: true` and `podAntiAffinityType: preferred`, which
@@ -191,16 +185,26 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   still fails on its final allowed delivery is logged and terminated. Existing
   NATS durables retain their own
   `max_deliver`, including `-1` for unlimited retries. Review externally managed
-  consumers and the [delivery-limit guidance](docs/render/render-service.mdx#external-nats-administration).
+  consumers and the [delivery-limit guidance](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx#external-nats-administration).
 - Workflow archive writes now retain their backlog in JetStream while the
   backend is unavailable, with at most two concurrent writes. New archive
   consumers default to 288 deliveries with five-minute retry delays. Permanently
   rejected records and records still failing at the durable's delivery limit
   are logged and discarded. Existing durables retain their configured limits;
-  review the [archive consumer settings](docs/render/render-service.mdx#external-nats-administration).
+  review the [archive consumer settings](https://github.com/dsx-ai-factory/nv-config-manager/blob/cf5cc32323f1e5a9c1a81f8ac50900160561a1fb/docs/render/render-service.mdx#external-nats-administration).
 
 ### Fixed
 
+- Switch OS upgrades keep polling during temporary device outages instead of
+  letting transport retries stall the workflow heartbeat. Image verification
+  polls for up to 55 minutes per attempt, with at most two attempts and a
+  one-hour activity timeout per attempt.
+- The Nautobot NATS initialization job now supports stream limits above 2 GiB
+  by formatting them with exact whole-unit suffixes for the NATS CLI. Helm
+  rejects limits that the CLI cannot represent exactly and suggests a
+  supported value.
+- A workflow now reports completion and logs a warning if publishing its
+  result to NATS still fails after three attempts.
 - The DHCP config refresh no longer restarts when the DCIM times out, cannot be
   reached, or returns a server error, as it does for a minute or two while its
   database fails over. It skips that cycle, keeps Kea on its last good
@@ -258,12 +262,6 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
   producing values such as `["['Active'", "'Provisioned']"]` for `--status`.
   Commands such as `site-cable-validation` then failed at the first stage unless
   you supplied every list option explicitly.
-- MCP Nautobot inventory tools now use dedicated read-only credentials when
-  sign-in is disabled. The installer provisions these for built-in Nautobot.
-  Existing deployments must populate `readOnlyToken` and rerun Nautobot
-  migrations; with ESO, wait for the read-only Secret to synchronize first.
-  External Nautobot requires a separately provisioned view-only account and
-  token. Follow the [inventory credential upgrade steps](docs/overview/mcp.mdx#nautobot-inventory-with-sign-in-disabled).
 - Helm now rejects CNPG backup configurations with an unsupported destination
   or missing S3 bucket or path. When enabling backups, set
   `cnpg.backup.destinationType: s3`, `cnpg.backup.s3.bucket`, and
@@ -290,12 +288,17 @@ Unreleased. Changes since 1.4.2, prepared for release from `main`.
 
 ### Security
 
+- Config Manager 1.2.x no longer receives security updates. Upgrade to a
+  supported series, 1.3.x or 1.4.x, to continue receiving security updates.
 - Updated Python, Go, installer, UI, and runtime-image dependencies to
   incorporate security fixes. Bundled oauth2-proxy is now 7.15.6 and the Stork
   agent is 2.6.0. SSH dependencies require Paramiko 5.0.1 or later.
 - Updated the Temporal Web UI's Markdown dependency and preserved the
   Nautobot runtime image's patched zlib library instead of replacing it with
   the builder's copy.
+- Updated Temporal Web UI to 2.58.1, Next.js to 15.5.29, and
+  `graphql-core` to 3.2.14. The Temporal Web UI server build now uses
+  `golang.org/x/net` 0.63.0.
 
 ## 1.4.2
 
