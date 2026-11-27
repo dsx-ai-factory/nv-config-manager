@@ -46,6 +46,7 @@ from nv_config_manager_installer.air_sim.orchestrator import STEPS, StepStatus
 from nv_config_manager_installer.air_sim.prebuilt_configs import load_prebuilt_config
 from nv_config_manager_installer.air_sim.sim_config import SimConfig
 from nv_config_manager_installer.tui.air_sim.app import SECTION_LABELS, NVCMAirSimApp
+from nv_config_manager_installer.tui.air_sim.screens.custom_jobs import CustomJobsPanel
 from nv_config_manager_installer.tui.air_sim.screens.launch import (
     LaunchScreen,
     _clean_dhcp_line,
@@ -837,6 +838,26 @@ async def _capture_all(output_dir: Path, *, size: tuple[int, int]) -> None:
         )
 
 
+async def _capture_custom_jobs(output_dir: Path, *, size: tuple[int, int]) -> None:
+    cfg = _example_config()
+    cfg.generate_fabric_from_mock_context = False
+    cfg.run_mock_topology_job = False
+    cfg.topology_path = "/path/to/site-design.yaml"
+    cfg.extra_job_paths = ["/path/to/example_topology"]
+    cfg.extra_run_after_deploy = [
+        {
+            "job": "custom.example_topology.jobs.design.ExampleTopologyDesign",
+            "input": {"deployment_name": "demo"},
+        }
+    ]
+    app = NVCMAirSimApp(config=cfg)
+    async with app.run_test(size=size) as pilot:
+        await _stabilize(pilot)
+        app.query_one(CustomJobsPanel).scroll_visible(top=True, animate=False)
+        await _stabilize(pilot)
+        _save(output_dir, "09-custom-topology-jobs.svg", _shot(app, "Custom topology jobs"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -859,11 +880,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    total = len(SECTION_LABELS) + 5
+    total = len(SECTION_LABELS) + 6
     print(f"Capturing {total} DSX Air sim screenshots at {args.cols}x{args.rows}...")
     no_color = os.environ.pop("NO_COLOR", None)
     try:
         asyncio.run(_capture_all(args.output_dir, size=(args.cols, args.rows)))
+        asyncio.run(_capture_custom_jobs(args.output_dir, size=(args.cols, args.rows)))
     finally:
         if no_color is not None:
             os.environ["NO_COLOR"] = no_color

@@ -23,6 +23,7 @@ import os
 import re
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +40,22 @@ from nv_config_manager_installer.air_sim.models import CableConnection, DeviceIn
 
 LOG = logging.getLogger(__name__)
 
-AIR_NODE_PASSTHROUGH_FIELDS = ("cpu_mode", "cpu_options")
+AIR_NODE_PASSTHROUGH_FIELDS = (
+    "config_only_features",
+    "cpu_mode",
+    "cpu_options",
+    "emulation_type",
+    "features",
+    "labels",
+    "model",
+    "network_pci",
+    "nic_model",
+    "positioning",
+    "pxehost",
+    "secureboot",
+    "simulator_image",
+    "storage_pci",
+)
 
 
 def _create_version_override_yaml(yaml_path: str, target_version: str) -> str:
@@ -173,6 +189,7 @@ class AirTopologyBuilder:
         # Device and connection storage
         self.devices: dict[str, DeviceInfo] = {}
         self.connections: list[CableConnection] = []
+        self.interface_network_pci: dict[tuple[str, str], str] = {}
 
         # Resolve tagged prefixes from the YAML
         self.lb_allowed_prefixes = self._resolve_tagged_prefixes("lb-allowed") or ["0.0.0.0/0"]
@@ -266,6 +283,12 @@ class AirTopologyBuilder:
             air_enabled = air_config.get("enabled", True)
             if not isinstance(air_enabled, bool):
                 raise ValueError(f"Device '{name}' _air.enabled must be a boolean")
+            if (
+                air_enabled
+                and "network_pci" in air_config
+                and not isinstance(air_config["network_pci"], Mapping)
+            ):
+                raise ValueError(f"Device '{name}' _air.network_pci must be a mapping")
             raw_serial = device.get("serial", "")
             serial = "" if raw_serial == "auto" else raw_serial
             needs_auto = raw_serial == "auto"
@@ -333,6 +356,15 @@ class AirTopologyBuilder:
             intf_name = intf.get("name")
             intf_type = intf.get("type", "")
             description = intf.get("description") or ""
+            network_pci = (intf.get("_air") or {}).get("network_pci")
+            if network_pci is not None:
+                pci_devices = self.devices[device_name].air_config.get("network_pci") or {}
+                if not isinstance(network_pci, str) or network_pci not in pci_devices:
+                    raise ValueError(
+                        f"{device_name} {intf_name} _air.network_pci must name a NIC "
+                        "defined in the device's _air.network_pci"
+                    )
+                self.interface_network_pci[(device_name, intf_name)] = network_pci
             raw_mac = intf.get("mac_address")
             if raw_mac is not None and not isinstance(raw_mac, str):
                 raise ValueError(
@@ -464,12 +496,28 @@ class AirTopologyBuilder:
             Dictionary in DSX Air JSON topology format
         """
         if self.minimal_mode:
+            if any(
+                device.air_enabled
+                and any(
+                    device.air_config.get(field)
+                    for field in (
+                        "network_pci",
+                        "simulator_image",
+                        "emulation_type",
+                        "config_only_features",
+                    )
+                )
+                for device in self.devices.values()
+            ):
+                raise ValueError("SimX options require full topology mode")
             return self._build_minimal_topology()
         return self._build_full_topology()
 
     def _make_link_endpoint(self, device_name: str, intf_name: str) -> dict[str, str]:
-        """Build a DSX Air link endpoint dict, including MAC when set."""
+        """Build a DSX Air link endpoint, including MAC and SimX NIC when set."""
         endpoint: dict[str, str] = {"node": device_name, "interface": intf_name}
+        if network_pci := self.interface_network_pci.get((device_name, intf_name)):
+            endpoint["network_pci"] = network_pci
         device = self.devices.get(device_name)
         if device:
             mac = device.interface_macs.get(intf_name)
@@ -490,26 +538,27 @@ class AirTopologyBuilder:
             if not device.air_enabled:
                 continue
             is_cumulus = "Cumulus" in device.platform
+            air_config = device.air_config
 
             if is_cumulus:
                 node: dict[str, Any] = {
-                    "memory": DEFAULT_NODE_MEMORY,
-                    "cpu": DEFAULT_NODE_CPU,
+                    "memory": air_config.get("memory", DEFAULT_NODE_MEMORY),
+                    "cpu": air_config.get("cpu", DEFAULT_NODE_CPU),
                     "os": self._cumulus_air_image(device.firmware_version),
                 }
             else:
                 # Non-Cumulus node (servers, GPUs, DPUs) - use DSX Air config if available
-                air_config = device.air_config
                 node = {
                     "memory": air_config.get("memory", DEFAULT_NODE_MEMORY),
                     "cpu": air_config.get("cpu", DEFAULT_NODE_CPU),
                     "os": air_config.get("os", DEFAULT_SERVER_OS),
                 }
-                if air_config.get("storage"):
-                    node["storage"] = air_config["storage"]
-                for field in AIR_NODE_PASSTHROUGH_FIELDS:
-                    if field in air_config:
-                        node[field] = air_config[field]
+
+            if air_config.get("storage"):
+                node["storage"] = air_config["storage"]
+            for field in AIR_NODE_PASSTHROUGH_FIELDS:
+                if field in air_config:
+                    node[field] = air_config[field]
 
             topology["nodes"][device.name] = node
 
@@ -665,7 +714,7 @@ class AirTopologyBuilder:
         topology["links"].append(
             [
                 {"node": server_name, "interface": server_interface},
-                {"node": attach_switch, "interface": attach_interface},
+                self._make_link_endpoint(attach_switch, attach_interface),
             ]
         )
 

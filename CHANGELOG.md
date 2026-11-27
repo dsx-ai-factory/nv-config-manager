@@ -382,6 +382,14 @@ Changes since 1.4.1. Released November 16, 2026.
   advertises the chassis name, enabling parent-chassis validation in simulation.
   The accompanying documentation and report examples use the chassis identity.
 
+## Unreleased
+
+### Changed
+
+- Air full topology mode now applies explicit `_air` CPU, memory, storage and
+  supported node options to Cumulus devices. Review custom designs that previously
+  relied on those settings being ignored before rebuilding.
+
 ## 1.4.0
 
 ### Added
