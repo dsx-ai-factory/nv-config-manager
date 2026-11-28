@@ -26,6 +26,8 @@ settings:
 redirects:
   - source: /switch-infrastructure
     destination: /switch-infrastructure/config-manager
+  - source: /switch-infrastructure/config-manager/changelog/2026/11/19
+    destination: /switch-infrastructure/config-manager/changelog/2026/11/28
 
 #==============================================================================
 # Content navigation from here down
